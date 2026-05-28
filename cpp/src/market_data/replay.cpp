@@ -190,6 +190,26 @@ bool ReplayEngine::validate_event_before_apply(const MarketDataEvent& event,
     return false;
   }
 
+  // A Snapshot event that carries an order id reinstates one resting order, so it
+  // must describe a valid resting order. A begin/end marker (order_id == 0) does not.
+  if (event.event_type == MarketEventType::Snapshot && event.order_id != kInvalidOrderId) {
+    if (!is_valid_side(event.side)) {
+      add_diagnostic(result, event_index, event, ReplayDiagnosticSeverity::Error,
+                     "invalid snapshot side");
+      return false;
+    }
+    if (event.price_ticks <= 0) {
+      add_diagnostic(result, event_index, event, ReplayDiagnosticSeverity::Error,
+                     "invalid snapshot price");
+      return false;
+    }
+    if (event.quantity <= 0) {
+      add_diagnostic(result, event_index, event, ReplayDiagnosticSeverity::Error,
+                     "invalid snapshot quantity");
+      return false;
+    }
+  }
+
   if (event.event_type == MarketEventType::Cancel ||
       event.event_type == MarketEventType::Replace ||
       event.event_type == MarketEventType::Execute) {
@@ -271,6 +291,21 @@ bool ReplayEngine::apply_event(const MarketDataEvent& event, std::size_t event_i
     update_activity_checksum(event, result);
     break;
   case MarketEventType::Snapshot:
+    if ((event.flags & kSnapshotBeginFlag) != 0U) {
+      book_.clear();
+    }
+    if (event.order_id != kInvalidOrderId) {
+      const bool ok = book_.add_order(Order{event.order_id, kInvalidClientOrderId, event.symbol_id,
+                                            event.side, event.price_ticks, event.quantity,
+                                            event.timestamp_ns, event.sequence_number});
+      if (!ok) {
+        add_diagnostic(result, event_index, event, ReplayDiagnosticSeverity::Error,
+                       "failed to apply Snapshot event");
+        result.error = result.diagnostics.back().reason;
+        return false;
+      }
+    }
+    break;
   case MarketEventType::Heartbeat:
     break;
   }

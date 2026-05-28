@@ -4,3 +4,9 @@ max_position_per_symbol: 10000
 max_gross_exposure_ticks: 10000000
 price_band_ticks: 100
 stale_after_ns: 1000000000
+# Phase 6 controls. Each is disabled by its sentinel below; this YAML documents the
+# fields, the C++ RiskLimits struct is the source of truth.
+max_open_order_quantity: 0      # 0 disables resting/working open-order exposure cap
+max_messages_per_window: 0      # 0 disables per-client message-rate limiting
+rate_window_ns: 0               # window length used with max_messages_per_window
+enable_self_trade_prevention: false

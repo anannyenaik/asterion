@@ -17,6 +17,10 @@ struct NewOrderRequest {
   PriceTicks price_ticks{0};
   Quantity quantity{0};
   TimestampNs timestamp_ns{0};
+  // Originating strategy/client identifier used by message-rate limiting and
+  // self-trade prevention. Defaults to 0 (unattributed) and is ignored by
+  // matching; only the risk gateway reads it.
+  ClientId client_id{0};
 };
 
 struct CancelOrderRequest {

@@ -10,6 +10,7 @@ option(ASTERION_BUILD_TESTS "Build Asterion tests" ON)
 option(ASTERION_BUILD_BENCHMARKS "Build Asterion benchmark runner" ON)
 option(ASTERION_BUILD_PYTHON "Build Python bindings" OFF)
 option(ASTERION_USE_GOOGLE_BENCHMARK "Build optional Google Benchmark target" OFF)
+option(ASTERION_USE_ONNXRUNTIME "Build with the optional ONNX Runtime inference backend" OFF)
 option(ASTERION_ENABLE_WARNINGS "Enable strict compiler warnings" ON)
 option(ASTERION_ENABLE_SANITIZERS "Enable Address/Undefined sanitizers" OFF)
 
@@ -66,11 +67,28 @@ add_library(
   cpp/src/inference/inference.cpp
   cpp/src/inference/linear_model.cpp
   cpp/src/inference/torchscript_model.cpp
+  cpp/src/inference/backend.cpp
+  cpp/src/inference/onnx_model.cpp
   cpp/src/telemetry/latency_budget.cpp
   cpp/src/telemetry/latency_histogram.cpp
   cpp/src/telemetry/metrics.cpp)
 
 target_include_directories(asterion PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include)
+
+# Optional real inference backend. When requested and ONNX Runtime is found, the
+# library is built with the ONNX backend; otherwise the build still succeeds with
+# the deterministic LinearModel fallback. The dependency is never required in CI.
+if(ASTERION_USE_ONNXRUNTIME)
+  find_package(onnxruntime CONFIG QUIET)
+  if(onnxruntime_FOUND)
+    target_compile_definitions(asterion PUBLIC ASTERION_HAVE_ONNXRUNTIME)
+    target_link_libraries(asterion PUBLIC onnxruntime::onnxruntime)
+    message(STATUS "Asterion: ONNX Runtime inference backend enabled")
+  else()
+    message(STATUS "Asterion: ONNX Runtime requested but not found; "
+                   "using the deterministic LinearModel fallback")
+  endif()
+endif()
 
 if(ASTERION_BUILD_PYTHON)
   set_target_properties(asterion PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -135,10 +153,14 @@ if(ASTERION_BUILD_TESTS)
     asterion_tests
     tests/unit/test_order_book.cpp
     tests/unit/test_event_log_replay.cpp
+    tests/unit/test_snapshot.cpp
+    tests/unit/test_multi_symbol.cpp
     tests/unit/test_risk_gateway.cpp
     tests/unit/test_risk_audit.cpp
+    tests/unit/test_risk_controls.cpp
     tests/unit/test_latency_budget.cpp
     tests/unit/test_telemetry_inference.cpp
+    tests/unit/test_inference_backend.cpp
     tests/unit/test_allocation_tracking.cpp
     tests/golden/test_golden_traces.cpp
     tests/property/test_book_properties.cpp)

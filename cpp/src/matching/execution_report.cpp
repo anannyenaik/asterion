@@ -78,6 +78,12 @@ std::string_view to_string(RejectReason value) noexcept {
     return "Unsupported";
   case RejectReason::InternalError:
     return "InternalError";
+  case RejectReason::MaxOpenOrderQuantity:
+    return "MaxOpenOrderQuantity";
+  case RejectReason::MessageRateLimit:
+    return "MessageRateLimit";
+  case RejectReason::SelfTradePrevention:
+    return "SelfTradePrevention";
   }
   return "Unknown";
 }

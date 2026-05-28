@@ -11,6 +11,7 @@ using Quantity = std::int64_t;
 using SymbolId = std::uint32_t;
 using OrderId = std::uint64_t;
 using ClientOrderId = std::uint64_t;
+using ClientId = std::uint32_t;
 using SequenceNumber = std::uint64_t;
 using TradeId = std::uint64_t;
 

@@ -72,6 +72,31 @@ build type, CPU governor and an otherwise quiet machine). Cross-machine comparis
 meaningful. No benchmark numbers are checked into this repository; `data/samples/sample_benchmark_*.json`
 are synthetic tooling fixtures used only to exercise the comparison logic, not measurements.
 
+## Historical Store And Trends
+
+Benchmark JSON can be stored locally and compared across runs. History lives under
+`benchmarks/history/`, which is git-ignored, so no numbers are committed. Trend reporting reuses the
+benchmark schema and the regression metric selection (`avg_ns`, `total_ns` or `iterations`).
+
+```bash
+python scripts/asterion_inspect.py benchmark-store \
+  --input build/asterion_benchmark.json --history-dir benchmarks/history
+python scripts/asterion_inspect.py benchmark-trend \
+  --history-dir benchmarks/history --metric avg_ns --json
+# Or trend an explicit, ordered list of files:
+python scripts/asterion_inspect.py benchmark-trend \
+  --inputs run1.json run2.json run3.json --json
+```
+
+`benchmark-store` validates the JSON and, without `--name`, writes a sequential
+`benchmark_NNNN.json`. `benchmark-trend` reports, per benchmark, the first/last/min/max value, mean
+and first-to-last percentage change across the supplied runs.
+
+**Trends are only meaningful on controlled hardware.** They are comparable solely when every stored
+run was produced on the same machine under comparable conditions (same compiler, build type, CPU
+governor and an otherwise quiet machine). This tooling is intentionally kept out of CI performance
+gates; it never fails a build.
+
 ## Latency Budget
 
 `asterion_latency_budget` measures the tick-to-trade stages and accounts them against configurable

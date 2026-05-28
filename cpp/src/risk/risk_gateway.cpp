@@ -29,6 +29,79 @@ Quantity RiskGateway::position(SymbolId symbol_id) const noexcept {
   return it == positions_.end() ? 0 : it->second;
 }
 
+Quantity RiskGateway::working_quantity(SymbolId symbol_id) const noexcept {
+  const auto it = working_quantity_.find(symbol_id);
+  return it == working_quantity_.end() ? 0 : it->second;
+}
+
+std::uint64_t RiskGateway::client_symbol_key(ClientId client_id, SymbolId symbol_id) noexcept {
+  return (static_cast<std::uint64_t>(client_id) << 32U) | static_cast<std::uint64_t>(symbol_id);
+}
+
+void RiskGateway::register_working_order(const NewOrderRequest& request) {
+  // Only limit orders rest in the book; market orders are assumed to take
+  // liquidity and never contribute to standing open-order exposure.
+  if (request.order_type != OrderType::Limit) {
+    return;
+  }
+  working_quantity_[request.symbol_id] += request.quantity;
+  working_orders_[request.client_order_id] =
+      WorkingOrder{request.client_id, request.symbol_id, request.side, request.price_ticks,
+                   request.quantity};
+  if (limits_.enable_self_trade_prevention) {
+    ClientWorkingBook& book =
+        client_books_[client_symbol_key(request.client_id, request.symbol_id)];
+    if (request.side == Side::Buy) {
+      book.buy_qty_by_price[request.price_ticks] += request.quantity;
+    } else if (request.side == Side::Sell) {
+      book.sell_qty_by_price[request.price_ticks] += request.quantity;
+    }
+  }
+}
+
+void RiskGateway::release_order(ClientOrderId client_order_id) {
+  const auto it = working_orders_.find(client_order_id);
+  if (it == working_orders_.end()) {
+    return;
+  }
+  const WorkingOrder order = it->second;
+
+  const auto wq_it = working_quantity_.find(order.symbol_id);
+  if (wq_it != working_quantity_.end()) {
+    wq_it->second -= order.quantity;
+    if (wq_it->second <= 0) {
+      working_quantity_.erase(wq_it);
+    }
+  }
+
+  const auto book_it = client_books_.find(client_symbol_key(order.client_id, order.symbol_id));
+  if (book_it != client_books_.end()) {
+    ClientWorkingBook& book = book_it->second;
+    if (order.side == Side::Buy) {
+      const auto price_it = book.buy_qty_by_price.find(order.price_ticks);
+      if (price_it != book.buy_qty_by_price.end()) {
+        price_it->second -= order.quantity;
+        if (price_it->second <= 0) {
+          book.buy_qty_by_price.erase(price_it);
+        }
+      }
+    } else if (order.side == Side::Sell) {
+      const auto price_it = book.sell_qty_by_price.find(order.price_ticks);
+      if (price_it != book.sell_qty_by_price.end()) {
+        price_it->second -= order.quantity;
+        if (price_it->second <= 0) {
+          book.sell_qty_by_price.erase(price_it);
+        }
+      }
+    }
+    if (book.buy_qty_by_price.empty() && book.sell_qty_by_price.empty()) {
+      client_books_.erase(book_it);
+    }
+  }
+
+  working_orders_.erase(it);
+}
+
 RiskResult RiskGateway::decide(const NewOrderRequest& request, TimestampNs now_ns,
                                std::string_view check_name, bool accepted, RejectReason reason,
                                std::int64_t limit_value, std::int64_t observed_value) {
@@ -43,6 +116,20 @@ RiskResult RiskGateway::decide(const NewOrderRequest& request, TimestampNs now_n
 RiskResult RiskGateway::check_new_order(const NewOrderRequest& request, TimestampNs now_ns) {
   if (kill_switch_.enabled()) {
     return decide(request, now_ns, "kill_switch", false, RejectReason::KillSwitch, 0, 0);
+  }
+  if (limits_.max_messages_per_window > 0 && limits_.rate_window_ns > 0) {
+    RateState& state = rate_states_[request.client_id];
+    if (!state.active || now_ns - state.window_start_ns >= limits_.rate_window_ns) {
+      state.window_start_ns = now_ns;
+      state.count = 0;
+      state.active = true;
+    }
+    ++state.count;
+    if (state.count > limits_.max_messages_per_window) {
+      return decide(request, now_ns, "message_rate_limit", false, RejectReason::MessageRateLimit,
+                    static_cast<std::int64_t>(limits_.max_messages_per_window),
+                    static_cast<std::int64_t>(state.count));
+    }
   }
   if (request.quantity <= 0) {
     return decide(request, now_ns, "invalid_quantity", false, RejectReason::InvalidQuantity, 0,
@@ -88,6 +175,36 @@ RiskResult RiskGateway::check_new_order(const NewOrderRequest& request, Timestam
                   limits_.max_notional_ticks, notional);
   }
 
+  if (limits_.enable_self_trade_prevention) {
+    const auto book_it = client_books_.find(client_symbol_key(request.client_id, request.symbol_id));
+    if (book_it != client_books_.end()) {
+      const ClientWorkingBook& book = book_it->second;
+      const bool is_market = request.order_type == OrderType::Market;
+      if (request.side == Side::Buy && !book.sell_qty_by_price.empty()) {
+        const PriceTicks best_sell = book.sell_qty_by_price.begin()->first;
+        if (is_market || request.price_ticks >= best_sell) {
+          return decide(request, now_ns, "self_trade_prevention", false,
+                        RejectReason::SelfTradePrevention, request.price_ticks, best_sell);
+        }
+      } else if (request.side == Side::Sell && !book.buy_qty_by_price.empty()) {
+        const PriceTicks best_buy = book.buy_qty_by_price.begin()->first;
+        if (is_market || request.price_ticks <= best_buy) {
+          return decide(request, now_ns, "self_trade_prevention", false,
+                        RejectReason::SelfTradePrevention, request.price_ticks, best_buy);
+        }
+      }
+    }
+  }
+
+  if (limits_.max_open_order_quantity > 0) {
+    const Quantity projected_working = working_quantity(request.symbol_id) + request.quantity;
+    if (projected_working > limits_.max_open_order_quantity) {
+      return decide(request, now_ns, "max_open_order_quantity", false,
+                    RejectReason::MaxOpenOrderQuantity, limits_.max_open_order_quantity,
+                    projected_working);
+    }
+  }
+
   const Quantity signed_delta = request.side == Side::Buy ? request.quantity : -request.quantity;
   const Quantity projected_position = position(request.symbol_id) + signed_delta;
   if (abs_i64(projected_position) > limits_.max_position_per_symbol) {
@@ -102,6 +219,9 @@ RiskResult RiskGateway::check_new_order(const NewOrderRequest& request, Timestam
   }
 
   accepted_client_order_ids_.insert(request.client_order_id);
+  if (tracks_working_orders()) {
+    register_working_order(request);
+  }
   return decide(request, now_ns, "accepted", true, RejectReason::None,
                 limits_.max_notional_ticks, notional);
 }

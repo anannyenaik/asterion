@@ -47,6 +47,16 @@ Structured replay diagnostics report:
 Each diagnostic carries event index, sequence number, symbol, severity and reason. The
 diagnostics list is checksummed deterministically so failures can be compared across log formats.
 
+## Snapshot Loading
+
+Snapshot events reset and reload the L3 book. A snapshot block is framed with begin/end flags in the
+event `flags` field; the begin marker clears the book and each Snapshot record carrying a valid order
+id reinstates one resting order. Reloaded orders use the snapshot record's timestamp and sequence
+number so the resulting book checksum is deterministic. Tests assert that a snapshot reset produces
+the same book checksum as an independently built book, that snapshot streams replay identically from
+CSV and binary logs, that a payload-free begin marker clears the book, and that an invalid snapshot
+order payload is rejected with a diagnostic.
+
 ## Aggregate Replay Views
 
 Aggregate replay summaries are deterministic grouping helpers over the single-symbol replay engine.
@@ -88,6 +98,30 @@ deterministic and the incremental checksum matches a recomputation over the reco
 assert the audit entry fields (deciding check name, decision, reject reason, limit and observed
 values) for duplicate-ID, kill-switch, stale-data, notional, quantity and position rejections.
 
+## Opt-In Risk Controls
+
+The open-order exposure, message-rate and self-trade-prevention controls are tested for accepts,
+rejects and audit entries: working exposure rejects once projected resting quantity exceeds the cap
+and clears on `release_order`; message-rate limiting throttles a client after its fixed-window budget
+and resets after the window, with independent per-client budgets; self-trade prevention rejects a
+client crossing its own resting order (including market orders) but allows a different client. A
+determinism test asserts the audit checksum is reproducible and matches a recomputation, a
+compatibility test asserts the default gateway leaves all three controls disabled, and an allocation
+test asserts the warm self-trade-prevention reject path does not allocate.
+
+## Inference Backend Selection
+
+Backend selection is tested without the optional ONNX dependency: the Linear backend is selected and
+scores deterministically; an ONNX request falls back to `LinearModel` (when ONNX Runtime is not
+compiled in) with an honest detail string; and the selected backend integrates with feature
+extraction and measured latency accounting, producing the same score as a reference `LinearModel`.
+
+## Multi-Symbol Groundwork
+
+`MultiSymbolBookSet` is tested for per-symbol routing of an interleaved stream (each book matches an
+independently built single-symbol book), a deterministic combined checksum, and rejecting an unknown
+cancel without corrupting state.
+
 ## Replay Output Stability
 
 Replay checksums are asserted to be stable across repeated runs over the same input and to match
@@ -98,7 +132,10 @@ logs and skip automatically when the compiled Python bindings are not available.
 
 The offline benchmark regression comparison is tested on synthetic in-memory and checked-in fixtures
 (not measurements). Tests assert percentage-change computation, configurable threshold breaches,
-new/missing benchmark detection, zero-baseline handling and JSON-serializable output.
+new/missing benchmark detection, zero-baseline handling and JSON-serializable output. The historical
+store and trend tooling is tested on synthetic fixtures: sequential default naming, explicit naming,
+per-benchmark series with first/last/min/max/percentage change, benchmarks missing from some runs and
+the empty-source error. These trends are tooling fixtures, not measurements.
 
 ## Property-Style Tests
 
@@ -126,8 +163,12 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - crossed book state;
 - CSV-to-binary replay equivalence;
 - aggregate per-symbol replay summaries;
+- snapshot reset, reload and CSV/binary snapshot replay equivalence;
 - feature extraction and inference policy accounting;
+- inference backend selection and ONNX fallback;
+- multi-symbol single-pass routing groundwork;
 - stale market data;
+- working-order exposure, message-rate and self-trade-prevention controls;
 - kill switch rejection;
 - deterministic matching report order.
 

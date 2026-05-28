@@ -19,6 +19,12 @@ enum class MarketEventType : std::uint8_t {
   Heartbeat = 7
 };
 
+// Flag bits carried in MarketDataEvent::flags. Snapshot blocks are framed with a
+// begin marker (which resets the book) and an end marker. A snapshot event that
+// also carries a valid order_id reinstates one resting order during loading.
+inline constexpr std::uint32_t kSnapshotBeginFlag = 0x1U;
+inline constexpr std::uint32_t kSnapshotEndFlag = 0x2U;
+
 struct MarketDataEvent {
   TimestampNs timestamp_ns{0};
   SequenceNumber sequence_number{0};

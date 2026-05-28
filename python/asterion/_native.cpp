@@ -104,7 +104,10 @@ PYBIND11_MODULE(_native, module) {
       .value("PriceBand", asterion::RejectReason::PriceBand)
       .value("StaleMarketData", asterion::RejectReason::StaleMarketData)
       .value("Unsupported", asterion::RejectReason::Unsupported)
-      .value("InternalError", asterion::RejectReason::InternalError);
+      .value("InternalError", asterion::RejectReason::InternalError)
+      .value("MaxOpenOrderQuantity", asterion::RejectReason::MaxOpenOrderQuantity)
+      .value("MessageRateLimit", asterion::RejectReason::MessageRateLimit)
+      .value("SelfTradePrevention", asterion::RejectReason::SelfTradePrevention);
 
   py::enum_<asterion::InferenceDecision>(module, "InferenceDecision")
       .value("Accept", asterion::InferenceDecision::Accept)

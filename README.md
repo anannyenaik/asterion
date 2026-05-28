@@ -16,7 +16,9 @@ It does **not** claim to be a real exchange, a live trading system, or a true pr
 - Thin Python bindings and analysis helpers for log conversion, replay and checksum inspection.
 - Price-time-priority matching for limit, market, cancel and replace flows.
 - Structured execution reports with deterministic report checksums.
-- Pre-trade risk gateway with quantity, notional, position, exposure, price-band, stale-data, duplicate-ID and kill-switch checks.
+- Pre-trade risk gateway with quantity, notional, position, exposure, price-band, stale-data,
+  duplicate-ID and kill-switch checks, plus opt-in open-order (working) exposure, per-client
+  message-rate limiting and self-trade prevention.
 - Golden trace tests and randomized invariant tests.
 - Measured inference infrastructure through `Model`, `LinearModel`, `FeatureExtractor`,
   timeout/late-signal policy hooks and a documented TorchScript-style placeholder interface.
@@ -44,6 +46,8 @@ CSV / binary / synthetic events
 - C++20 CMake project with Ninja-compatible builds.
 - Core types for timestamps, tick prices, quantities, symbols and order IDs.
 - Fixed market-data event schema: Add, Cancel, Replace, Execute, Trade, Snapshot and Heartbeat.
+- Snapshot event loading that resets and reconstructs the L3 book from framed Snapshot records while
+  preserving deterministic checksums.
 - ITCH-like binary event logs with safe malformed/truncated input rejection.
 - Correctness-first L3 book using `std::unordered_map`, `std::map` and FIFO lists.
 - Book invariant checks and deterministic final checksums.
@@ -63,6 +67,11 @@ CSV / binary / synthetic events
 - Strategy interface with market-maker and imbalance examples.
 - Deterministic linear inference backend, measured inference latency accounting and a
   TorchScript-style placeholder that documents the future external-model boundary.
+- Explicit inference backend selection (`make_inference_backend`) with an optional ONNX Runtime
+  backend behind a CMake flag that deterministically falls back to `LinearModel` when absent.
+- Optional shared multi-symbol book-set groundwork (`MultiSymbolBookSet`) that routes an interleaved
+  stream per symbol; it is not a cross-symbol matching engine and does not replace grouped replay.
+- Local historical benchmark store and cross-run trend reporting that reuse the regression schema.
 - Configurable per-stage latency-budget accounting (replay, book update, matching, risk,
   strategy, inference and total) with budget-used/exceeded reporting, worst-offender
   detection and stable JSON output.
@@ -147,8 +156,13 @@ Diagnostics include event index, sequence number, symbol, severity and reason fo
 timestamp reversals, duplicate order IDs, unknown cancels/replaces, invalid prices or quantities,
 and invalid/crossed book states.
 
-Current Snapshot events are markers in the shared event schema; full snapshot book loading is not
-implemented yet.
+Snapshot events reconstruct book state. A snapshot block is framed in the shared event schema with
+the `flags` field: the begin marker (`kSnapshotBeginFlag`) clears the book, each Snapshot record that
+carries a valid `order_id` reinstates one resting order, and the end marker (`kSnapshotEndFlag`)
+closes the block. A Snapshot record with `order_id == 0` is a pure begin/end marker. Reloaded orders
+carry the snapshot record's timestamp and sequence number, so the resulting book checksum is
+deterministic. Limitation: a snapshot is a sequence of single-order records, not an aggregated
+L2-only image; levels without per-order detail cannot be represented.
 
 Aggregate multi-symbol replay is available as a summary/helper view. It groups recorded events by
 symbol, runs the existing single-symbol replay engine per group, and reports per-symbol counts,
@@ -247,6 +261,32 @@ It exits non-zero only with `--fail-on-regression`, so normal runs never fail on
 variance. Regression results are machine-dependent and are only meaningful when both JSON files
 were produced on the same controlled hardware. The `sample_benchmark_*.json` files are synthetic
 tooling fixtures, not measurements.
+
+## Benchmark History And Trends
+
+Benchmark JSON files can be stored locally and compared over time. History lives under
+`benchmarks/history/`, which is git-ignored, so no numbers are committed. Trend reporting reuses the
+regression schema and is kept out of CI performance gates.
+
+```bash
+python scripts/asterion_inspect.py benchmark-store --input build/asterion_benchmark.json --history-dir benchmarks/history
+python scripts/asterion_inspect.py benchmark-trend --history-dir benchmarks/history --metric avg_ns --json
+```
+
+Trends are only meaningful when every stored run was produced on the same controlled hardware under
+comparable conditions; cross-machine trends are not meaningful.
+
+## Optional ONNX Runtime Backend
+
+The inference layer selects a backend through `make_inference_backend`. The default and fallback is
+the deterministic `LinearModel`. An optional ONNX Runtime backend is available behind a CMake flag;
+when the dependency is absent the build still succeeds and ONNX requests fall back to `LinearModel`.
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_USE_ONNXRUNTIME=ON
+```
+
+The ONNX backend is optional and is not exercised by CI; it requires ONNX Runtime to be installed.
 
 ## Risk Audit Trail
 

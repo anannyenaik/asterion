@@ -83,6 +83,29 @@ def cmd_benchmark_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_benchmark_store(args: argparse.Namespace) -> int:
+    stored = regression.store_benchmark(args.input, args.history_dir, name=args.name)
+    payload = {"stored": str(stored)}
+    _emit(payload, f"stored={stored}", args.json)
+    return 0
+
+
+def cmd_benchmark_trend(args: argparse.Namespace) -> int:
+    if args.inputs:
+        sources: list[Any] = [Path(item) for item in args.inputs]
+    elif args.history_dir is not None:
+        sources = sorted(Path(args.history_dir).glob(args.glob))
+    else:
+        print("provide --inputs or --history-dir", file=sys.stderr)
+        return 1
+    if not sources:
+        print("no benchmark JSON files found", file=sys.stderr)
+        return 1
+    trend = regression.load_trend(sources, metric=args.metric)
+    _emit(regression.trend_to_dict(trend), regression.format_trend_text(trend), args.json)
+    return 0
+
+
 def cmd_latency_budget(args: argparse.Namespace) -> int:
     summary = regression.summarise_latency_budget(args.input)
     _emit(
@@ -250,6 +273,27 @@ def build_parser() -> argparse.ArgumentParser:
     bench_compare.add_argument("--json", action="store_true")
     bench_compare.add_argument("--fail-on-regression", action="store_true")
     bench_compare.set_defaults(func=cmd_benchmark_compare)
+
+    bench_store = subparsers.add_parser(
+        "benchmark-store", help="Store a benchmark JSON in the local history directory."
+    )
+    bench_store.add_argument("--input", required=True, type=Path)
+    bench_store.add_argument("--history-dir", required=True, type=Path)
+    bench_store.add_argument("--name", default=None)
+    bench_store.add_argument("--json", action="store_true")
+    bench_store.set_defaults(func=cmd_benchmark_store)
+
+    bench_trend = subparsers.add_parser(
+        "benchmark-trend", help="Report benchmark trends across stored JSON files."
+    )
+    bench_trend.add_argument("--history-dir", type=Path)
+    bench_trend.add_argument("--inputs", nargs="+", type=Path)
+    bench_trend.add_argument("--glob", default="*.json")
+    bench_trend.add_argument(
+        "--metric", default="avg_ns", choices=["avg_ns", "total_ns", "iterations"]
+    )
+    bench_trend.add_argument("--json", action="store_true")
+    bench_trend.set_defaults(func=cmd_benchmark_trend)
 
     latency = subparsers.add_parser(
         "latency-budget", help="Summarise a latency-budget JSON file."

@@ -132,6 +132,156 @@ def format_benchmark_summary_text(summary: BenchmarkSummary) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Historical benchmark store and trend reporting
+# --------------------------------------------------------------------------- #
+#
+# Benchmark history is stored locally under an ignored directory and is never
+# checked in. Trends are only meaningful when every stored run was produced on the
+# same controlled hardware in comparable conditions; see BENCHMARKS.md.
+
+
+def store_benchmark(source: JsonSource, history_dir: PathLike, *, name: str | None = None) -> Path:
+    """Copy a validated benchmark JSON into the local history directory.
+
+    Returns the stored path. When ``name`` is omitted a sequential filename is
+    derived from the existing ``benchmark_*.json`` files so the call is
+    deterministic given the directory contents.
+    """
+    history = Path(history_dir)
+    history.mkdir(parents=True, exist_ok=True)
+    data = _load_json_object(source)
+    # Validate it parses as benchmark metrics before storing.
+    load_benchmark_metrics(data)
+
+    if name is None:
+        existing = sorted(history.glob("benchmark_*.json"))
+        name = f"benchmark_{len(existing) + 1:04d}.json"
+    elif not name.endswith(".json"):
+        name = f"{name}.json"
+
+    target = history / name
+    with target.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2, sort_keys=True)
+    return target
+
+
+@dataclass(frozen=True)
+class BenchmarkTrendPoint:
+    label: str
+    value: int
+
+
+@dataclass(frozen=True)
+class BenchmarkTrendSeries:
+    name: str
+    points: list[BenchmarkTrendPoint]
+
+    @property
+    def first(self) -> int:
+        return self.points[0].value
+
+    @property
+    def last(self) -> int:
+        return self.points[-1].value
+
+    @property
+    def minimum(self) -> int:
+        return min(point.value for point in self.points)
+
+    @property
+    def maximum(self) -> int:
+        return max(point.value for point in self.points)
+
+    @property
+    def mean(self) -> float:
+        return sum(point.value for point in self.points) / len(self.points)
+
+    @property
+    def pct_change(self) -> float | None:
+        return _pct_change(self.first, self.last)
+
+
+@dataclass(frozen=True)
+class BenchmarkTrend:
+    metric: str
+    labels: list[str]
+    series: list[BenchmarkTrendSeries]
+
+
+def _default_label(source: JsonSource, index: int) -> str:
+    if isinstance(source, (str, os.PathLike)):
+        return Path(source).stem
+    return f"run_{index}"
+
+
+def load_trend(
+    sources: list[JsonSource],
+    *,
+    metric: str = DEFAULT_METRIC,
+    labels: list[str] | None = None,
+) -> BenchmarkTrend:
+    """Build a per-benchmark time series across an ordered list of JSON sources."""
+    sources = list(sources)
+    if not sources:
+        raise ValueError("at least one benchmark JSON source is required")
+    if labels is not None and len(labels) != len(sources):
+        raise ValueError("labels length must match sources length")
+
+    per_file_metrics = [load_benchmark_metrics(source) for source in sources]
+    resolved_labels = (
+        list(labels)
+        if labels is not None
+        else [_default_label(source, index) for index, source in enumerate(sources)]
+    )
+
+    all_names = sorted({name for metrics in per_file_metrics for name in metrics})
+    series: list[BenchmarkTrendSeries] = []
+    for name in all_names:
+        points = [
+            BenchmarkTrendPoint(label=label, value=metrics[name].value(metric))
+            for label, metrics in zip(resolved_labels, per_file_metrics)
+            if name in metrics
+        ]
+        if points:
+            series.append(BenchmarkTrendSeries(name=name, points=points))
+
+    return BenchmarkTrend(metric=metric, labels=resolved_labels, series=series)
+
+
+def trend_to_dict(trend: BenchmarkTrend) -> dict[str, Any]:
+    return {
+        "metric": trend.metric,
+        "labels": trend.labels,
+        "series": [
+            {
+                "name": series.name,
+                "first": series.first,
+                "last": series.last,
+                "min": series.minimum,
+                "max": series.maximum,
+                "mean": series.mean,
+                "pct_change": series.pct_change,
+                "points": [
+                    {"label": point.label, "value": point.value} for point in series.points
+                ],
+            }
+            for series in trend.series
+        ],
+    }
+
+
+def format_trend_text(trend: BenchmarkTrend) -> str:
+    lines = [f"metric={trend.metric} runs={len(trend.labels)}"]
+    for series in trend.series:
+        lines.append(
+            f"{series.name}: first={series.first} last={series.last} "
+            f"min={series.minimum} max={series.maximum} mean={series.mean:.1f} "
+            f"change={_format_pct(series.pct_change)}"
+        )
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
 # Benchmark regression comparison
 # --------------------------------------------------------------------------- #
 

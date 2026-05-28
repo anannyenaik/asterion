@@ -85,6 +85,32 @@ def test_benchmark_compare_fail_on_regression_flag() -> None:
     assert result.returncode == 1
 
 
+def test_benchmark_store_and_trend(tmp_path) -> None:
+    history = tmp_path / "history"
+    for source in ("sample_benchmark_baseline.json", "sample_benchmark_current.json"):
+        stored = _run(
+            "benchmark-store",
+            "--input",
+            str(SAMPLES / source),
+            "--history-dir",
+            str(history),
+        )
+        assert stored.returncode == 0, stored.stderr
+
+    trend = _run("benchmark-trend", "--history-dir", str(history), "--json")
+    assert trend.returncode == 0, trend.stderr
+    payload = json.loads(trend.stdout)
+    assert payload["metric"] == "avg_ns"
+    assert len(payload["labels"]) == 2
+    names = [series["name"] for series in payload["series"]]
+    assert "add_order" in names
+
+
+def test_benchmark_trend_requires_a_source() -> None:
+    result = _run("benchmark-trend")
+    assert result.returncode == 1
+
+
 def test_latency_budget_summary_json() -> None:
     result = _run(
         "latency-budget",

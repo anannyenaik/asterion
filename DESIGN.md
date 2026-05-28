@@ -40,7 +40,8 @@ The first implementation keeps the hot path simple and auditable. It uses intege
 ## Data Flow
 
 Market-data replay mutates an L3 book directly from Add, Cancel, Replace and Execute events.
-Trade, Snapshot and Heartbeat events are represented in the same schema for recorded-log
+Snapshot events reset and reload book state (framed with begin/end flags in the event `flags`
+field), while Trade and Heartbeat events are represented in the same schema for recorded-log
 compatibility. Order-entry flow passes through the risk gateway before reaching the matching
 engine. The matching engine owns order states, emits execution reports and mutates its book when
 orders rest or trade.
@@ -65,7 +66,10 @@ Errors are included in a diagnostics checksum so malformed streams are reproduci
 The replay engine still owns one symbol book per run. Aggregate multi-symbol views group events by
 symbol and run that same engine per group, reporting per-symbol counts, first/last sequence,
 diagnostics and checksum summaries. This is intentionally not described as full multi-symbol
-matching.
+matching. `MultiSymbolBookSet` adds optional groundwork: it owns one `OrderBook` per symbol and
+routes an interleaved stream in a single pass, exposing a deterministic combined checksum. It is a
+routing surface, not a cross-symbol matching engine, and it does not replace the grouped replay path,
+which remains the validated default.
 
 ### L3 Internally, L2 Externally
 
@@ -73,7 +77,7 @@ The book stores L3 state internally because matching and replay correctness depe
 
 ### Risk Gateway
 
-The risk gateway exists before matching because serious trading systems reject invalid or dangerous orders before they consume matching resources. The current checks are intentionally simple but real: quantity, notional, position, gross exposure, price band, duplicate ID, stale data and kill switch.
+The risk gateway exists before matching because serious trading systems reject invalid or dangerous orders before they consume matching resources. The current checks are intentionally simple but real: quantity, notional, position, gross exposure, price band, duplicate ID, stale data and kill switch. Three further controls are opt-in and disabled by default so the existing hot path is unchanged: open-order (working) exposure per symbol, per-client fixed-window message-rate limiting and self-trade prevention against a client's own resting orders. Only the reject paths that matter for the hot path stay allocation-free; working-order and self-trade state is built only when those controls are enabled.
 
 ### Inference In The Measured Path
 
@@ -83,6 +87,13 @@ model-score latency separately from replay and matching, then applies timeout an
 hooks. A TorchScript-style class documents the external-model boundary, but it is a placeholder until
 LibTorch or another runtime is deliberately linked. This infrastructure measures plumbing cost; it
 does not imply a profitable model.
+
+Backend selection is explicit: `make_inference_backend` returns a `Model` for the requested backend
+and records whether it fell back. The deterministic `LinearModel` is the default and the fallback. An
+optional ONNX Runtime backend (`OnnxModel`) is compiled only behind the `ASTERION_USE_ONNXRUNTIME`
+CMake flag when the dependency is found; otherwise an ONNX request degrades to `LinearModel` with an
+honest detail string. The dependency is never required by CI, and the compile-time
+`kOnnxRuntimeAvailable` constant lets tests branch on the build configuration.
 
 ### Latency Budget Accounting
 

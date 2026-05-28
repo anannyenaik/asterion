@@ -50,8 +50,25 @@ Deferred from Phase 5:
 
 ## Phase 6
 
-- optional real ONNX Runtime or LibTorch inference backend behind an explicit CMake flag;
-- historical benchmark store and trend reporting on controlled hardware;
-- richer risk controls (open-order exposure, message-rate limits, self-trade prevention);
-- snapshot-based book loading for Snapshot events;
-- shared multi-symbol matching rather than grouped single-symbol replay views.
+- richer pre-trade risk controls: open-order (working) exposure, per-client message-rate limiting and
+  self-trade prevention, all opt-in and with audit entries;
+- snapshot-based book loading for Snapshot events with deterministic checksums and CSV/binary tests;
+- explicit inference backend selection with an optional ONNX Runtime backend behind a CMake flag and
+  a deterministic LinearModel fallback that keeps the dependency out of normal CI;
+- historical benchmark store and cross-run trend reporting, kept out of CI performance gates;
+- shared multi-symbol book-set groundwork (single-pass per-symbol routing), without replacing the
+  stable grouped single-symbol replay path.
+
+Deferred from Phase 6:
+
+- full shared multi-symbol matching (the book set is groundwork, not a matching engine);
+- a sliding-window message-rate limiter (the current limiter is fixed-window);
+- cancel-on-kill / cancel-on-disconnect lifecycle handling.
+
+## Phase 7 (candidate)
+
+- promote the multi-symbol book set into a validated shared matching/replay path with diagnostics;
+- exercise the ONNX Runtime backend in an opt-in CI lane with a checked-in tiny model fixture;
+- order-lifecycle integration so working-order release is driven by execution reports automatically;
+- sliding-window rate limiting and cancel-on-kill behaviour;
+- persistent, append-only risk audit logs.

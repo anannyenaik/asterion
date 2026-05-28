@@ -38,6 +38,12 @@ std::uint64_t checksum_levels(std::uint64_t seed, Side side, const Levels& level
 
 OrderBook::OrderBook(SymbolId symbol_id) : symbol_id_(symbol_id) {}
 
+void OrderBook::clear() noexcept {
+  bids_.clear();
+  asks_.clear();
+  order_index_.clear();
+}
+
 bool OrderBook::add_order(Order order) {
   if (!is_valid_resting_order(order) || order.symbol_id != symbol_id_) {
     return false;

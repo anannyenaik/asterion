@@ -35,7 +35,10 @@ enum class RejectReason : std::uint8_t {
   PriceBand = 10,
   StaleMarketData = 11,
   Unsupported = 12,
-  InternalError = 13
+  InternalError = 13,
+  MaxOpenOrderQuantity = 14,
+  MessageRateLimit = 15,
+  SelfTradePrevention = 16
 };
 
 struct ExecutionReport {

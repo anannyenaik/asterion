@@ -27,6 +27,10 @@ public:
   [[nodiscard]] bool empty() const noexcept { return order_index_.empty(); }
   [[nodiscard]] std::size_t order_count() const noexcept { return order_index_.size(); }
 
+  // Remove every resting order and price level, returning the book to its
+  // freshly-constructed (empty) state. Used to reset before loading a snapshot.
+  void clear() noexcept;
+
   [[nodiscard]] bool add_order(Order order);
   [[nodiscard]] bool cancel_order(OrderId order_id);
   [[nodiscard]] bool reduce_order(OrderId order_id, Quantity quantity);

@@ -23,4 +23,5 @@ __pycache__/
 *.profdata
 *.benchmark.json
 benchmarks/results/
+benchmarks/history/
 data/generated/
