@@ -6,6 +6,7 @@
 #include "asterion/risk/risk_gateway.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 
@@ -25,9 +26,11 @@ void BM_AddOrder(benchmark::State& state) {
     OrderBook book(1);
     for (std::int64_t i = 0; i < state.range(0); ++i) {
       const OrderId order_id = static_cast<OrderId>(i + 1);
-      benchmark::DoNotOptimize(book.add_order(make_order(order_id, Side::Buy, 1000, 10)));
+      bool added = book.add_order(make_order(order_id, Side::Buy, 1000, 10));
+      benchmark::DoNotOptimize(added);
     }
-    benchmark::DoNotOptimize(book.checksum());
+    std::uint64_t checksum = book.checksum();
+    benchmark::DoNotOptimize(checksum);
   }
   state.SetItemsProcessed(state.iterations() * state.range(0));
 }
@@ -43,9 +46,11 @@ void BM_CancelOrder(benchmark::State& state) {
     state.ResumeTiming();
     for (std::int64_t i = 0; i < state.range(0); ++i) {
       const OrderId order_id = static_cast<OrderId>(i + 1);
-      benchmark::DoNotOptimize(book.cancel_order(order_id));
+      bool canceled = book.cancel_order(order_id);
+      benchmark::DoNotOptimize(canceled);
     }
-    benchmark::DoNotOptimize(book.checksum());
+    std::uint64_t checksum = book.checksum();
+    benchmark::DoNotOptimize(checksum);
   }
   state.SetItemsProcessed(state.iterations() * state.range(0));
 }
@@ -64,11 +69,12 @@ void BM_ReplaceOrder(benchmark::State& state) {
     for (std::int64_t i = 0; i < state.range(0); ++i) {
       const OrderId order_id = static_cast<OrderId>(i + 1);
       const PriceTicks new_price = 1000 + static_cast<PriceTicks>(i % 2);
-      benchmark::DoNotOptimize(book.replace_order(order_id, new_price, 11,
-                                                  static_cast<TimestampNs>(i + 1),
-                                                  static_cast<SequenceNumber>(i + 1)));
+      bool replaced = book.replace_order(order_id, new_price, 11, static_cast<TimestampNs>(i + 1),
+                                         static_cast<SequenceNumber>(i + 1));
+      benchmark::DoNotOptimize(replaced);
     }
-    benchmark::DoNotOptimize(book.checksum());
+    std::uint64_t checksum = book.checksum();
+    benchmark::DoNotOptimize(checksum);
   }
   state.SetItemsProcessed(state.iterations() * state.range(0));
 }
@@ -87,9 +93,11 @@ void BM_MarketCrossOneLevel(benchmark::State& state) {
       const auto reports = engine.submit_order(NewOrderRequest{
           static_cast<ClientOrderId>(1'000'000 + i), 1, Side::Buy, OrderType::Market, 0, 10,
           static_cast<TimestampNs>(1'000'000 + i)});
-      benchmark::DoNotOptimize(reports.size());
+      std::size_t report_count = reports.size();
+      benchmark::DoNotOptimize(report_count);
     }
-    benchmark::DoNotOptimize(engine.reports_checksum());
+    std::uint64_t checksum = engine.reports_checksum();
+    benchmark::DoNotOptimize(checksum);
   }
   state.SetItemsProcessed(state.iterations() * state.range(0));
 }
@@ -107,8 +115,10 @@ void BM_MarketCrossMultipleLevels(benchmark::State& state) {
           NewOrderRequest{base + 2U, 1, Side::Sell, OrderType::Limit, 1003, 10, 3});
       const auto reports = engine.submit_order(
           NewOrderRequest{base + 3U, 1, Side::Buy, OrderType::Market, 0, 30, 4});
-      benchmark::DoNotOptimize(reports.size());
-      benchmark::DoNotOptimize(engine.reports_checksum());
+      std::size_t report_count = reports.size();
+      std::uint64_t checksum = engine.reports_checksum();
+      benchmark::DoNotOptimize(report_count);
+      benchmark::DoNotOptimize(checksum);
     }
   }
   state.SetItemsProcessed(state.iterations() * state.range(0));
@@ -125,8 +135,10 @@ void BM_L2SnapshotGeneration(benchmark::State& state) {
 
   for (auto _ : state) {
     const L2View view = book.l2_view(static_cast<std::size_t>(state.range(0)));
-    benchmark::DoNotOptimize(view.bids.size());
-    benchmark::DoNotOptimize(view.asks.size());
+    std::size_t bid_count = view.bids.size();
+    std::size_t ask_count = view.asks.size();
+    benchmark::DoNotOptimize(bid_count);
+    benchmark::DoNotOptimize(ask_count);
   }
 }
 
@@ -136,7 +148,8 @@ void BM_ReplaySampleEvents(benchmark::State& state) {
   for (auto _ : state) {
     ReplayEngine replay(1);
     const ReplayResult result = replay.replay_file(path);
-    benchmark::DoNotOptimize(result.final_book_checksum);
+    std::uint64_t checksum = result.final_book_checksum;
+    benchmark::DoNotOptimize(checksum);
   }
 }
 
@@ -149,7 +162,8 @@ void BM_RiskCheckOnly(benchmark::State& state) {
           NewOrderRequest{static_cast<ClientOrderId>(i + 1), 1, Side::Buy, OrderType::Limit,
                           1000, 1, static_cast<TimestampNs>(101 + i)},
           static_cast<TimestampNs>(101 + i));
-      benchmark::DoNotOptimize(result.accepted);
+      bool accepted = result.accepted;
+      benchmark::DoNotOptimize(accepted);
     }
   }
   state.SetItemsProcessed(state.iterations() * state.range(0));
@@ -159,7 +173,8 @@ void BM_LinearInferenceOnly(benchmark::State& state) {
   LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
   const std::array<double, 4> features{2.0, 1000.0, 0.35, 400.0};
   for (auto _ : state) {
-    benchmark::DoNotOptimize(model.score(features));
+    double score = model.score(features);
+    benchmark::DoNotOptimize(score);
   }
 }
 
