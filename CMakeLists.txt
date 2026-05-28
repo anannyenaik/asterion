@@ -48,6 +48,7 @@ add_library(
   cpp/src/core/checksum.cpp
   cpp/src/core/clock.cpp
   cpp/src/market_data/event.cpp
+  cpp/src/market_data/event_log.cpp
   cpp/src/market_data/replay.cpp
   cpp/src/market_data/synthetic_generator.cpp
   cpp/src/book/order_book.cpp
@@ -68,14 +69,19 @@ add_library(asterion_allocation_tracker STATIC cpp/src/core/allocation_tracker.c
 target_include_directories(asterion_allocation_tracker
                            PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include)
 
+add_executable(asterion_replay cpp/tools/replay_main.cpp)
+target_link_libraries(asterion_replay PRIVATE asterion)
+
 if(ASTERION_ENABLE_WARNINGS)
   if(MSVC)
     target_compile_options(asterion PRIVATE /W4 /permissive-)
     target_compile_options(asterion_allocation_tracker PRIVATE /W4 /permissive-)
+    target_compile_options(asterion_replay PRIVATE /W4 /permissive-)
   else()
     target_compile_options(asterion PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
     target_compile_options(asterion_allocation_tracker PRIVATE -Wall -Wextra -Wpedantic
                                                                -Wconversion -Wshadow)
+    target_compile_options(asterion_replay PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
   endif()
 endif()
 
@@ -86,6 +92,9 @@ if(ASTERION_ENABLE_SANITIZERS)
     target_compile_options(asterion_allocation_tracker PUBLIC -fsanitize=address,undefined
                                                               -fno-omit-frame-pointer)
     target_link_options(asterion_allocation_tracker PUBLIC -fsanitize=address,undefined)
+    target_compile_options(asterion_replay PUBLIC -fsanitize=address,undefined
+                                                  -fno-omit-frame-pointer)
+    target_link_options(asterion_replay PUBLIC -fsanitize=address,undefined)
   endif()
 endif()
 
@@ -103,6 +112,7 @@ if(ASTERION_BUILD_TESTS)
   add_executable(
     asterion_tests
     tests/unit/test_order_book.cpp
+    tests/unit/test_event_log_replay.cpp
     tests/unit/test_risk_gateway.cpp
     tests/unit/test_telemetry_inference.cpp
     tests/unit/test_allocation_tracking.cpp

@@ -25,7 +25,27 @@ Golden tests cover exact behavior:
 
 ## Replay Checksums
 
-Replay validates contiguous sequence numbers and non-decreasing timestamps, then produces deterministic final book checksums. Execute and Trade activity also contributes to an activity checksum so replay behavior can be compared across runs.
+Replay validates contiguous sequence numbers and non-decreasing timestamps, then produces
+deterministic final book checksums. Execute and Trade activity also contributes to an activity
+checksum so replay behavior can be compared across runs. CSV and binary logs use the same
+canonical event checksum, so equivalent files must replay to matching final-book,
+execution-report and diagnostics checksums.
+
+## Replay Diagnostics
+
+Structured replay diagnostics report:
+
+- sequence gaps;
+- timestamp reversals;
+- duplicate order IDs;
+- unknown cancels, replaces and executes;
+- invalid prices;
+- invalid quantities, including over-reductions against a resting order;
+- book invariant failures;
+- crossed book states.
+
+Each diagnostic carries event index, sequence number, symbol, severity and reason. The
+diagnostics list is checksummed deterministically so failures can be compared across log formats.
 
 ## Property-Style Tests
 
@@ -49,6 +69,9 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - unknown replace;
 - sequence gap;
 - timestamp reversal;
+- malformed and truncated binary input;
+- crossed book state;
+- CSV-to-binary replay equivalence;
 - stale market data;
 - kill switch rejection;
 - deterministic matching report order.

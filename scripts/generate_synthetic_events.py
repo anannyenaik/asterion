@@ -5,6 +5,7 @@ import argparse
 import csv
 import os
 import random
+import struct
 from dataclasses import dataclass
 
 
@@ -16,6 +17,38 @@ MODES = (
     "multi-symbol",
     "wide-price-range",
 )
+
+CSV_HEADER = [
+    "timestamp_ns",
+    "sequence_number",
+    "symbol_id",
+    "event_type",
+    "side",
+    "price_ticks",
+    "quantity",
+    "order_id",
+    "trade_id",
+    "flags",
+]
+
+BINARY_MAGIC = b"ASTITCH1"
+BINARY_VERSION = 1
+BINARY_HEADER_SIZE = 16
+BINARY_RECORD_SIZE = 58
+BINARY_HEADER = BINARY_MAGIC + struct.pack(
+    "<HHHH", BINARY_VERSION, BINARY_HEADER_SIZE, BINARY_RECORD_SIZE, 0
+)
+BINARY_RECORD = struct.Struct("<qQIBBIqqQQ")
+EVENT_TYPE_IDS = {
+    "Add": 1,
+    "Cancel": 2,
+    "Replace": 3,
+    "Execute": 4,
+    "Trade": 5,
+    "Snapshot": 6,
+    "Heartbeat": 7,
+}
+SIDE_IDS = {"None": 0, "Buy": 1, "Sell": 2}
 
 
 @dataclass
@@ -37,11 +70,8 @@ def price_range_for_mode(mode: str, requested: int) -> int:
 
 def choose_price(rng: random.Random, mode: str, side: str, mid: int, requested_range: int) -> int:
     price_range = price_range_for_mode(mode, requested_range)
-    if mode == "deep-book":
-        depth = rng.randint(1, price_range)
-        price = mid - depth if side == "Buy" else mid + depth
-    else:
-        price = mid + rng.randint(-price_range, price_range)
+    depth = rng.randint(1, price_range)
+    price = mid - depth if side == "Buy" else mid + depth
     return max(1, price)
 
 
@@ -77,8 +107,30 @@ def choose_existing_event(mode: str, roll: int) -> str:
     return "Replace" if roll < 90 else "Execute"
 
 
+def choose_output_format(path: str, requested: str) -> str:
+    if requested != "auto":
+        return requested
+    extension = os.path.splitext(path)[1].lower()
+    return "binary" if extension in {".bin", ".itch", ".ablog"} else "csv"
+
+
+def pack_binary_event(row: list[object]) -> bytes:
+    return BINARY_RECORD.pack(
+        int(row[0]),
+        int(row[1]),
+        int(row[2]),
+        EVENT_TYPE_IDS[str(row[3])],
+        SIDE_IDS[str(row[4])],
+        int(row[9]),
+        int(row[5]),
+        int(row[6]),
+        int(row[7]),
+        int(row[8]),
+    )
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate deterministic Asterion CSV events.")
+    parser = argparse.ArgumentParser(description="Generate deterministic Asterion event logs.")
     parser.add_argument("--events", type=int, default=100)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--symbol", type=int, default=1)
@@ -90,6 +142,7 @@ def main() -> None:
     parser.add_argument("--first-sequence", type=int, default=1)
     parser.add_argument("--first-timestamp-ns", type=int, default=1_000_000_000)
     parser.add_argument("--output", default="data/generated/generated_replay.csv")
+    parser.add_argument("--format", choices=("auto", "csv", "binary"), default="auto")
     args = parser.parse_args()
 
     rng = random.Random(args.seed)
@@ -101,22 +154,23 @@ def main() -> None:
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
-    with open(args.output, "w", newline="", encoding="utf-8") as handle:
+    output_format = choose_output_format(args.output, args.format)
+    if output_format == "csv":
+        handle = open(args.output, "w", newline="", encoding="utf-8")
         writer = csv.writer(handle)
-        writer.writerow(
-            [
-                "timestamp_ns",
-                "sequence_number",
-                "symbol_id",
-                "event_type",
-                "side",
-                "price_ticks",
-                "quantity",
-                "order_id",
-                "trade_id",
-                "flags",
-            ]
-        )
+        writer.writerow(CSV_HEADER)
+
+        def write_event(row: list[object]) -> None:
+            writer.writerow(row)
+
+    else:
+        handle = open(args.output, "wb")
+        handle.write(BINARY_HEADER)
+
+        def write_event(row: list[object]) -> None:
+            handle.write(pack_binary_event(row))
+
+    with handle:
         for index in range(args.events):
             timestamp_ns = choose_timestamp(index, args.first_timestamp_ns, args.burst_size, args.mode)
             sequence_number = args.first_sequence + index
@@ -130,7 +184,7 @@ def main() -> None:
                 order_id = next_order_id
                 next_order_id += 1
                 active.append(ActiveOrder(order_id, symbol_id, side, price_ticks, quantity))
-                writer.writerow(
+                write_event(
                     [
                         timestamp_ns,
                         sequence_number,
@@ -151,7 +205,7 @@ def main() -> None:
             event_type = choose_existing_event(args.mode, roll)
 
             if event_type == "Cancel":
-                writer.writerow(
+                write_event(
                     [
                         timestamp_ns,
                         sequence_number,
@@ -173,7 +227,7 @@ def main() -> None:
                     rng, args.mode, order.side, args.mid_price, args.price_range
                 )
                 order.quantity = rng.randint(1, 250)
-                writer.writerow(
+                write_event(
                     [
                         timestamp_ns,
                         sequence_number,
@@ -190,7 +244,7 @@ def main() -> None:
                 continue
 
             executed_quantity = rng.randint(1, order.quantity)
-            writer.writerow(
+            write_event(
                 [
                     timestamp_ns,
                     sequence_number,

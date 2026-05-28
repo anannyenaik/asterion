@@ -12,6 +12,7 @@ It does **not** claim to be a real exchange, a live trading system, or a true pr
 
 - Integer tick prices in the hot path; no floating-point prices in matching or book state.
 - L3 book reconstruction with order-ID lookup, FIFO queues per price level and deterministic checksums.
+- Recorded/simulated market-data logs in CSV and a compact ITCH-like binary format.
 - Price-time-priority matching for limit, market, cancel and replace flows.
 - Structured execution reports with deterministic report checksums.
 - Pre-trade risk gateway with quantity, notional, position, exposure, price-band, stale-data, duplicate-ID and kill-switch checks.
@@ -21,10 +22,10 @@ It does **not** claim to be a real exchange, a live trading system, or a true pr
 ## Architecture
 
 ```text
-CSV / synthetic events
+CSV / binary / synthetic events
         |
         v
- Market replay + sequence validation
+ Market replay + diagnostics
         |
         v
    L3 order book  ---> L2 view ---> strategies / feature extraction / model score
@@ -41,12 +42,15 @@ CSV / synthetic events
 - C++20 CMake project with Ninja-compatible builds.
 - Core types for timestamps, tick prices, quantities, symbols and order IDs.
 - Fixed market-data event schema: Add, Cancel, Replace, Execute, Trade, Snapshot and Heartbeat.
+- ITCH-like binary event logs with safe malformed/truncated input rejection.
 - Correctness-first L3 book using `std::unordered_map`, `std::map` and FIFO lists.
 - Book invariant checks and deterministic final checksums.
 - Matching engine with partial fills, full fills and resting-price execution.
 - Execution report schema with status, execution type, fill fields and reject reason.
 - Risk gateway and kill switch.
-- Deterministic CSV replay and sample replay data.
+- Deterministic CSV and binary replay, sample replay data and replay diagnostics.
+- Simulated market-data adapter modes for balanced, bursty, deep-book, high-cancel,
+  wide-range and multi-symbol streams.
 - Catch2 tests for unit, golden and randomized property-style coverage.
 - Chrono benchmark executable with stable JSON output and allocation counters.
 - Optional Google Benchmark target behind an explicit CMake flag.
@@ -82,6 +86,48 @@ Convenience script:
 ./scripts/run_tests.sh
 ```
 
+## Replay And Event Logs
+
+The canonical event fields are:
+
+```text
+timestamp_ns,sequence_number,symbol_id,event_type,side,price_ticks,quantity,order_id,trade_id,flags
+```
+
+CSV logs use that header. Binary logs start with `ASTITCH1`, version `1`, a 16-byte
+header and fixed 58-byte little-endian records:
+
+```text
+int64 timestamp_ns
+uint64 sequence_number
+uint32 symbol_id
+uint8 event_type
+uint8 side
+uint32 flags
+int64 price_ticks
+int64 quantity
+uint64 order_id
+uint64 trade_id
+```
+
+Replay auto-detects binary logs by magic bytes, or accepts an explicit format:
+
+```bash
+cmake --build build --target asterion_replay
+./build/asterion_replay --input data/samples/sample_replay.csv
+./build/asterion_replay --input data/samples/sample_replay.bin --format binary
+python scripts/generate_synthetic_events.py --mode bursty --events 1000 --output data/generated/bursty.bin
+python scripts/convert_event_log.py --input data/samples/sample_replay.csv --output data/generated/sample_replay.bin
+```
+
+Replay reports deterministic final-book, execution-report, event-log and diagnostics checksums.
+Diagnostics include event index, sequence number, symbol, severity and reason for sequence gaps,
+timestamp reversals, duplicate order IDs, unknown cancels/replaces, invalid prices or quantities,
+and invalid/crossed book states.
+
+Current Snapshot events are markers in the shared event schema; full snapshot book loading is not
+implemented yet.
+
 ## Benchmark
 
 Benchmarks are generated locally. No benchmark numbers are checked into this repository.
@@ -106,7 +152,10 @@ See [BENCHMARKS.md](BENCHMARKS.md) and [docs/profiling.md](docs/profiling.md) fo
 
 ## Honesty And Limitations
 
-Asterion is a deterministic systems lab. It is not connected to any exchange, does not trade live, does not implement kernel bypass, does not claim true HFT production performance and does not include fabricated benchmark results. See [LIMITATIONS.md](LIMITATIONS.md) for the full scope statement.
+Asterion is a deterministic systems lab. The market-data ingestion path is for recorded and
+simulated logs only. It is not connected to any exchange, does not trade live, does not implement
+kernel bypass, does not claim true HFT production performance and does not include fabricated
+benchmark results. See [LIMITATIONS.md](LIMITATIONS.md) for the full scope statement.
 
 ## Example CV Bullet
 

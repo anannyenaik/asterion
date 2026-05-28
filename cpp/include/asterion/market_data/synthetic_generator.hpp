@@ -3,6 +3,7 @@
 #include "asterion/market_data/event.hpp"
 
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace asterion {
@@ -31,5 +32,17 @@ struct SyntheticGeneratorConfig {
 
 [[nodiscard]] std::vector<MarketDataEvent>
 generate_synthetic_events(const SyntheticGeneratorConfig& config);
+
+class SimulatedMarketDataAdapter {
+public:
+  explicit SimulatedMarketDataAdapter(SyntheticGeneratorConfig config);
+
+  [[nodiscard]] std::optional<MarketDataEvent> next();
+  [[nodiscard]] std::vector<MarketDataEvent> drain();
+
+private:
+  std::vector<MarketDataEvent> events_;
+  std::size_t cursor_{0};
+};
 
 } // namespace asterion

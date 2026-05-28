@@ -1,5 +1,8 @@
 symbol_id: 1
 input: data/samples/sample_replay.csv
+format: auto
 validate_sequence_numbers: true
+validate_timestamps: true
+validate_book_state: true
 max_speed: true
 expected_final_checksum: null

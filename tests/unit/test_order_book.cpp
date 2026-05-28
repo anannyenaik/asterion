@@ -73,7 +73,7 @@ TEST_CASE("Replay engine validates sequence and final checksum deterministically
   const std::vector<MarketDataEvent> events{
       MarketDataEvent{1, 1, 1, MarketEventType::Add, Side::Sell, 1001, 100, 11, 0, 0},
       MarketDataEvent{2, 2, 1, MarketEventType::Add, Side::Sell, 1001, 50, 12, 0, 0},
-      MarketDataEvent{3, 3, 1, MarketEventType::Execute, Side::Sell, 1001, 120, 11, 77, 0},
+      MarketDataEvent{3, 3, 1, MarketEventType::Execute, Side::Sell, 1001, 100, 11, 77, 0},
   };
 
   ReplayEngine replay_a(1);
@@ -97,6 +97,8 @@ TEST_CASE("Replay engine rejects sequence gaps and timestamp reversals", "[repla
   const ReplayResult gap_result = gap_replay.replay_events(sequence_gap);
   REQUIRE_FALSE(gap_result.sequence_valid);
   REQUIRE(gap_result.error.find("sequence") != std::string::npos);
+  REQUIRE(gap_result.diagnostic_error_count == 1);
+  REQUIRE(gap_result.diagnostics.front().sequence_number == 3);
 
   const std::vector<MarketDataEvent> timestamp_reversal{
       MarketDataEvent{10, 1, 1, MarketEventType::Add, Side::Buy, 999, 10, 1, 0, 0},
@@ -106,6 +108,8 @@ TEST_CASE("Replay engine rejects sequence gaps and timestamp reversals", "[repla
   const ReplayResult timestamp_result = timestamp_replay.replay_events(timestamp_reversal);
   REQUIRE_FALSE(timestamp_result.sequence_valid);
   REQUIRE(timestamp_result.error.find("timestamp") != std::string::npos);
+  REQUIRE(timestamp_result.diagnostic_error_count == 1);
+  REQUIRE(timestamp_result.diagnostics.front().event_index == 1);
 }
 
 TEST_CASE("Replay engine rejects unknown cancel and replace events", "[replay][adversarial]") {
@@ -115,7 +119,8 @@ TEST_CASE("Replay engine rejects unknown cancel and replace events", "[replay][a
   ReplayEngine cancel_replay(1);
   const ReplayResult cancel_result = cancel_replay.replay_events(unknown_cancel);
   REQUIRE_FALSE(cancel_result.sequence_valid);
-  REQUIRE(cancel_result.error.find("Cancel") != std::string::npos);
+  REQUIRE(cancel_result.error.find("unknown cancel") != std::string::npos);
+  REQUIRE(cancel_result.diagnostics.front().symbol_id == 1);
 
   const std::vector<MarketDataEvent> unknown_replace{
       MarketDataEvent{1, 1, 1, MarketEventType::Replace, Side::Buy, 999, 10, 42, 0, 0},
@@ -123,7 +128,7 @@ TEST_CASE("Replay engine rejects unknown cancel and replace events", "[replay][a
   ReplayEngine replace_replay(1);
   const ReplayResult replace_result = replace_replay.replay_events(unknown_replace);
   REQUIRE_FALSE(replace_result.sequence_valid);
-  REQUIRE(replace_result.error.find("Replace") != std::string::npos);
+  REQUIRE(replace_result.error.find("unknown replace") != std::string::npos);
 }
 
 TEST_CASE("Replay engine can read the sample CSV", "[replay]") {

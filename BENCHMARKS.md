@@ -14,6 +14,7 @@ cmake --build build --target asterion_benchmarks
 ```bash
 ./build/asterion_benchmarks
 ./build/asterion_benchmarks --dataset data/samples/sample_replay.csv
+./build/asterion_benchmarks --dataset data/samples/sample_replay.bin
 ./build/asterion_benchmarks --json build/asterion_benchmark.json --no-text
 ```
 
@@ -56,12 +57,17 @@ Generate local corpora under `data/generated/`, which is ignored by git:
 
 ```bash
 python scripts/generate_synthetic_events.py --mode balanced --events 1000 --output data/generated/balanced.csv
+python scripts/generate_synthetic_events.py --mode balanced --events 1000 --output data/generated/balanced.bin
 python scripts/generate_synthetic_events.py --mode high-cancel --events 1000 --output data/generated/high_cancel.csv
 python scripts/generate_synthetic_events.py --mode deep-book --events 1000 --output data/generated/deep_book.csv
 python scripts/generate_synthetic_events.py --mode bursty --events 1000 --output data/generated/bursty.csv
 python scripts/generate_synthetic_events.py --mode multi-symbol --symbols 4 --events 1000 --output data/generated/multi_symbol.csv
 python scripts/generate_synthetic_events.py --mode wide-price-range --events 1000 --output data/generated/wide_range.csv
+python scripts/convert_event_log.py --input data/generated/balanced.csv --output data/generated/balanced_converted.bin
 ```
+
+The replay benchmark uses recorded/simulated event logs only. It does not imply live exchange
+connectivity or portable hardware performance.
 
 ## Methodology
 

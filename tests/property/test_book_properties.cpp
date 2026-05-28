@@ -248,3 +248,17 @@ TEST_CASE("Synthetic replay generator can emit deterministic multi-symbol stream
   REQUIRE(event_stream_fingerprint(events) ==
           event_stream_fingerprint(generate_synthetic_events(config)));
 }
+
+TEST_CASE("Simulated market-data adapter drains a deterministic generated stream",
+          "[property][replay]") {
+  SyntheticGeneratorConfig config;
+  config.event_count = 64;
+  config.seed = 404;
+  config.mode = SyntheticFlowMode::BurstyFlow;
+
+  SimulatedMarketDataAdapter adapter(config);
+  const std::vector<MarketDataEvent> drained = adapter.drain();
+  REQUIRE(event_stream_fingerprint(drained) ==
+          event_stream_fingerprint(generate_synthetic_events(config)));
+  REQUIRE_FALSE(adapter.next().has_value());
+}

@@ -48,16 +48,11 @@ struct ActiveOrder {
 [[nodiscard]] PriceTicks random_price(const SyntheticGeneratorConfig& config, Side side,
                                       std::mt19937& rng) {
   const PriceTicks range = price_range_for_mode(config);
-  if (config.mode == SyntheticFlowMode::DeepBook) {
-    std::uniform_int_distribution<PriceTicks> depth_distribution(1, range);
-    const PriceTicks depth = depth_distribution(rng);
-    const PriceTicks price =
-        side == Side::Buy ? config.mid_price_ticks - depth : config.mid_price_ticks + depth;
-    return std::max<PriceTicks>(1, price);
-  }
-
-  std::uniform_int_distribution<PriceTicks> price_distribution(-range, range);
-  return std::max<PriceTicks>(1, config.mid_price_ticks + price_distribution(rng));
+  std::uniform_int_distribution<PriceTicks> depth_distribution(1, range);
+  const PriceTicks depth = depth_distribution(rng);
+  const PriceTicks price =
+      side == Side::Buy ? config.mid_price_ticks - depth : config.mid_price_ticks + depth;
+  return std::max<PriceTicks>(1, price);
 }
 
 [[nodiscard]] bool should_add(const SyntheticGeneratorConfig& config, int roll,
@@ -161,6 +156,25 @@ std::vector<MarketDataEvent> generate_synthetic_events(const SyntheticGeneratorC
   }
 
   return events;
+}
+
+SimulatedMarketDataAdapter::SimulatedMarketDataAdapter(SyntheticGeneratorConfig config)
+    : events_(generate_synthetic_events(config)) {}
+
+std::optional<MarketDataEvent> SimulatedMarketDataAdapter::next() {
+  if (cursor_ >= events_.size()) {
+    return std::nullopt;
+  }
+  return events_[cursor_++];
+}
+
+std::vector<MarketDataEvent> SimulatedMarketDataAdapter::drain() {
+  std::vector<MarketDataEvent> remaining;
+  remaining.reserve(events_.size() - cursor_);
+  while (auto event = next()) {
+    remaining.push_back(*event);
+  }
+  return remaining;
 }
 
 } // namespace asterion

@@ -1,0 +1,195 @@
+#include "asterion/market_data/event_log.hpp"
+#include "asterion/market_data/replay.hpp"
+#include "asterion/market_data/synthetic_generator.hpp"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <string_view>
+#include <vector>
+
+using namespace asterion;
+
+namespace {
+
+std::filesystem::path temp_path(std::string_view suffix) {
+  const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+  return std::filesystem::temp_directory_path() /
+         ("asterion_" + std::to_string(stamp) + std::string(suffix));
+}
+
+std::vector<MarketDataEvent> representative_events() {
+  return {
+      MarketDataEvent{1, 1, 1, MarketEventType::Add, Side::Buy, 999, 100, 10, 0, 0},
+      MarketDataEvent{2, 2, 1, MarketEventType::Replace, Side::Buy, 998, 80, 10, 0, 1},
+      MarketDataEvent{3, 3, 1, MarketEventType::Execute, Side::Buy, 998, 30, 10, 700, 0},
+      MarketDataEvent{4, 4, 1, MarketEventType::Trade, Side::None, 1000, 5, 0, 701, 2},
+      MarketDataEvent{5, 5, 1, MarketEventType::Cancel, Side::Buy, 998, 0, 10, 0, 0},
+      MarketDataEvent{6, 6, 1, MarketEventType::Snapshot, Side::None, 0, 0, 0, 0, 0},
+      MarketDataEvent{7, 7, 1, MarketEventType::Heartbeat, Side::None, 0, 0, 0, 0, 0},
+  };
+}
+
+std::string fingerprint(const std::vector<MarketDataEvent>& events) {
+  std::string output;
+  for (const MarketDataEvent& event : events) {
+    output += market_data_event_to_csv(event);
+    output += '\n';
+  }
+  return output;
+}
+
+void require_matching_replay(const std::vector<MarketDataEvent>& events) {
+  const auto csv_path = temp_path(".csv");
+  const auto binary_path = temp_path(".bin");
+
+  const EventLogWriteResult csv_write = write_event_log(csv_path, events, EventLogFormat::Csv);
+  const EventLogWriteResult binary_write =
+      write_event_log(binary_path, events, EventLogFormat::Binary);
+  REQUIRE(csv_write.error.empty());
+  REQUIRE(binary_write.error.empty());
+
+  ReplayEngine csv_replay(1);
+  ReplayEngine binary_replay(1);
+  const ReplayResult csv_result = csv_replay.replay_file(csv_path, EventLogFormat::Csv);
+  const ReplayResult binary_result = binary_replay.replay_file(binary_path, EventLogFormat::Binary);
+
+  INFO(csv_result.error);
+  INFO(binary_result.error);
+  REQUIRE(csv_result.sequence_valid == binary_result.sequence_valid);
+  REQUIRE(csv_result.event_log_checksum == binary_result.event_log_checksum);
+  REQUIRE(csv_result.final_book_checksum == binary_result.final_book_checksum);
+  REQUIRE(csv_result.execution_report_checksum == binary_result.execution_report_checksum);
+  REQUIRE(csv_result.diagnostics_checksum == binary_result.diagnostics_checksum);
+  REQUIRE(csv_result.diagnostic_error_count == binary_result.diagnostic_error_count);
+
+  std::filesystem::remove(csv_path);
+  std::filesystem::remove(binary_path);
+}
+
+} // namespace
+
+TEST_CASE("Binary event log round-trips every event kind", "[event-log][binary]") {
+  const std::vector<MarketDataEvent> events = representative_events();
+  const auto path = temp_path(".bin");
+
+  const EventLogWriteResult write = write_event_log(path, events, EventLogFormat::Binary);
+  REQUIRE(write.error.empty());
+  REQUIRE(write.events_written == events.size());
+  REQUIRE(write.event_checksum == checksum_events(events));
+
+  const EventLogReadResult read = read_event_log(path, EventLogFormat::Auto);
+  REQUIRE(read.error.empty());
+  REQUIRE(read.detected_format == EventLogFormat::Binary);
+  REQUIRE(read.event_checksum == checksum_events(events));
+  REQUIRE(fingerprint(read.events) == fingerprint(events));
+
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("CSV and binary event logs preserve ordering and replay checksums",
+          "[event-log][replay]") {
+  require_matching_replay(representative_events());
+}
+
+TEST_CASE("Malformed binary event logs are rejected safely", "[event-log][binary][adversarial]") {
+  const auto truncated_path = temp_path(".bin");
+  REQUIRE(write_event_log(truncated_path, representative_events(), EventLogFormat::Binary)
+              .error.empty());
+  std::filesystem::resize_file(truncated_path, kBinaryEventLogHeaderSize + 3U);
+
+  const EventLogReadResult truncated = read_event_log(truncated_path, EventLogFormat::Binary);
+  REQUIRE_FALSE(truncated.error.empty());
+  REQUIRE(truncated.error.find("truncated") != std::string::npos);
+  REQUIRE(truncated.events.empty());
+  std::filesystem::remove(truncated_path);
+
+  const auto invalid_type_path = temp_path(".bin");
+  REQUIRE(write_event_log(invalid_type_path, representative_events(), EventLogFormat::Binary)
+              .error.empty());
+  std::fstream invalid_type(invalid_type_path, std::ios::binary | std::ios::in | std::ios::out);
+  invalid_type.seekp(static_cast<std::streamoff>(kBinaryEventLogHeaderSize + 20U));
+  const char invalid_event_type = static_cast<char>(99);
+  invalid_type.write(&invalid_event_type, 1);
+  invalid_type.close();
+
+  const EventLogReadResult invalid = read_event_log(invalid_type_path, EventLogFormat::Binary);
+  REQUIRE_FALSE(invalid.error.empty());
+  REQUIRE(invalid.error.find("invalid event type") != std::string::npos);
+  REQUIRE(invalid.events.empty());
+  std::filesystem::remove(invalid_type_path);
+}
+
+TEST_CASE("Replay diagnostics report malformed event streams", "[replay][diagnostics]") {
+  const std::vector<MarketDataEvent> duplicate_order_id{
+      MarketDataEvent{1, 1, 1, MarketEventType::Add, Side::Buy, 999, 10, 1, 0, 0},
+      MarketDataEvent{2, 2, 1, MarketEventType::Add, Side::Buy, 998, 10, 1, 0, 0},
+  };
+  ReplayEngine duplicate_replay(1);
+  const ReplayResult duplicate_result = duplicate_replay.replay_events(duplicate_order_id);
+  REQUIRE_FALSE(duplicate_result.sequence_valid);
+  REQUIRE(duplicate_result.diagnostic_error_count == 1);
+  REQUIRE(duplicate_result.diagnostics.front().event_index == 1);
+  REQUIRE(duplicate_result.diagnostics.front().reason.find("duplicate order id") !=
+          std::string::npos);
+
+  const std::vector<MarketDataEvent> invalid_price{
+      MarketDataEvent{1, 1, 1, MarketEventType::Add, Side::Sell, 0, 10, 1, 0, 0},
+  };
+  ReplayEngine price_replay(1);
+  const ReplayResult price_result = price_replay.replay_events(invalid_price);
+  REQUIRE_FALSE(price_result.sequence_valid);
+  REQUIRE(price_result.diagnostics.front().reason.find("invalid price") != std::string::npos);
+
+  const std::vector<MarketDataEvent> crossed_book{
+      MarketDataEvent{1, 1, 1, MarketEventType::Add, Side::Buy, 1001, 10, 1, 0, 0},
+      MarketDataEvent{2, 2, 1, MarketEventType::Add, Side::Sell, 1000, 10, 2, 0, 0},
+  };
+  ReplayEngine crossed_replay(1);
+  const ReplayResult crossed_result = crossed_replay.replay_events(crossed_book);
+  REQUIRE_FALSE(crossed_result.sequence_valid);
+  REQUIRE(crossed_result.diagnostics.front().reason.find("crossed book") != std::string::npos);
+}
+
+TEST_CASE("Replay checksums are stable for the sample stream", "[replay][checksum]") {
+  const std::vector<MarketDataEvent> events{
+      MarketDataEvent{1, 1, 1, MarketEventType::Add, Side::Sell, 1001, 100, 11, 0, 0},
+      MarketDataEvent{2, 2, 1, MarketEventType::Add, Side::Sell, 1002, 50, 12, 0, 0},
+      MarketDataEvent{3, 3, 1, MarketEventType::Execute, Side::Sell, 1001, 100, 11, 77, 0},
+  };
+
+  ReplayEngine replay_a(1);
+  ReplayEngine replay_b(1);
+  const ReplayResult result_a = replay_a.replay_events(events);
+  const ReplayResult result_b = replay_b.replay_events(events);
+
+  REQUIRE(result_a.error.empty());
+  REQUIRE(result_a.sequence_valid);
+  REQUIRE(result_a.final_book_checksum == result_b.final_book_checksum);
+  REQUIRE(result_a.execution_report_checksum == result_b.execution_report_checksum);
+  REQUIRE(result_a.diagnostics_checksum == result_b.diagnostics_checksum);
+  REQUIRE(result_a.event_log_checksum == checksum_events(events));
+  REQUIRE(result_a.event_log_checksum == 6081551686519738934ULL);
+  REQUIRE(result_a.final_book_checksum == 8911332365672283169ULL);
+  REQUIRE(result_a.execution_report_checksum == 4737330456958314376ULL);
+  REQUIRE(result_a.diagnostics_checksum == 14695981039346656037ULL);
+}
+
+TEST_CASE("Generated streams replay identically from CSV and binary logs",
+          "[property][event-log][replay]") {
+  const std::vector<SyntheticFlowMode> modes{
+      SyntheticFlowMode::Balanced, SyntheticFlowMode::HighCancellationRate,
+      SyntheticFlowMode::DeepBook, SyntheticFlowMode::BurstyFlow,
+      SyntheticFlowMode::WidePriceRange};
+
+  for (const SyntheticFlowMode mode : modes) {
+    SyntheticGeneratorConfig config;
+    config.event_count = 200;
+    config.seed = 2026;
+    config.mode = mode;
+    require_matching_replay(generate_synthetic_events(config));
+  }
+}

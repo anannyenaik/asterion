@@ -18,17 +18,19 @@
 
 ## Phase 3
 
-- Binance live-style adapter for recorded or simulated ingestion;
-- ITCH-like binary parser;
-- saved event logs;
-- stronger replay diagnostics.
+- recorded/simulated market-data ingestion;
+- ITCH-like binary parser and writer;
+- saved CSV and binary event logs;
+- deterministic simulated adapter modes;
+- stronger replay diagnostics and diagnostics checksums.
 
 ## Phase 4
 
-- Python bindings;
-- notebooks for replay and latency analysis;
+- Python bindings for event logs, replay diagnostics and checksum inspection;
+- notebooks for recorded/simulated replay and latency analysis;
 - ONNX or TorchScript-style inference integration;
-- feature versioning.
+- feature versioning;
+- aggregate multi-symbol replay views.
 
 ## Phase 5
 
