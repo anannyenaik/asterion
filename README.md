@@ -48,7 +48,8 @@ CSV / synthetic events
 - Risk gateway and kill switch.
 - Deterministic CSV replay and sample replay data.
 - Catch2 tests for unit, golden and randomized property-style coverage.
-- Simple chrono benchmark executable.
+- Chrono benchmark executable with stable JSON output and allocation counters.
+- Optional Google Benchmark target behind an explicit CMake flag.
 - Strategy interface with market-maker and imbalance examples.
 - Deterministic linear inference placeholder.
 - GitHub Actions CI for Linux build and test.
@@ -89,9 +90,19 @@ Benchmarks are generated locally. No benchmark numbers are checked into this rep
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target asterion_benchmarks
 ./build/asterion_benchmarks
+./build/asterion_benchmarks --json build/asterion_benchmark.json --no-text
 ```
 
-The current runner measures add order, cancel order, simple match and sample replay paths using `std::chrono`. Google Benchmark can be added later without changing the public module boundaries.
+The runner measures add, cancel, replace, market crossing, L2 snapshot, replay, risk-check and linear-inference paths using `std::chrono`. Google Benchmark integration is optional:
+
+```bash
+cmake -S . -B build-gbench -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_USE_GOOGLE_BENCHMARK=ON
+cmake --build build-gbench --target asterion_google_benchmarks
+./build-gbench/asterion_google_benchmarks --benchmark_format=json
+```
+
+No benchmark results are checked into this repository because they are hardware-dependent.
+See [BENCHMARKS.md](BENCHMARKS.md) and [docs/profiling.md](docs/profiling.md) for commands.
 
 ## Honesty And Limitations
 

@@ -25,16 +25,17 @@ Golden tests cover exact behavior:
 
 ## Replay Checksums
 
-Replay validates sequence numbers and produces deterministic final book checksums. Execute and Trade activity also contributes to an activity checksum so replay behavior can be compared across runs.
+Replay validates contiguous sequence numbers and non-decreasing timestamps, then produces deterministic final book checksums. Execute and Trade activity also contributes to an activity checksum so replay behavior can be compared across runs.
 
 ## Property-Style Tests
 
-The randomized tests generate add, cancel and replace streams, apply the same stream twice and assert:
+The randomized tests generate add, cancel, replace and crossing streams, apply deterministic seeds and assert:
 
 - invariants hold after each operation;
 - no order exists in two places;
 - aggregate quantity equals child order quantity;
 - final checksums match for identical input streams.
+- generated replay corpora are deterministic for fixed seeds.
 
 ## Edge Cases Covered
 
@@ -42,8 +43,14 @@ The randomized tests generate add, cancel and replace streams, apply the same st
 - empty price-level removal;
 - duplicate order IDs;
 - duplicate client order IDs;
+- zero quantity;
+- invalid price;
+- unknown cancel;
+- unknown replace;
+- sequence gap;
+- timestamp reversal;
 - stale market data;
 - kill switch rejection;
 - deterministic matching report order.
 
-Additional fuzzing, malformed replay files and larger generated event sets are planned for Phase 2.
+Large fuzzing campaigns and exchange-specific malformed binary feeds remain out of scope for the current test suite.

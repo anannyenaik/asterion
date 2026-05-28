@@ -1,6 +1,12 @@
 iterations:
   add_order: 50000
   cancel_order: 50000
-  simple_match: 10000
+  replace_order: 25000
+  market_order_cross_one_level: 10000
+  market_order_cross_multiple_levels: 2000
+  l2_snapshot_generation: 50000
+  risk_check_only: 50000
+  linear_inference_only: 200000
 replay_input: data/samples/sample_replay.csv
+json_schema_version: 1
 notes: "Benchmark numbers are intentionally not checked in; generate them locally."

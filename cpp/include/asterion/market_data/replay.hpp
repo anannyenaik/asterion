@@ -11,6 +11,7 @@ namespace asterion {
 
 struct ReplayConfig {
   bool validate_sequence_numbers{true};
+  bool validate_timestamps{true};
   bool max_speed{true};
 };
 

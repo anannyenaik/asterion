@@ -61,6 +61,8 @@ ReplayResult ReplayEngine::replay_events(std::span<const MarketDataEvent> events
   ReplayResult result;
   result.execution_report_checksum = kFnvOffsetBasis;
   SequenceNumber expected_sequence = 0;
+  TimestampNs last_timestamp = 0;
+  bool has_last_timestamp = false;
 
   for (const MarketDataEvent& event : events) {
     if (config_.validate_sequence_numbers) {
@@ -74,6 +76,16 @@ ReplayResult ReplayEngine::replay_events(std::span<const MarketDataEvent> events
         return result;
       }
       ++expected_sequence;
+    }
+    if (config_.validate_timestamps) {
+      if (has_last_timestamp && event.timestamp_ns < last_timestamp) {
+        result.sequence_valid = false;
+        result.error =
+            "timestamp reversal at event " + std::to_string(result.events_processed + 1U);
+        return result;
+      }
+      last_timestamp = event.timestamp_ns;
+      has_last_timestamp = true;
     }
 
     if (!apply_event(event, result)) {

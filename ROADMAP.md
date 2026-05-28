@@ -9,11 +9,12 @@
 
 ## Phase 2
 
-- benchmark suite expansion;
-- profiling workflow;
-- allocation tracking;
-- property and fuzz test expansion;
-- replay corpus growth.
+- expanded benchmark suite with JSON output;
+- optional Google Benchmark target;
+- profiling workflow documentation;
+- allocation tracking for tests and benchmarks;
+- deterministic randomized correctness expansion;
+- replay corpus generator modes.
 
 ## Phase 3
 
@@ -31,7 +32,7 @@
 
 ## Phase 5
 
-- CI benchmark regression workflow;
+- benchmark regression thresholds if enough historical data exists;
 - latency budget accounting;
 - dashboard or CLI visualizer;
 - richer risk audit trail.

@@ -1,0 +1,59 @@
+name: benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      google_benchmark:
+        description: "Build and run the optional Google Benchmark target"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ git python3
+
+      - name: Configure
+        run: |
+          GOOGLE_BENCHMARK=OFF
+          if [ "${{ inputs.google_benchmark }}" = "true" ]; then
+            GOOGLE_BENCHMARK=ON
+          fi
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DASTERION_BUILD_TESTS=OFF \
+            -DASTERION_BUILD_BENCHMARKS=ON \
+            -DASTERION_USE_GOOGLE_BENCHMARK=${GOOGLE_BENCHMARK}
+
+      - name: Build benchmark targets
+        run: cmake --build build --target asterion_benchmarks
+
+      - name: Run chrono benchmark JSON smoke test
+        run: |
+          ./build/asterion_benchmarks --json build/asterion_benchmark.json --no-text
+          python3 -m json.tool build/asterion_benchmark.json >/dev/null
+
+      - name: Run optional Google Benchmark target
+        if: ${{ inputs.google_benchmark }}
+        run: |
+          cmake --build build --target asterion_google_benchmarks
+          ./build/asterion_google_benchmarks --benchmark_format=json > build/google_benchmark.json
+          python3 -m json.tool build/google_benchmark.json >/dev/null
+
+      - name: Upload benchmark JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-json
+          path: |
+            build/asterion_benchmark.json
+            build/google_benchmark.json
+          if-no-files-found: ignore

@@ -21,3 +21,6 @@ __pycache__/
 *.o
 *.profraw
 *.profdata
+*.benchmark.json
+benchmarks/results/
+data/generated/

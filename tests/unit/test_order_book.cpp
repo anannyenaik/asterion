@@ -55,6 +55,20 @@ TEST_CASE("Order book reductions remove empty levels", "[book]") {
   REQUIRE(book.check_invariants().ok);
 }
 
+TEST_CASE("Order book rejects malformed and adversarial operations", "[book][adversarial]") {
+  OrderBook book(1);
+
+  REQUIRE_FALSE(book.add_order(make_order(1, Side::Buy, 1000, 0)));
+  REQUIRE_FALSE(book.add_order(make_order(2, Side::Sell, 0, 10)));
+  REQUIRE(book.add_order(make_order(3, Side::Buy, 999, 10)));
+  REQUIRE_FALSE(book.add_order(make_order(3, Side::Buy, 998, 10)));
+  REQUIRE_FALSE(book.cancel_order(99));
+  REQUIRE_FALSE(book.replace_order(99, 1000, 10, 10, 10));
+  REQUIRE_FALSE(book.replace_order(3, 0, 10, 11, 11));
+  REQUIRE_FALSE(book.replace_order(3, 1000, 0, 12, 12));
+  REQUIRE(book.check_invariants().ok);
+}
+
 TEST_CASE("Replay engine validates sequence and final checksum deterministically", "[replay]") {
   const std::vector<MarketDataEvent> events{
       MarketDataEvent{1, 1, 1, MarketEventType::Add, Side::Sell, 1001, 100, 11, 0, 0},
@@ -72,6 +86,44 @@ TEST_CASE("Replay engine validates sequence and final checksum deterministically
   REQUIRE(result_a.events_processed == events.size());
   REQUIRE(result_a.final_book_checksum == result_b.final_book_checksum);
   REQUIRE(result_a.execution_report_checksum == result_b.execution_report_checksum);
+}
+
+TEST_CASE("Replay engine rejects sequence gaps and timestamp reversals", "[replay][adversarial]") {
+  const std::vector<MarketDataEvent> sequence_gap{
+      MarketDataEvent{1, 1, 1, MarketEventType::Add, Side::Buy, 999, 10, 1, 0, 0},
+      MarketDataEvent{2, 3, 1, MarketEventType::Add, Side::Sell, 1001, 10, 2, 0, 0},
+  };
+  ReplayEngine gap_replay(1);
+  const ReplayResult gap_result = gap_replay.replay_events(sequence_gap);
+  REQUIRE_FALSE(gap_result.sequence_valid);
+  REQUIRE(gap_result.error.find("sequence") != std::string::npos);
+
+  const std::vector<MarketDataEvent> timestamp_reversal{
+      MarketDataEvent{10, 1, 1, MarketEventType::Add, Side::Buy, 999, 10, 1, 0, 0},
+      MarketDataEvent{9, 2, 1, MarketEventType::Add, Side::Sell, 1001, 10, 2, 0, 0},
+  };
+  ReplayEngine timestamp_replay(1);
+  const ReplayResult timestamp_result = timestamp_replay.replay_events(timestamp_reversal);
+  REQUIRE_FALSE(timestamp_result.sequence_valid);
+  REQUIRE(timestamp_result.error.find("timestamp") != std::string::npos);
+}
+
+TEST_CASE("Replay engine rejects unknown cancel and replace events", "[replay][adversarial]") {
+  const std::vector<MarketDataEvent> unknown_cancel{
+      MarketDataEvent{1, 1, 1, MarketEventType::Cancel, Side::Buy, 999, 0, 42, 0, 0},
+  };
+  ReplayEngine cancel_replay(1);
+  const ReplayResult cancel_result = cancel_replay.replay_events(unknown_cancel);
+  REQUIRE_FALSE(cancel_result.sequence_valid);
+  REQUIRE(cancel_result.error.find("Cancel") != std::string::npos);
+
+  const std::vector<MarketDataEvent> unknown_replace{
+      MarketDataEvent{1, 1, 1, MarketEventType::Replace, Side::Buy, 999, 10, 42, 0, 0},
+  };
+  ReplayEngine replace_replay(1);
+  const ReplayResult replace_result = replace_replay.replay_events(unknown_replace);
+  REQUIRE_FALSE(replace_result.sequence_valid);
+  REQUIRE(replace_result.error.find("Replace") != std::string::npos);
 }
 
 TEST_CASE("Replay engine can read the sample CSV", "[replay]") {
