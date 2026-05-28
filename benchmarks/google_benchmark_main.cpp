@@ -38,7 +38,7 @@ void BM_CancelOrder(benchmark::State& state) {
     OrderBook book(1);
     for (std::int64_t i = 0; i < state.range(0); ++i) {
       const OrderId order_id = static_cast<OrderId>(i + 1);
-      book.add_order(make_order(order_id, Side::Sell, 1001, 10));
+      (void)book.add_order(make_order(order_id, Side::Sell, 1001, 10));
     }
     state.ResumeTiming();
     for (std::int64_t i = 0; i < state.range(0); ++i) {
@@ -56,10 +56,10 @@ void BM_ReplaceOrder(benchmark::State& state) {
     OrderBook book(1);
     for (std::int64_t i = 0; i < state.range(0); ++i) {
       const OrderId order_id = static_cast<OrderId>(i + 1);
-      book.add_order(make_order(order_id, Side::Buy, 999, 10));
+      (void)book.add_order(make_order(order_id, Side::Buy, 999, 10));
     }
-    book.add_order(make_order(900'000, Side::Buy, 1000, 1));
-    book.add_order(make_order(900'001, Side::Buy, 1001, 1));
+    (void)book.add_order(make_order(900'000, Side::Buy, 1000, 1));
+    (void)book.add_order(make_order(900'001, Side::Buy, 1001, 1));
     state.ResumeTiming();
     for (std::int64_t i = 0; i < state.range(0); ++i) {
       const OrderId order_id = static_cast<OrderId>(i + 1);
@@ -78,9 +78,9 @@ void BM_MarketCrossOneLevel(benchmark::State& state) {
     state.PauseTiming();
     MatchingEngine engine(1);
     for (std::int64_t i = 0; i < state.range(0); ++i) {
-      engine.submit_order(NewOrderRequest{static_cast<ClientOrderId>(i + 1), 1, Side::Sell,
-                                          OrderType::Limit, 1001, 10,
-                                          static_cast<TimestampNs>(i + 1)});
+      (void)engine.submit_order(NewOrderRequest{static_cast<ClientOrderId>(i + 1), 1, Side::Sell,
+                                                OrderType::Limit, 1001, 10,
+                                                static_cast<TimestampNs>(i + 1)});
     }
     state.ResumeTiming();
     for (std::int64_t i = 0; i < state.range(0); ++i) {
@@ -99,11 +99,11 @@ void BM_MarketCrossMultipleLevels(benchmark::State& state) {
     for (std::int64_t i = 0; i < state.range(0); ++i) {
       MatchingEngine engine(1);
       const ClientOrderId base = static_cast<ClientOrderId>(i * 10 + 1);
-      engine.submit_order(
+      (void)engine.submit_order(
           NewOrderRequest{base, 1, Side::Sell, OrderType::Limit, 1001, 10, 1});
-      engine.submit_order(
+      (void)engine.submit_order(
           NewOrderRequest{base + 1U, 1, Side::Sell, OrderType::Limit, 1002, 10, 2});
-      engine.submit_order(
+      (void)engine.submit_order(
           NewOrderRequest{base + 2U, 1, Side::Sell, OrderType::Limit, 1003, 10, 3});
       const auto reports = engine.submit_order(
           NewOrderRequest{base + 3U, 1, Side::Buy, OrderType::Market, 0, 30, 4});
@@ -118,8 +118,8 @@ void BM_L2SnapshotGeneration(benchmark::State& state) {
   OrderBook book(1);
   for (std::int64_t i = 0; i < 100; ++i) {
     const PriceTicks offset = static_cast<PriceTicks>(i);
-    book.add_order(make_order(static_cast<OrderId>(i + 1), Side::Buy, 1000 - offset, 10));
-    book.add_order(
+    (void)book.add_order(make_order(static_cast<OrderId>(i + 1), Side::Buy, 1000 - offset, 10));
+    (void)book.add_order(
         make_order(static_cast<OrderId>(i + 10'001), Side::Sell, 1001 + offset, 10));
   }
 

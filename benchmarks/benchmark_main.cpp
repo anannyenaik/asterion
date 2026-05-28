@@ -145,7 +145,7 @@ BenchmarkResult benchmark_add_order() {
   return run_benchmark("add_order", kIterations, [&] {
     for (std::size_t i = 0; i < kIterations; ++i) {
       const OrderId order_id = static_cast<OrderId>(i + 1U);
-      book.add_order(make_order(order_id, Side::Buy, 1000, 10));
+      (void)book.add_order(make_order(order_id, Side::Buy, 1000, 10));
     }
     return book.checksum();
   });
@@ -156,13 +156,13 @@ BenchmarkResult benchmark_cancel_order() {
   OrderBook book(1);
   for (std::size_t i = 0; i < kIterations; ++i) {
     const OrderId order_id = static_cast<OrderId>(i + 1U);
-    book.add_order(make_order(order_id, Side::Sell, 1001, 10));
+    (void)book.add_order(make_order(order_id, Side::Sell, 1001, 10));
   }
 
   return run_benchmark("cancel_order", kIterations, [&] {
     for (std::size_t i = 0; i < kIterations; ++i) {
       const OrderId order_id = static_cast<OrderId>(i + 1U);
-      book.cancel_order(order_id);
+      (void)book.cancel_order(order_id);
     }
     return book.checksum();
   });
@@ -173,17 +173,17 @@ BenchmarkResult benchmark_replace_order() {
   OrderBook book(1);
   for (std::size_t i = 0; i < kIterations; ++i) {
     const OrderId order_id = static_cast<OrderId>(i + 1U);
-    book.add_order(make_order(order_id, Side::Buy, 999, 10));
+    (void)book.add_order(make_order(order_id, Side::Buy, 999, 10));
   }
-  book.add_order(make_order(900'000, Side::Buy, 1000, 1));
-  book.add_order(make_order(900'001, Side::Buy, 1001, 1));
+  (void)book.add_order(make_order(900'000, Side::Buy, 1000, 1));
+  (void)book.add_order(make_order(900'001, Side::Buy, 1001, 1));
 
   return run_benchmark("replace_order", kIterations, [&] {
     for (std::size_t i = 0; i < kIterations; ++i) {
       const OrderId order_id = static_cast<OrderId>(i + 1U);
       const PriceTicks new_price = 1000 + static_cast<PriceTicks>(i % 2U);
-      book.replace_order(order_id, new_price, 11, static_cast<TimestampNs>(i + 1U),
-                         static_cast<SequenceNumber>(i + 1U));
+      (void)book.replace_order(order_id, new_price, 11, static_cast<TimestampNs>(i + 1U),
+                               static_cast<SequenceNumber>(i + 1U));
     }
     return book.checksum();
   });
@@ -194,8 +194,8 @@ BenchmarkResult benchmark_market_cross_one_level() {
   MatchingEngine engine(1);
   for (std::size_t i = 0; i < kIterations; ++i) {
     const ClientOrderId client_order_id = static_cast<ClientOrderId>(i + 1U);
-    engine.submit_order(NewOrderRequest{client_order_id, 1, Side::Sell, OrderType::Limit, 1001,
-                                        10, static_cast<TimestampNs>(i + 1U)});
+    (void)engine.submit_order(NewOrderRequest{client_order_id, 1, Side::Sell, OrderType::Limit,
+                                              1001, 10, static_cast<TimestampNs>(i + 1U)});
   }
 
   return run_benchmark("market_order_cross_one_level", kIterations, [&] {
@@ -218,11 +218,11 @@ BenchmarkResult benchmark_market_cross_multiple_levels() {
     for (std::size_t i = 0; i < kIterations; ++i) {
       MatchingEngine engine(1);
       const ClientOrderId base = static_cast<ClientOrderId>(i * 10U + 1U);
-      engine.submit_order(
+      (void)engine.submit_order(
           NewOrderRequest{base, 1, Side::Sell, OrderType::Limit, 1001, 10, 1});
-      engine.submit_order(
+      (void)engine.submit_order(
           NewOrderRequest{base + 1U, 1, Side::Sell, OrderType::Limit, 1002, 10, 2});
-      engine.submit_order(
+      (void)engine.submit_order(
           NewOrderRequest{base + 2U, 1, Side::Sell, OrderType::Limit, 1003, 10, 3});
       const auto reports = engine.submit_order(
           NewOrderRequest{base + 3U, 1, Side::Buy, OrderType::Market, 0, 30, 4});
@@ -241,8 +241,8 @@ BenchmarkResult benchmark_l2_snapshot() {
     const OrderId bid_id = static_cast<OrderId>(i + 1U);
     const OrderId ask_id = static_cast<OrderId>(i + 10'001U);
     const PriceTicks offset = static_cast<PriceTicks>(i);
-    book.add_order(make_order(bid_id, Side::Buy, 1000 - offset, 10));
-    book.add_order(make_order(ask_id, Side::Sell, 1001 + offset, 10));
+    (void)book.add_order(make_order(bid_id, Side::Buy, 1000 - offset, 10));
+    (void)book.add_order(make_order(ask_id, Side::Sell, 1001 + offset, 10));
   }
 
   return run_benchmark("l2_snapshot_generation", kIterations, [&] {
