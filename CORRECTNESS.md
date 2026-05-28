@@ -66,7 +66,8 @@ checksum summaries per symbol. Per-symbol sequence validation is disabled by def
 recorded multi-symbol feeds use one global sequence stream; it can be enabled explicitly to diagnose
 symbol-local gaps. The opt-in shared replay path routes the same interleaved stream through
 `MultiSymbolBookSet` and is tested for parity with grouped replay on deterministic generated
-multi-symbol streams, including combined book checksums and strict sequence diagnostics.
+multi-symbol streams, fixed-seed fuzz streams, malformed multi-symbol diagnostics, snapshot bursts,
+cancels and replaces, including combined book checksums and strict sequence diagnostics.
 
 ## Inference Accounting
 
@@ -100,7 +101,8 @@ deterministic and the incremental checksum matches a recomputation over the reco
 assert the audit entry fields (deciding check name, decision, reject reason, limit and observed
 values) for duplicate-ID, kill-switch, stale-data, notional, quantity and position rejections.
 Persistent JSONL audit logging is tested as append-only output with the cumulative deterministic
-checksum in each entry.
+checksum in each entry. Rotated JSONL logs are verified by recomputing deterministic checksums
+across every rotated file.
 
 ## Opt-In Risk Controls
 
@@ -111,9 +113,14 @@ manual `release_order`; message-rate limiting throttles a client after its fixed
 sliding-window budget and resets/expires deterministically, with independent per-client budgets;
 self-trade prevention rejects a client crossing its own resting order (including market orders) but
 allows a different client. Cancel-on-kill tests assert tracked simulated working exposure is released
-and later new orders are rejected. A determinism test asserts the audit checksum is reproducible and
-matches a recomputation, a compatibility test asserts the default gateway leaves all three controls
-disabled, and an allocation test asserts the warm self-trade-prevention reject path does not allocate.
+and later new orders are rejected. Cancel-on-disconnect tests assert tracked simulated working
+exposure is released, new orders reject while disconnected under the default policy, and an explicit
+allow policy is honored. Replace-risk tests cover accepted replacements, duplicate command IDs,
+partial fills before replacement, working-exposure deltas, quantity/notional/price-band/position
+rejects, self-trade rejects and audit checksums. A determinism test asserts the audit checksum is
+reproducible and matches a recomputation, a compatibility test asserts the default gateway leaves all
+three controls disabled, and an allocation test asserts the warm self-trade-prevention reject path
+does not allocate.
 
 ## Inference Backend Selection
 
@@ -121,6 +128,8 @@ Backend selection is tested without the optional ONNX dependency: the Linear bac
 scores deterministically; an ONNX request falls back to `LinearModel` (when ONNX Runtime is not
 compiled in) with an honest detail string; and the selected backend integrates with feature
 extraction and measured latency accounting, producing the same score as a reference `LinearModel`.
+When ONNX Runtime is genuinely compiled in, a tiny checked-in identity fixture is decoded and loaded
+to assert active backend selection, deterministic scoring and measured latency accounting.
 
 ## Multi-Symbol Groundwork
 
@@ -166,7 +175,10 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - unknown replace;
 - sequence gap;
 - timestamp reversal;
-- malformed and truncated binary input;
+- malformed CSV input;
+- invalid binary headers, enum values and truncated binary input;
+- invalid snapshot payloads;
+- oversized CSV fields;
 - crossed book state;
 - CSV-to-binary replay equivalence;
 - aggregate per-symbol replay summaries;
@@ -180,7 +192,9 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - execution-report-driven risk exposure release;
 - fixed-window and sliding-window rate limits;
 - kill switch rejection and simulated cancel-on-kill exposure release;
-- persistent JSONL risk audit logging;
+- disconnect rejection and simulated cancel-on-disconnect exposure release;
+- replace-order risk rechecks;
+- persistent JSONL risk audit logging, rotation and verification;
 - deterministic matching report order.
 
 Large fuzzing campaigns and exchange-specific malformed binary feeds remain out of scope for the current test suite.

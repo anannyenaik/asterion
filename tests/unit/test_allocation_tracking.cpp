@@ -21,11 +21,18 @@ Order make_order(OrderId order_id, Side side, PriceTicks price, Quantity quantit
 } // namespace
 
 TEST_CASE("Allocation tracker records standard allocations", "[alloc]") {
+#if defined(_WIN32)
+  reset_allocation_counters();
+  void* pointer = ::operator new(sizeof(int) * 16U);
+  ::operator delete(pointer);
+  const AllocationSnapshot snapshot = allocation_snapshot();
+#else
   std::vector<int> values;
 
   reset_allocation_counters();
   values.reserve(16);
   const AllocationSnapshot snapshot = allocation_snapshot();
+#endif
 
   REQUIRE(snapshot.allocations >= 1);
   REQUIRE(snapshot.bytes_allocated >= sizeof(int) * 16U);

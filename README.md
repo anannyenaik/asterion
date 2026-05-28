@@ -18,8 +18,8 @@ It does **not** claim to be a real exchange, a live trading system, or a true pr
 - Structured execution reports with deterministic report checksums.
 - Pre-trade risk gateway with quantity, notional, position, exposure, price-band, stale-data,
   duplicate-ID and kill-switch checks, plus opt-in open-order (working) exposure, per-client
-  fixed/sliding-window message-rate limiting, self-trade prevention, cancel-on-kill exposure
-  release and persistent audit logging.
+  fixed/sliding-window message-rate limiting, self-trade prevention, replace-order rechecks,
+  simulated cancel-on-kill/cancel-on-disconnect exposure release and persistent audit logging.
 - Golden trace tests and randomized invariant tests.
 - Measured inference infrastructure through `Model`, `LinearModel`, `FeatureExtractor`,
   timeout/late-signal policy hooks and a documented TorchScript-style placeholder interface.
@@ -80,7 +80,7 @@ CSV / binary / synthetic events
   detection and stable JSON output.
 - Pre-trade risk audit trail recording accepted/rejected decisions, automatic working-exposure
   release from execution reports, optional append-only text/JSONL audit logs and a deterministic
-  audit checksum.
+  audit checksum, with opt-in file rotation and verification tooling.
 - Offline benchmark regression comparison and a replay/benchmark inspection CLI with readable
   text and JSON output.
 - GitHub Actions CI for Linux build and test.
@@ -158,7 +158,7 @@ PYTHONPATH=build/python python scripts/convert_event_log.py --input data/samples
 Replay reports deterministic final-book, execution-report, event-log and diagnostics checksums.
 Diagnostics include event index, sequence number, symbol, severity and reason for sequence gaps,
 timestamp reversals, duplicate order IDs, unknown cancels/replaces, invalid prices or quantities,
-and invalid/crossed book states.
+invalid/crossed book states and malformed CSV/binary log diagnostics.
 
 Snapshot events reconstruct book state. A snapshot block is framed in the shared event schema with
 the `flags` field: the begin marker (`kSnapshotBeginFlag`) clears the book, each Snapshot record that
@@ -175,6 +175,9 @@ counts, first/last sequence numbers, diagnostics and checksum summaries. An opt-
 stream through `MultiSymbolBookSet` in one pass and reports the same summary shape plus a combined
 book checksum. Tests assert parity with grouped replay for deterministic generated streams. Neither
 path implements cross-symbol matching.
+
+Deterministic shared-replay fuzz summaries are exposed through Python and the inspection CLI. They
+are parity fixtures for the opt-in shared path; grouped replay remains the default.
 
 ## Python Usage
 
@@ -248,12 +251,15 @@ PYTHONPATH=build/python python scripts/asterion_inspect.py replay-checksums --in
 PYTHONPATH=build/python python scripts/asterion_inspect.py diagnostics --input data/samples/sample_replay.csv
 PYTHONPATH=build/python python scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --shared --json
+PYTHONPATH=build/python python scripts/asterion_inspect.py shared-fuzz --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py risk-exposure --input data/samples/sample_risk_flow.json --json
+PYTHONPATH=build/python python scripts/asterion_inspect.py risk-exposure --input data/samples/sample_disconnect_replace_risk.json --json
 
 # Offline JSON inspection (no compiled extension required).
 python scripts/asterion_inspect.py benchmark-summary --input data/samples/sample_benchmark_baseline.json
 python scripts/asterion_inspect.py latency-budget --input data/samples/sample_latency_budget.json --json
 python scripts/asterion_inspect.py audit-summary --input data/samples/sample_risk_audit.jsonl --json
+python scripts/asterion_inspect.py audit-verify --input data/samples/sample_risk_audit.jsonl --json
 python scripts/asterion_inspect.py rate-limit-mode --mode sliding-window --json
 ```
 
@@ -299,10 +305,10 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_USE_ONNXRUNTI
 ```
 
 The ONNX backend is optional and is not exercised by default CI; it requires ONNX Runtime to be
-installed for a real ONNX backend to load. Default CI remains dependency-free. The `ci` workflow has
-a manual `onnx_backend` input that configures with `-DASTERION_USE_ONNXRUNTIME=ON` and verifies the
-same deterministic backend selection tests; no checked-in ONNX fixture is used because the default
-lane does not install ONNX Runtime.
+installed for a real ONNX backend to load. Default CI remains dependency-free. A tiny checked-in
+identity-model fixture is decoded only by tests compiled with `ASTERION_HAVE_ONNXRUNTIME`; otherwise
+the fallback path is tested. The `ci` workflow has a manual `onnx_backend` input that configures with
+`-DASTERION_USE_ONNXRUNTIME=ON` and verifies the deterministic backend-selection lane.
 
 ## Risk Audit Trail
 
@@ -311,7 +317,8 @@ client order ID, symbol, deciding check name, decision, reject reason and the re
 observed values. The trail exposes a deterministic checksum for reproducible comparison across runs.
 Recording is opt-in (`set_audit_enabled(true)` or `open_audit_log(...)`) so the pre-trade hot path
 stays allocation-free by default. Persistent audit logs are append-only text or JSONL and include
-the deterministic audit checksum; they do not add a wall-clock timestamp to that checksum. See
+the deterministic audit checksum; they do not add a wall-clock timestamp to that checksum. Rotation
+by record count or byte size and checksum verification across rotated files are opt-in. See
 [RISK.md](RISK.md).
 
 ## Honesty And Limitations

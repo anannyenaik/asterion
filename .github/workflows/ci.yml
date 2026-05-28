@@ -63,9 +63,12 @@ jobs:
           python3 scripts/asterion_inspect.py diagnostics --input data/samples/sample_replay.csv --json
           python3 scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --json
           python3 scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --shared --json
+          python3 scripts/asterion_inspect.py shared-fuzz --seed 20260528 --events 32 --symbols 3 --json
           python3 scripts/asterion_inspect.py audit-summary --input data/samples/sample_risk_audit.jsonl --json
+          python3 scripts/asterion_inspect.py audit-verify --input data/samples/sample_risk_audit.jsonl --json
           python3 scripts/asterion_inspect.py rate-limit-mode --mode sliding-window --json
           python3 scripts/asterion_inspect.py risk-exposure --input data/samples/sample_risk_flow.json --json
+          python3 scripts/asterion_inspect.py risk-exposure --input data/samples/sample_disconnect_replace_risk.json --json
           python3 scripts/asterion_inspect.py benchmark-summary --input data/samples/sample_benchmark_baseline.json --json
           python3 scripts/asterion_inspect.py benchmark-compare \
             --baseline data/samples/sample_benchmark_baseline.json \

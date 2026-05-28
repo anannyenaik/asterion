@@ -38,7 +38,8 @@ enum class RejectReason : std::uint8_t {
   InternalError = 13,
   MaxOpenOrderQuantity = 14,
   MessageRateLimit = 15,
-  SelfTradePrevention = 16
+  SelfTradePrevention = 16,
+  Disconnected = 17
 };
 
 struct ExecutionReport {

@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <iosfwd>
 #include <span>
 #include <string>
@@ -33,13 +34,27 @@ struct RiskAuditEntry {
 
 enum class RiskAuditLogFormat : std::uint8_t { Text = 1, Jsonl = 2 };
 
+struct RiskAuditVerificationResult {
+  bool valid{true};
+  std::size_t files_checked{0};
+  std::size_t entries_checked{0};
+  std::uint64_t final_checksum{kFnvOffsetBasis};
+  std::string error;
+};
+
 [[nodiscard]] std::string_view to_string(RiskAuditLogFormat format) noexcept;
 [[nodiscard]] std::uint64_t append_to_checksum(std::uint64_t seed,
                                                const RiskAuditEntry& entry) noexcept;
 [[nodiscard]] std::uint64_t checksum_risk_audit(std::span<const RiskAuditEntry> entries) noexcept;
+[[nodiscard]] std::string format_risk_audit_log_entry(
+    const RiskAuditEntry& entry, std::uint64_t trail_checksum,
+    RiskAuditLogFormat format = RiskAuditLogFormat::Jsonl);
 void append_risk_audit_log_entry(std::ostream& output, const RiskAuditEntry& entry,
                                  std::uint64_t trail_checksum,
                                  RiskAuditLogFormat format = RiskAuditLogFormat::Jsonl);
+[[nodiscard]] RiskAuditVerificationResult verify_risk_audit_logs(
+    std::span<const std::filesystem::path> paths,
+    RiskAuditLogFormat format = RiskAuditLogFormat::Jsonl);
 
 class RiskAuditTrail {
 public:

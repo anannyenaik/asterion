@@ -176,6 +176,13 @@ if(ASTERION_BUILD_TESTS)
     endif()
   endif()
 
+  if(MINGW)
+    # MinGW's dynamic libstdc++ keeps its own operator new/delete definitions in
+    # the runtime DLL, which bypasses the allocation tracker replacement used by
+    # the tests. Static libstdc++ keeps allocation accounting meaningful locally.
+    target_link_options(asterion_tests PRIVATE -static-libstdc++ -static-libgcc)
+  endif()
+
   add_test(NAME asterion_tests COMMAND asterion_tests)
 endif()
 
@@ -239,5 +246,12 @@ if(ASTERION_BUILD_BENCHMARKS)
                                                              benchmark::benchmark)
     target_compile_definitions(
       asterion_google_benchmarks PRIVATE ASTERION_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+  endif()
+
+  if(MINGW)
+    target_link_options(asterion_benchmarks PRIVATE -static-libstdc++ -static-libgcc)
+    if(TARGET asterion_google_benchmarks)
+      target_link_options(asterion_google_benchmarks PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
   endif()
 endif()

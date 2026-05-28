@@ -84,6 +84,8 @@ std::string_view to_string(RejectReason value) noexcept {
     return "MessageRateLimit";
   case RejectReason::SelfTradePrevention:
     return "SelfTradePrevention";
+  case RejectReason::Disconnected:
+    return "Disconnected";
   }
   return "Unknown";
 }

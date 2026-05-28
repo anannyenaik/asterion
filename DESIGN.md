@@ -70,8 +70,9 @@ grouping events by symbol and running that same engine per group, reporting per-
 first/last sequence, diagnostics and checksum summaries. `MultiSymbolBookSet` now also backs an
 opt-in shared replay path that routes an interleaved stream in a single pass, preserves the same
 summary shape and exposes a deterministic combined book checksum. Tests compare the shared path to
-the grouped path on deterministic generated streams. It is a routing/replay surface, not a
-cross-symbol matching engine, and grouped replay remains the default.
+the grouped path on deterministic generated streams, fixed-seed fuzz cases and malformed
+multi-symbol streams. It is a routing/replay surface, not a cross-symbol matching engine, and
+grouped replay remains the default.
 
 ### L3 Internally, L2 Externally
 
@@ -85,10 +86,14 @@ quantity, notional, position, gross exposure, price band, duplicate ID, stale da
 Additional controls are opt-in and disabled by default so the existing hot path is unchanged:
 open-order (working) exposure per symbol, per-client fixed or sliding-window message-rate limiting
 and self-trade prevention against a client's own resting orders. Accepted resting orders can be
-resized or released from execution reports, with manual `release_order` kept as a fallback. Enabling
-the kill switch cancels tracked simulated working exposure and blocks new orders. Only the reject
-paths that matter for the hot path stay allocation-free; working-order and self-trade state is built
-only when those controls are enabled.
+resized or released from execution reports, with manual `release_order` kept as a fallback.
+Replace-order risk uses the tracked resting order and exchange-order mapping to re-check quantity,
+notional, price band, working exposure delta, position exposure, duplicate command IDs and
+self-trade risk before mutating tracked exposure. Enabling the kill switch cancels tracked simulated
+working exposure and blocks new orders. Simulated disconnect state is also explicit:
+cancel-on-disconnect is opt-in, and the disconnected new-order policy is configured rather than
+implied. Only the reject paths that matter for the hot path stay allocation-free; working-order and
+self-trade state is built only when those controls are enabled.
 
 ### Inference In The Measured Path
 
@@ -105,7 +110,8 @@ optional ONNX Runtime backend (`OnnxModel`) is compiled only behind the `ASTERIO
 CMake flag when the dependency is found; otherwise an ONNX request degrades to `LinearModel` with an
 honest detail string. The dependency is never required by default CI; a manual CI input configures
 with `-DASTERION_USE_ONNXRUNTIME=ON` to exercise the build flag and deterministic fallback path.
-The compile-time `kOnnxRuntimeAvailable` constant lets tests branch on the build configuration.
+The compile-time `kOnnxRuntimeAvailable` constant lets tests branch on the build configuration. A
+tiny identity ONNX fixture is checked in as base64 and decoded only in real ONNX Runtime test builds.
 
 ### Latency Budget Accounting
 
@@ -120,10 +126,11 @@ deterministic config checksum but never claims the measured nanoseconds are port
 
 Each pre-trade decision is appended to a `RiskAuditTrail` with the deciding check name, decision,
 reject reason and the relevant limit and observed values. Optional append-only text/JSONL logging
-writes the same entries plus the cumulative deterministic checksum. Entries depend only on the
-order flow and configured limits, not on wall-clock time, so the trail can be compared across runs
-and machines - the same auditability property the book and execution-report checksums already
-provide.
+writes the same entries plus the cumulative deterministic checksum. Rotation by record count or byte
+size is opt-in and uses deterministic file naming. Verification tooling recomputes the checksum
+across one or more audit files, including rotated files. Entries depend only on the order flow and
+configured limits, not on wall-clock time, so the trail can be compared across runs and machines -
+the same auditability property the book and execution-report checksums already provide.
 
 ### Offline Regression Tooling
 

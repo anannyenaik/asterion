@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SAMPLES = ROOT / "data" / "samples"
 CLI = ROOT / "scripts" / "asterion_inspect.py"
@@ -147,6 +149,29 @@ def test_audit_summary_json() -> None:
     assert payload["accepted_count"] == 1
     assert payload["rejected_count"] == 1
     assert payload["check_counts"]["accepted"] == 1
+
+
+def test_audit_verify_json() -> None:
+    result = _run(
+        "audit-verify",
+        "--input",
+        str(SAMPLES / "sample_risk_audit.jsonl"),
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["valid"] is True
+    assert payload["entries_checked"] == 2
+    assert payload["final_checksum"] == 18204584603026375655
+
+
+def test_shared_fuzz_cli_json() -> None:
+    pytest.importorskip("asterion")
+    result = _run("shared-fuzz", "--seed", "20260528", "--events", "32", "--symbols", "3", "--json")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["case_count"] == 1
+    assert payload["mismatch_count"] == 0
 
 
 def test_rate_limit_mode_json() -> None:

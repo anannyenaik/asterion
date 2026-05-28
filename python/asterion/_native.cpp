@@ -112,11 +112,16 @@ PYBIND11_MODULE(_native, module) {
       .value("InternalError", asterion::RejectReason::InternalError)
       .value("MaxOpenOrderQuantity", asterion::RejectReason::MaxOpenOrderQuantity)
       .value("MessageRateLimit", asterion::RejectReason::MessageRateLimit)
-      .value("SelfTradePrevention", asterion::RejectReason::SelfTradePrevention);
+      .value("SelfTradePrevention", asterion::RejectReason::SelfTradePrevention)
+      .value("Disconnected", asterion::RejectReason::Disconnected);
 
   py::enum_<asterion::RateLimitMode>(module, "RateLimitMode")
       .value("FixedWindow", asterion::RateLimitMode::FixedWindow)
       .value("SlidingWindow", asterion::RateLimitMode::SlidingWindow);
+
+  py::enum_<asterion::DisconnectOrderPolicy>(module, "DisconnectOrderPolicy")
+      .value("RejectNewOrders", asterion::DisconnectOrderPolicy::RejectNewOrders)
+      .value("AllowNewOrders", asterion::DisconnectOrderPolicy::AllowNewOrders);
 
   py::enum_<asterion::RiskAuditLogFormat>(module, "RiskAuditLogFormat")
       .value("Text", asterion::RiskAuditLogFormat::Text)
@@ -357,6 +362,14 @@ PYBIND11_MODULE(_native, module) {
       .def_readwrite("timestamp_ns", &asterion::NewOrderRequest::timestamp_ns)
       .def_readwrite("client_id", &asterion::NewOrderRequest::client_id);
 
+  py::class_<asterion::ReplaceOrderRequest>(module, "ReplaceOrderRequest")
+      .def(py::init<>())
+      .def_readwrite("client_order_id", &asterion::ReplaceOrderRequest::client_order_id)
+      .def_readwrite("exchange_order_id", &asterion::ReplaceOrderRequest::exchange_order_id)
+      .def_readwrite("new_price_ticks", &asterion::ReplaceOrderRequest::new_price_ticks)
+      .def_readwrite("new_quantity", &asterion::ReplaceOrderRequest::new_quantity)
+      .def_readwrite("timestamp_ns", &asterion::ReplaceOrderRequest::timestamp_ns);
+
   py::class_<asterion::RiskLimits>(module, "RiskLimits")
       .def(py::init<>())
       .def_readwrite("max_order_quantity", &asterion::RiskLimits::max_order_quantity)
@@ -374,7 +387,10 @@ PYBIND11_MODULE(_native, module) {
       .def_readwrite("rate_window_ns", &asterion::RiskLimits::rate_window_ns)
       .def_readwrite("rate_limit_mode", &asterion::RiskLimits::rate_limit_mode)
       .def_readwrite("enable_self_trade_prevention",
-                     &asterion::RiskLimits::enable_self_trade_prevention);
+                     &asterion::RiskLimits::enable_self_trade_prevention)
+      .def_readwrite("cancel_on_disconnect", &asterion::RiskLimits::cancel_on_disconnect)
+      .def_readwrite("disconnect_order_policy",
+                     &asterion::RiskLimits::disconnect_order_policy);
 
   py::class_<asterion::RiskResult>(module, "RiskResult")
       .def_readwrite("accepted", &asterion::RiskResult::accepted)
@@ -385,7 +401,13 @@ PYBIND11_MODULE(_native, module) {
       .def_readwrite("working_quantity", &asterion::RiskExposureSnapshot::working_quantity)
       .def_readwrite("working_order_count", &asterion::RiskExposureSnapshot::working_order_count)
       .def_readwrite("kill_switch_enabled", &asterion::RiskExposureSnapshot::kill_switch_enabled)
+      .def_readwrite("connected", &asterion::RiskExposureSnapshot::connected)
+      .def_readwrite("disconnect_count", &asterion::RiskExposureSnapshot::disconnect_count)
+      .def_readwrite("disconnect_cancel_count",
+                     &asterion::RiskExposureSnapshot::disconnect_cancel_count)
       .def_readwrite("rate_limit_mode", &asterion::RiskExposureSnapshot::rate_limit_mode)
+      .def_readwrite("disconnect_order_policy",
+                     &asterion::RiskExposureSnapshot::disconnect_order_policy)
       .def_readwrite("audit_entry_count", &asterion::RiskExposureSnapshot::audit_entry_count)
       .def_readwrite("audit_checksum", &asterion::RiskExposureSnapshot::audit_checksum);
 
@@ -409,6 +431,13 @@ PYBIND11_MODULE(_native, module) {
       .def("accepted_count", &asterion::RiskAuditTrail::accepted_count)
       .def("rejected_count", &asterion::RiskAuditTrail::rejected_count);
 
+  py::class_<asterion::RiskAuditVerificationResult>(module, "RiskAuditVerificationResult")
+      .def_readwrite("valid", &asterion::RiskAuditVerificationResult::valid)
+      .def_readwrite("files_checked", &asterion::RiskAuditVerificationResult::files_checked)
+      .def_readwrite("entries_checked", &asterion::RiskAuditVerificationResult::entries_checked)
+      .def_readwrite("final_checksum", &asterion::RiskAuditVerificationResult::final_checksum)
+      .def_readwrite("error", &asterion::RiskAuditVerificationResult::error);
+
   py::class_<asterion::RiskGateway>(module, "RiskGateway")
       .def(py::init<asterion::RiskLimits>(), py::arg_v("limits", asterion::RiskLimits{},
                                                        "RiskLimits()"))
@@ -420,10 +449,14 @@ PYBIND11_MODULE(_native, module) {
            py::arg("timestamp_ns") = 0)
       .def("disable_kill_switch", &asterion::RiskGateway::disable_kill_switch)
       .def("kill_switch_enabled", &asterion::RiskGateway::kill_switch_enabled)
+      .def("on_disconnect", &asterion::RiskGateway::on_disconnect)
+      .def("on_reconnect", &asterion::RiskGateway::on_reconnect, py::arg("timestamp_ns") = 0)
+      .def("connected", &asterion::RiskGateway::connected)
       .def("on_market_data", &asterion::RiskGateway::on_market_data)
       .def("set_position", &asterion::RiskGateway::set_position)
       .def("position", &asterion::RiskGateway::position)
       .def("check_new_order", &asterion::RiskGateway::check_new_order)
+      .def("check_replace_order", &asterion::RiskGateway::check_replace_order)
       .def("release_order", &asterion::RiskGateway::release_order)
       .def("on_execution_report", &asterion::RiskGateway::on_execution_report)
       .def("working_quantity", &asterion::RiskGateway::working_quantity)
@@ -434,8 +467,13 @@ PYBIND11_MODULE(_native, module) {
       .def("clear_audit", &asterion::RiskGateway::clear_audit)
       .def("open_audit_log", &asterion::RiskGateway::open_audit_log,
            py::arg("path"), py::arg("format") = asterion::RiskAuditLogFormat::Jsonl)
+      .def("open_rotating_audit_log", &asterion::RiskGateway::open_rotating_audit_log,
+           py::arg("path"), py::arg("format") = asterion::RiskAuditLogFormat::Jsonl,
+           py::arg("max_records_per_file") = 0, py::arg("max_bytes_per_file") = 0)
       .def("close_audit_log", &asterion::RiskGateway::close_audit_log)
-      .def("audit_log_enabled", &asterion::RiskGateway::audit_log_enabled);
+      .def("audit_log_enabled", &asterion::RiskGateway::audit_log_enabled)
+      .def("audit_log_paths", &asterion::RiskGateway::audit_log_paths,
+           py::return_value_policy::reference_internal);
 
   module.def("parse_event_log_format", &parse_format_or_throw);
   module.def("event_log_format_to_string",
@@ -447,6 +485,9 @@ PYBIND11_MODULE(_native, module) {
              [](asterion::Side side) { return std::string(asterion::to_string(side)); });
   module.def("rate_limit_mode_to_string", [](asterion::RateLimitMode mode) {
     return std::string(asterion::to_string(mode));
+  });
+  module.def("disconnect_order_policy_to_string", [](asterion::DisconnectOrderPolicy policy) {
+    return std::string(asterion::to_string(policy));
   });
   module.def("risk_audit_log_format_to_string", [](asterion::RiskAuditLogFormat format) {
     return std::string(asterion::to_string(format));
@@ -522,6 +563,12 @@ PYBIND11_MODULE(_native, module) {
              [](const std::vector<asterion::ExecutionReport>& reports) {
                return asterion::checksum_execution_reports(reports);
              });
+  module.def("verify_risk_audit_logs",
+             [](const std::vector<std::filesystem::path>& paths,
+                asterion::RiskAuditLogFormat format) {
+               return asterion::verify_risk_audit_logs(paths, format);
+             },
+             py::arg("paths"), py::arg("format") = asterion::RiskAuditLogFormat::Jsonl);
 
   module.def("replay_by_symbol",
              [](const std::vector<asterion::MarketDataEvent>& events,

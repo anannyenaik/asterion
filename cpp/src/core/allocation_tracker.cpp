@@ -4,7 +4,7 @@
 #include <cstdlib>
 #include <new>
 
-#if defined(_MSC_VER)
+#if defined(_WIN32)
 #include <malloc.h>
 #endif
 
@@ -91,7 +91,7 @@ namespace {
   const std::size_t actual_size = size == 0 ? 1 : size;
   const std::size_t alignment_value = static_cast<std::size_t>(alignment);
   void* pointer = nullptr;
-#if defined(_MSC_VER)
+#if defined(_WIN32)
   pointer = _aligned_malloc(actual_size, alignment_value);
   if (pointer == nullptr) {
     throw std::bad_alloc();
@@ -106,7 +106,7 @@ namespace {
 }
 
 void deallocate_aligned(void* pointer) noexcept {
-#if defined(_MSC_VER)
+#if defined(_WIN32)
   _aligned_free(pointer);
 #else
   std::free(pointer);

@@ -66,6 +66,11 @@ std::filesystem::path temp_audit_path() {
          ("asterion_risk_audit_" + std::to_string(stamp) + ".jsonl");
 }
 
+ReplaceOrderRequest replace_request(ClientOrderId client_order_id, OrderId exchange_order_id,
+                                    PriceTicks price, Quantity quantity, TimestampNs now_ns) {
+  return ReplaceOrderRequest{client_order_id, exchange_order_id, price, quantity, now_ns};
+}
+
 } // namespace
 
 TEST_CASE("Working-order exposure limit rejects and clears on release", "[risk][working]") {
@@ -252,6 +257,139 @@ TEST_CASE("Kill switch cancels tracked working exposure and blocks new orders",
   REQUIRE(rejected.reject_reason == RejectReason::KillSwitch);
 }
 
+TEST_CASE("Disconnect simulation cancels tracked exposure and blocks new orders",
+          "[risk][disconnect]") {
+  RiskLimits limits;
+  limits.max_open_order_quantity = 500;
+  limits.cancel_on_disconnect = true;
+  RiskGateway risk(limits);
+  risk.set_audit_enabled(true);
+  risk.on_market_data(1, 1000, 0);
+
+  REQUIRE(risk.check_new_order(order(1, Side::Buy, 1000, 100, 10, 7), 10).accepted);
+  REQUIRE(risk.check_new_order(order(2, Side::Sell, 1001, 80, 11, 7), 11).accepted);
+  REQUIRE(risk.working_quantity(1) == 180);
+
+  risk.on_disconnect(20);
+  const RiskExposureSnapshot disconnected = risk.exposure_snapshot();
+  REQUIRE_FALSE(disconnected.connected);
+  REQUIRE(disconnected.disconnect_count == 1);
+  REQUIRE(disconnected.disconnect_cancel_count == 2);
+  REQUIRE(disconnected.working_order_count == 0);
+  REQUIRE(risk.working_quantity(1) == 0);
+
+  REQUIRE(risk.audit().entries()[2].check_name == "disconnect_cancel");
+  REQUIRE(risk.audit().entries()[2].reject_reason == RejectReason::Disconnected);
+
+  const auto rejected = risk.check_new_order(order(3, Side::Buy, 1000, 10, 21, 7), 21);
+  REQUIRE_FALSE(rejected.accepted);
+  REQUIRE(rejected.reject_reason == RejectReason::Disconnected);
+  REQUIRE(risk.audit().entries().back().check_name == "disconnected");
+
+  risk.on_reconnect(30);
+  REQUIRE(risk.connected());
+  REQUIRE(risk.check_new_order(order(4, Side::Buy, 1000, 10, 31, 7), 31).accepted);
+}
+
+TEST_CASE("Disconnect policy can explicitly allow simulated new orders",
+          "[risk][disconnect]") {
+  RiskLimits limits;
+  limits.disconnect_order_policy = DisconnectOrderPolicy::AllowNewOrders;
+  RiskGateway risk(limits);
+  risk.on_market_data(1, 1000, 0);
+
+  risk.on_disconnect(10);
+  REQUIRE_FALSE(risk.connected());
+  REQUIRE(risk.check_new_order(order(1, Side::Buy, 1000, 10, 11, 7), 11).accepted);
+}
+
+TEST_CASE("Replace risk checks update working exposure by delta", "[risk][replace]") {
+  RiskLimits limits;
+  limits.max_open_order_quantity = 150;
+  limits.max_order_quantity = 200;
+  RiskGateway risk(limits);
+  risk.set_audit_enabled(true);
+  risk.on_market_data(1, 1000, 0);
+
+  REQUIRE(risk.check_new_order(order(1, Side::Buy, 1000, 100, 10, 7), 10).accepted);
+  risk.on_execution_report(report(1, Side::Buy, OrderStatus::New, ExecType::New, 0, 100, 1000, 10));
+
+  const auto accepted = risk.check_replace_order(replace_request(20, 10'001, 1002, 120, 20), 20);
+  REQUIRE(accepted.accepted);
+  REQUIRE(risk.working_quantity(1) == 120);
+  REQUIRE(risk.audit().entries().back().check_name == "replace_accepted");
+
+  const auto duplicate = risk.check_replace_order(replace_request(20, 10'001, 1002, 120, 21), 21);
+  REQUIRE_FALSE(duplicate.accepted);
+  REQUIRE(duplicate.reject_reason == RejectReason::DuplicateClientOrderId);
+
+  risk.on_execution_report(
+      report(1, Side::Buy, OrderStatus::PartiallyFilled, ExecType::Trade, 80, 40, 1002, 22));
+  REQUIRE(risk.working_quantity(1) == 40);
+  const auto delta_accept =
+      risk.check_replace_order(replace_request(21, 10'001, 1001, 140, 23), 23);
+  REQUIRE(delta_accept.accepted);
+  REQUIRE(risk.working_quantity(1) == 140);
+
+  const auto working_reject =
+      risk.check_replace_order(replace_request(22, 10'001, 1001, 151, 24), 24);
+  REQUIRE_FALSE(working_reject.accepted);
+  REQUIRE(working_reject.reject_reason == RejectReason::MaxOpenOrderQuantity);
+  REQUIRE(risk.working_quantity(1) == 140);
+  REQUIRE(risk.audit().checksum() == checksum_risk_audit(risk.audit().entries()));
+}
+
+TEST_CASE("Replace risk rejects quantity, price-band, notional and position breaches",
+          "[risk][replace]") {
+  RiskLimits limits;
+  limits.max_open_order_quantity = 500;
+  limits.max_order_quantity = 500;
+  limits.max_notional_ticks = 150'000;
+  limits.max_position_per_symbol = 100;
+  limits.price_band_ticks = 20;
+  RiskGateway risk(limits);
+  risk.on_market_data(1, 1000, 0);
+
+  REQUIRE(risk.check_new_order(order(1, Side::Buy, 1000, 10, 10, 7), 10).accepted);
+  risk.on_execution_report(report(1, Side::Buy, OrderStatus::New, ExecType::New, 0, 10, 1000, 10));
+  risk.set_position(1, 95);
+
+  const auto bad_qty = risk.check_replace_order(replace_request(20, 10'001, 1000, 0, 20), 20);
+  REQUIRE_FALSE(bad_qty.accepted);
+  REQUIRE(bad_qty.reject_reason == RejectReason::InvalidQuantity);
+
+  const auto band = risk.check_replace_order(replace_request(21, 10'001, 1050, 10, 21), 21);
+  REQUIRE_FALSE(band.accepted);
+  REQUIRE(band.reject_reason == RejectReason::PriceBand);
+
+  const auto notional =
+      risk.check_replace_order(replace_request(22, 10'001, 1000, 200, 22), 22);
+  REQUIRE_FALSE(notional.accepted);
+  REQUIRE(notional.reject_reason == RejectReason::MaxNotional);
+
+  const auto position =
+      risk.check_replace_order(replace_request(23, 10'001, 1000, 10, 23), 23);
+  REQUIRE_FALSE(position.accepted);
+  REQUIRE(position.reject_reason == RejectReason::MaxPosition);
+}
+
+TEST_CASE("Replace risk rejects self-trade on repricing", "[risk][replace][stp]") {
+  RiskLimits limits;
+  limits.max_open_order_quantity = 500;
+  limits.enable_self_trade_prevention = true;
+  RiskGateway risk(limits);
+  risk.on_market_data(1, 1000, 0);
+
+  REQUIRE(risk.check_new_order(order(1, Side::Buy, 999, 50, 10, 7), 10).accepted);
+  REQUIRE(risk.check_new_order(order(2, Side::Sell, 1002, 50, 11, 7), 11).accepted);
+  risk.on_execution_report(report(1, Side::Buy, OrderStatus::New, ExecType::New, 0, 50, 999, 10));
+
+  const auto rejected =
+      risk.check_replace_order(replace_request(20, 10'001, 1002, 50, 20), 20);
+  REQUIRE_FALSE(rejected.accepted);
+  REQUIRE(rejected.reject_reason == RejectReason::SelfTradePrevention);
+}
+
 TEST_CASE("Persistent risk audit log appends JSONL entries with deterministic checksum",
           "[risk][audit]") {
   const std::filesystem::path path = temp_audit_path();
@@ -272,7 +410,57 @@ TEST_CASE("Persistent risk audit log appends JSONL entries with deterministic ch
   REQUIRE(second.find("\"check_name\":\"duplicate_client_order_id\"") != std::string::npos);
   REQUIRE(second.find("\"checksum\":" + std::to_string(risk.audit().checksum())) !=
           std::string::npos);
+  input.close();
   std::filesystem::remove(path);
+}
+
+TEST_CASE("Rotated risk audit logs verify deterministic checksums", "[risk][audit]") {
+  const std::filesystem::path path = temp_audit_path();
+  RiskGateway risk;
+  REQUIRE(risk.open_rotating_audit_log(path, RiskAuditLogFormat::Jsonl, 2, 0));
+  risk.on_market_data(1, 1000, 0);
+
+  for (ClientOrderId id = 1; id <= 5; ++id) {
+    REQUIRE(risk.check_new_order(order(id, Side::Buy, 1000, 10,
+                                       static_cast<TimestampNs>(id), 7),
+                                 static_cast<TimestampNs>(id))
+                .accepted);
+  }
+  risk.close_audit_log();
+
+  const auto paths = risk.audit_log_paths();
+  REQUIRE(paths.size() == 3);
+  const RiskAuditVerificationResult verification =
+      verify_risk_audit_logs(paths, RiskAuditLogFormat::Jsonl);
+  INFO(verification.error);
+  REQUIRE(verification.valid);
+  REQUIRE(verification.files_checked == 3);
+  REQUIRE(verification.entries_checked == 5);
+  REQUIRE(verification.final_checksum == risk.audit().checksum());
+
+  for (const std::filesystem::path& audit_path : paths) {
+    std::filesystem::remove(audit_path);
+  }
+}
+
+TEST_CASE("Audit log rotation can use a byte threshold", "[risk][audit]") {
+  const std::filesystem::path path = temp_audit_path();
+  RiskGateway risk;
+  REQUIRE(risk.open_rotating_audit_log(path, RiskAuditLogFormat::Jsonl, 0, 64));
+  risk.on_market_data(1, 1000, 0);
+  REQUIRE(risk.check_new_order(order(1, Side::Buy, 1000, 10, 1, 7), 1).accepted);
+  REQUIRE(risk.check_new_order(order(2, Side::Buy, 1000, 10, 2, 7), 2).accepted);
+  risk.close_audit_log();
+
+  const auto paths = risk.audit_log_paths();
+  REQUIRE(paths.size() == 2);
+  const RiskAuditVerificationResult verification =
+      verify_risk_audit_logs(paths, RiskAuditLogFormat::Jsonl);
+  REQUIRE(verification.valid);
+  REQUIRE(verification.final_checksum == risk.audit().checksum());
+  for (const std::filesystem::path& audit_path : paths) {
+    std::filesystem::remove(audit_path);
+  }
 }
 
 TEST_CASE("Default gateway leaves the new controls disabled", "[risk][compat]") {

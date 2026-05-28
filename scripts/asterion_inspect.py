@@ -4,11 +4,11 @@
 Commands are split into two groups:
 
 * Offline commands (``benchmark-summary``, ``benchmark-compare``,
-  ``latency-budget``, ``audit-summary`` and ``rate-limit-mode``) read JSON/text
-  files only and need no compiled extension.
+  ``latency-budget``, ``audit-summary``, ``audit-verify`` and
+  ``rate-limit-mode``) read JSON/text files only and need no compiled extension.
 * Native-backed commands (``replay-checksums``, ``diagnostics``, ``per-symbol`` and
-  ``risk-exposure``) import the ``asterion`` bindings lazily and therefore require
-  the built C++ project on ``PYTHONPATH``.
+  ``shared-fuzz`` and ``risk-exposure``) import the ``asterion`` bindings lazily
+  and therefore require the built C++ project on ``PYTHONPATH``.
 
 Every command supports a readable text mode (default) and ``--json``.
 """
@@ -184,6 +184,122 @@ def _read_audit_entries(path: Path, requested_format: str) -> list[dict[str, Any
     return entries
 
 
+_FNV_OFFSET = 14695981039346656037
+_FNV_PRIME = 1099511628211
+_MASK64 = (1 << 64) - 1
+
+
+def _fnv_append_byte(seed: int, byte: int) -> int:
+    seed ^= byte & 0xFF
+    seed = (seed * _FNV_PRIME) & _MASK64
+    return seed
+
+
+def _checksum_append_int(seed: int, value: int, byte_count: int) -> int:
+    value &= (1 << (byte_count * 8)) - 1
+    for index in range(byte_count):
+        seed = _fnv_append_byte(seed, (value >> (index * 8)) & 0xFF)
+    return seed
+
+
+def _checksum_append_string(seed: int, value: str) -> int:
+    data = value.encode("utf-8")
+    seed = _checksum_append_int(seed, len(data), 8)
+    for byte in data:
+        seed = _fnv_append_byte(seed, byte)
+    return seed
+
+
+_SIDE_VALUES = {"None": 0, "Buy": 1, "Sell": 2}
+_REJECT_REASON_VALUES = {
+    "None": 0,
+    "InvalidQuantity": 1,
+    "InvalidPrice": 2,
+    "DuplicateClientOrderId": 3,
+    "UnknownOrder": 4,
+    "KillSwitch": 5,
+    "MaxOrderQuantity": 6,
+    "MaxNotional": 7,
+    "MaxPosition": 8,
+    "MaxGrossExposure": 9,
+    "PriceBand": 10,
+    "StaleMarketData": 11,
+    "Unsupported": 12,
+    "InternalError": 13,
+    "MaxOpenOrderQuantity": 14,
+    "MessageRateLimit": 15,
+    "SelfTradePrevention": 16,
+    "Disconnected": 17,
+}
+
+
+def _append_audit_entry_checksum(seed: int, entry: dict[str, Any]) -> int:
+    seed = _checksum_append_int(seed, int(entry["timestamp_ns"]), 8)
+    seed = _checksum_append_int(seed, int(entry["client_order_id"]), 8)
+    seed = _checksum_append_int(seed, int(entry["symbol_id"]), 4)
+    seed = _checksum_append_int(seed, _SIDE_VALUES[str(entry["side"])], 1)
+    seed = _checksum_append_int(seed, 1 if bool(entry["accepted"]) else 0, 1)
+    seed = _checksum_append_int(seed, _REJECT_REASON_VALUES[str(entry["reject_reason"])], 1)
+    seed = _checksum_append_string(seed, str(entry["check_name"]))
+    seed = _checksum_append_int(seed, int(entry["limit_value"]), 8)
+    seed = _checksum_append_int(seed, int(entry["observed_value"]), 8)
+    return seed
+
+
+def _verify_audit_logs(paths: list[Path], requested_format: str) -> dict[str, Any]:
+    checksum = _FNV_OFFSET
+    entries_checked = 0
+    for path in paths:
+        try:
+            entries = _read_audit_entries(path, requested_format)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            return {
+                "valid": False,
+                "files_checked": paths.index(path) + 1,
+                "entries_checked": entries_checked,
+                "final_checksum": checksum,
+                "error": f"{path}: {exc}",
+            }
+        for index, entry in enumerate(entries, start=1):
+            if "checksum" not in entry:
+                return {
+                    "valid": False,
+                    "files_checked": paths.index(path) + 1,
+                    "entries_checked": entries_checked,
+                    "final_checksum": checksum,
+                    "error": f"{path}:{index}: missing checksum",
+                }
+            try:
+                checksum = _append_audit_entry_checksum(checksum, entry)
+            except (KeyError, ValueError) as exc:
+                return {
+                    "valid": False,
+                    "files_checked": paths.index(path) + 1,
+                    "entries_checked": entries_checked,
+                    "final_checksum": checksum,
+                    "error": f"{path}:{index}: malformed audit fields: {exc}",
+                }
+            entries_checked += 1
+            if checksum != int(entry["checksum"]):
+                return {
+                    "valid": False,
+                    "files_checked": paths.index(path) + 1,
+                    "entries_checked": entries_checked,
+                    "final_checksum": checksum,
+                    "error": (
+                        f"{path}:{index}: checksum mismatch, expected {checksum}, "
+                        f"received {entry['checksum']}"
+                    ),
+                }
+    return {
+        "valid": True,
+        "files_checked": len(paths),
+        "entries_checked": entries_checked,
+        "final_checksum": checksum,
+        "error": "",
+    }
+
+
 def cmd_audit_summary(args: argparse.Namespace) -> int:
     entries = _read_audit_entries(args.input, args.format)
     check_counts: dict[str, int] = {}
@@ -211,6 +327,20 @@ def cmd_audit_summary(args: argparse.Namespace) -> int:
         lines.append(f"check={name} count={count}")
     _emit(payload, "\n".join(lines), args.json)
     return 0
+
+
+def cmd_audit_verify(args: argparse.Namespace) -> int:
+    payload = _verify_audit_logs(args.input, args.format)
+    lines = [
+        f"valid={str(payload['valid']).lower()}",
+        f"files_checked={payload['files_checked']}",
+        f"entries_checked={payload['entries_checked']}",
+        f"final_checksum={payload['final_checksum']}",
+    ]
+    if payload["error"]:
+        lines.append(f"error={payload['error']}")
+    _emit(payload, "\n".join(lines), args.json)
+    return 0 if payload["valid"] else 2
 
 
 # --------------------------------------------------------------------------- #
@@ -324,6 +454,31 @@ def cmd_per_symbol(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_shared_fuzz(args: argparse.Namespace) -> int:
+    import asterion  # noqa: PLC0415
+
+    payload = asterion.shared_replay_fuzz_summary(
+        seeds=args.seed,
+        event_count=args.events,
+        symbol_count=args.symbols,
+    )
+    lines = [
+        f"case_count={payload['case_count']}",
+        f"mismatch_count={payload['mismatch_count']}",
+        f"events_per_case={payload['events_per_case']}",
+        f"symbol_count={payload['symbol_count']}",
+    ]
+    for case in payload["cases"]:
+        lines.append(
+            f"seed={case['seed']} events={case['events']} "
+            f"grouped_checksum={case['grouped_aggregate_checksum']} "
+            f"shared_checksum={case['shared_aggregate_checksum']} "
+            f"matched={str(case['matched']).lower()}"
+        )
+    _emit(payload, "\n".join(lines), args.json)
+    return 0 if payload["mismatch_count"] == 0 else 2
+
+
 def _enum(module: Any, enum_name: str, value: str) -> Any:
     token = value.strip().replace("-", "_")
     lookup = {
@@ -348,6 +503,13 @@ def _enum(module: Any, enum_name: str, value: str) -> Any:
         "fixed_window": "FixedWindow",
         "slidingwindow": "SlidingWindow",
         "sliding_window": "SlidingWindow",
+        "rejectneworders": "RejectNewOrders",
+        "reject_new_orders": "RejectNewOrders",
+        "reject-new-orders": "RejectNewOrders",
+        "allowneworders": "AllowNewOrders",
+        "allow_new_orders": "AllowNewOrders",
+        "allow-new-orders": "AllowNewOrders",
+        "disconnected": "Disconnected",
     }
     attr = lookup.get(token.lower(), token)
     return getattr(getattr(module, enum_name), attr)
@@ -385,6 +547,16 @@ def _execution_report_from_dict(asterion: Any, item: dict[str, Any]) -> Any:
     return report
 
 
+def _replace_order_from_dict(asterion: Any, item: dict[str, Any]) -> Any:
+    request = asterion.ReplaceOrderRequest()
+    request.client_order_id = int(item["client_order_id"])
+    request.exchange_order_id = int(item["exchange_order_id"])
+    request.new_price_ticks = int(item.get("new_price_ticks", item.get("price_ticks", 0)))
+    request.new_quantity = int(item.get("new_quantity", item.get("quantity", 0)))
+    request.timestamp_ns = int(item.get("timestamp_ns", item.get("now_ns", 0)))
+    return request
+
+
 def cmd_risk_exposure(args: argparse.Namespace) -> int:
     import asterion  # noqa: PLC0415
 
@@ -393,6 +565,8 @@ def cmd_risk_exposure(args: argparse.Namespace) -> int:
     for key, value in fixture.get("limits", {}).items():
         if key == "rate_limit_mode":
             setattr(limits, key, _enum(asterion, "RateLimitMode", str(value)))
+        elif key == "disconnect_order_policy":
+            setattr(limits, key, _enum(asterion, "DisconnectOrderPolicy", str(value)))
         else:
             setattr(limits, key, value)
     risk = asterion.RiskGateway(limits)
@@ -413,6 +587,7 @@ def cmd_risk_exposure(args: argparse.Namespace) -> int:
         result = risk.check_new_order(request, int(item.get("now_ns", request.timestamp_ns)))
         decisions.append(
             {
+                "type": "new",
                 "client_order_id": request.client_order_id,
                 "accepted": result.accepted,
                 "reject_reason": str(result.reject_reason).split(".")[-1],
@@ -420,6 +595,22 @@ def cmd_risk_exposure(args: argparse.Namespace) -> int:
         )
     for item in fixture.get("execution_reports", []):
         risk.on_execution_report(_execution_report_from_dict(asterion, item))
+    for item in fixture.get("replaces", []):
+        request = _replace_order_from_dict(asterion, item)
+        result = risk.check_replace_order(request, int(item.get("now_ns", request.timestamp_ns)))
+        decisions.append(
+            {
+                "type": "replace",
+                "client_order_id": request.client_order_id,
+                "exchange_order_id": request.exchange_order_id,
+                "accepted": result.accepted,
+                "reject_reason": str(result.reject_reason).split(".")[-1],
+            }
+        )
+    if "disconnect_timestamp_ns" in fixture:
+        risk.on_disconnect(int(fixture["disconnect_timestamp_ns"]))
+    if "reconnect_timestamp_ns" in fixture:
+        risk.on_reconnect(int(fixture["reconnect_timestamp_ns"]))
     if "kill_switch_timestamp_ns" in fixture:
         risk.enable_kill_switch(int(fixture["kill_switch_timestamp_ns"]))
 
@@ -433,14 +624,24 @@ def cmd_risk_exposure(args: argparse.Namespace) -> int:
         },
         "working_order_count": snapshot.working_order_count,
         "kill_switch_enabled": snapshot.kill_switch_enabled,
+        "connected": snapshot.connected,
+        "disconnect_count": snapshot.disconnect_count,
+        "disconnect_cancel_count": snapshot.disconnect_cancel_count,
         "rate_limit_mode": asterion.rate_limit_mode_to_string(snapshot.rate_limit_mode),
+        "disconnect_order_policy": asterion.disconnect_order_policy_to_string(
+            snapshot.disconnect_order_policy
+        ),
         "audit_entry_count": snapshot.audit_entry_count,
         "audit_checksum": snapshot.audit_checksum,
     }
     lines = [
         f"working_order_count={payload['working_order_count']}",
         f"kill_switch_enabled={str(payload['kill_switch_enabled']).lower()}",
+        f"connected={str(payload['connected']).lower()}",
+        f"disconnect_count={payload['disconnect_count']}",
+        f"disconnect_cancel_count={payload['disconnect_cancel_count']}",
         f"rate_limit_mode={payload['rate_limit_mode']}",
+        f"disconnect_order_policy={payload['disconnect_order_policy']}",
         f"audit_entry_count={payload['audit_entry_count']}",
         f"audit_checksum={payload['audit_checksum']}",
     ]
@@ -480,6 +681,15 @@ def build_parser() -> argparse.ArgumentParser:
     per_symbol.add_argument("--json", action="store_true")
     per_symbol.set_defaults(func=cmd_per_symbol)
 
+    shared_fuzz = subparsers.add_parser(
+        "shared-fuzz", help="Run deterministic shared-vs-grouped replay fuzz summaries."
+    )
+    shared_fuzz.add_argument("--seed", type=int, nargs="+", default=[20260528, 20260529])
+    shared_fuzz.add_argument("--events", type=int, default=80)
+    shared_fuzz.add_argument("--symbols", type=int, default=4)
+    shared_fuzz.add_argument("--json", action="store_true")
+    shared_fuzz.set_defaults(func=cmd_shared_fuzz)
+
     risk_exposure = subparsers.add_parser(
         "risk-exposure", help="Run a small JSON risk flow and print exposure state."
     )
@@ -494,6 +704,14 @@ def build_parser() -> argparse.ArgumentParser:
     audit_summary.add_argument("--format", default="auto", choices=["auto", "jsonl", "text"])
     audit_summary.add_argument("--json", action="store_true")
     audit_summary.set_defaults(func=cmd_audit_summary)
+
+    audit_verify = subparsers.add_parser(
+        "audit-verify", help="Verify append-only risk audit log checksums."
+    )
+    audit_verify.add_argument("--input", required=True, nargs="+", type=Path)
+    audit_verify.add_argument("--format", default="auto", choices=["auto", "jsonl", "text"])
+    audit_verify.add_argument("--json", action="store_true")
+    audit_verify.set_defaults(func=cmd_audit_verify)
 
     rate_mode = subparsers.add_parser(
         "rate-limit-mode", help="Normalise a configured rate-limit mode."

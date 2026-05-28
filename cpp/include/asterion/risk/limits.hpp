@@ -8,6 +8,7 @@
 namespace asterion {
 
 enum class RateLimitMode : std::uint8_t { FixedWindow = 1, SlidingWindow = 2 };
+enum class DisconnectOrderPolicy : std::uint8_t { RejectNewOrders = 1, AllowNewOrders = 2 };
 
 [[nodiscard]] constexpr std::string_view to_string(RateLimitMode mode) noexcept {
   switch (mode) {
@@ -15,6 +16,16 @@ enum class RateLimitMode : std::uint8_t { FixedWindow = 1, SlidingWindow = 2 };
     return "fixed-window";
   case RateLimitMode::SlidingWindow:
     return "sliding-window";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view to_string(DisconnectOrderPolicy policy) noexcept {
+  switch (policy) {
+  case DisconnectOrderPolicy::RejectNewOrders:
+    return "reject-new-orders";
+  case DisconnectOrderPolicy::AllowNewOrders:
+    return "allow-new-orders";
   }
   return "unknown";
 }
@@ -37,6 +48,10 @@ struct RiskLimits {
   bool enable_self_trade_prevention{false};
   // Fixed-window remains the default for compatibility; sliding-window is opt-in.
   RateLimitMode rate_limit_mode{RateLimitMode::FixedWindow};
+  // Simulated disconnect handling is opt-in for cancellation. New orders are
+  // rejected while disconnected unless a test explicitly chooses AllowNewOrders.
+  bool cancel_on_disconnect{false};
+  DisconnectOrderPolicy disconnect_order_policy{DisconnectOrderPolicy::RejectNewOrders};
 };
 
 } // namespace asterion

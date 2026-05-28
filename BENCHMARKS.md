@@ -40,8 +40,9 @@ The runner currently covers:
   matching overhead.
 
 The benchmark runner is not extended with performance claims for shared replay, persistent audit
-logging, sliding-window rate limiting or cancel-on-kill. Those paths are covered by correctness and
-smoke tests; any local measurements remain machine-dependent artifacts.
+logging/rotation, sliding-window rate limiting, replace-risk checks, cancel-on-kill or
+cancel-on-disconnect. Those paths are covered by correctness and smoke tests; any local measurements
+remain machine-dependent artifacts.
 
 ## Optional Google Benchmark
 

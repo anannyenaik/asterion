@@ -2,6 +2,20 @@
 
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
+if os.name == "nt":  # pragma: no cover - Windows loader setup.
+    for _dll_dir in (
+        Path(sys.base_prefix),
+        Path(sys.executable).resolve().parent,
+        Path.home() / "msys64" / "ucrt64" / "bin",
+        Path("C:/msys64/ucrt64/bin"),
+    ):
+        if _dll_dir.exists():
+            os.add_dll_directory(str(_dll_dir))
+
 try:
     from . import _native
 except ImportError as exc:  # pragma: no cover - exercised when extension is not built.
@@ -14,6 +28,7 @@ except ImportError as exc:  # pragma: no cover - exercised when extension is not
 from ._native import (
     AggregateReplayConfig,
     AggregateReplaySummary,
+    DisconnectOrderPolicy,
     EventLogFormat,
     EventLogReadResult,
     EventLogWriteResult,
@@ -37,6 +52,7 @@ from ._native import (
     OrderType,
     RateLimitMode,
     RejectReason,
+    ReplaceOrderRequest,
     ReplayConfig,
     ReplayDiagnostic,
     ReplayDiagnosticSeverity,
@@ -44,6 +60,7 @@ from ._native import (
     RiskAuditEntry,
     RiskAuditLogFormat,
     RiskAuditTrail,
+    RiskAuditVerificationResult,
     RiskExposureSnapshot,
     RiskGateway,
     RiskLimits,
@@ -57,6 +74,7 @@ from ._native import (
     choose_event_log_format_for_path,
     detect_event_log_format,
     diagnostic_severity_to_string,
+    disconnect_order_policy_to_string,
     evaluate_inference_policy,
     event_log_format_to_string,
     execution_report_checksum,
@@ -76,6 +94,7 @@ from ._native import (
     replay_shared_by_symbol,
     risk_audit_log_format_to_string,
     side_to_string,
+    verify_risk_audit_logs,
     write_event_log,
 )
 from .aggregate import aggregate_by_symbol
@@ -105,6 +124,7 @@ from .replay import (
     execution_report_checksum_for,
     final_book_checksum_for,
     run_replay,
+    shared_replay_fuzz_summary,
 )
 
 __all__ = [
@@ -114,6 +134,7 @@ __all__ = [
     "BenchmarkDelta",
     "BenchmarkMetric",
     "BenchmarkSummary",
+    "DisconnectOrderPolicy",
     "EventLogFormat",
     "EventLogReadResult",
     "EventLogWriteResult",
@@ -139,6 +160,7 @@ __all__ = [
     "OrderType",
     "RateLimitMode",
     "RejectReason",
+    "ReplaceOrderRequest",
     "ReplayConfig",
     "ReplayDiagnostic",
     "ReplayDiagnosticSeverity",
@@ -146,6 +168,7 @@ __all__ = [
     "RiskAuditEntry",
     "RiskAuditLogFormat",
     "RiskAuditTrail",
+    "RiskAuditVerificationResult",
     "RiskExposureSnapshot",
     "RiskGateway",
     "RiskLimits",
@@ -166,6 +189,7 @@ __all__ = [
     "detect_event_log_format",
     "detect_format",
     "diagnostic_severity_to_string",
+    "disconnect_order_policy_to_string",
     "diagnostics_checksum_for",
     "evaluate_inference_policy",
     "event_log_format_to_string",
@@ -196,10 +220,12 @@ __all__ = [
     "risk_audit_log_format_to_string",
     "run_replay",
     "side_to_string",
+    "shared_replay_fuzz_summary",
     "summarise_benchmark_json",
     "summarise_benchmark_text",
     "summarise_benchmarks",
     "summarise_latency_budget",
     "write_event_log",
     "write_log",
+    "verify_risk_audit_logs",
 ]

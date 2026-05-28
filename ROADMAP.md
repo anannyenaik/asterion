@@ -82,8 +82,31 @@ Deferred from Phase 6:
 
 Deferred from Phase 7:
 
-- real ONNX Runtime installation plus a checked-in ONNX fixture in CI, if dependency setup becomes
-  clean and reliable;
 - cross-symbol matching or portfolio-level matching semantics;
-- cancel-on-disconnect and live venue/broker cancel integration;
-- broader malformed-feed fuzzing campaigns.
+
+## Phase 8
+
+- local Windows build-tool bootstrap with MSYS2/MinGW-w64 when no host C++20 toolchain is present;
+- optional real ONNX Runtime fixture testing through a tiny checked-in identity model, while default
+  CI remains dependency-free and continues to test deterministic fallback behavior;
+- simulated disconnect state with opt-in cancel-on-disconnect release, explicit disconnected
+  new-order policy, audit entries and Python/CLI summaries;
+- richer replace-order risk checks over tracked resting simulated orders, including exposure deltas,
+  duplicate command IDs and self-trade prevention;
+- deterministic fixed-seed shared replay fuzz/parity tests against grouped replay, with grouped
+  replay still the default;
+- opt-in audit-log rotation by record count or file size plus checksum verification across rotated
+  JSONL/text files;
+- broader malformed CSV/binary/replay diagnostics for invalid headers, enums, truncation, bad
+  quantities/prices, sequence gaps, timestamp reversals, snapshot misuse and oversized fields;
+- CLI/Python exposure for audit verification, shared replay fuzz summaries, disconnect summaries and
+  replace-risk outcomes.
+
+Deferred from Phase 8:
+
+- installing ONNX Runtime in default CI;
+- exhaustive shared replay parity sufficient to make shared replay the default;
+- cross-symbol matching or portfolio-level matching semantics;
+- live venue/broker cancel-on-disconnect integration;
+- audit signing, retention policy and tamper-evident storage;
+- large external malformed-feed corpora.
