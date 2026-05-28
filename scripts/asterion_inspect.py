@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Inspect Asterion replay output, latency budgets and benchmark JSON.
+"""Inspect Asterion replay output, risk audit logs, latency budgets and benchmark JSON.
 
 Commands are split into two groups:
 
 * Offline commands (``benchmark-summary``, ``benchmark-compare``,
-  ``latency-budget``) read JSON files only and need no compiled extension.
-* Replay commands (``replay-checksums``, ``diagnostics``, ``per-symbol``) import
-  the ``asterion`` bindings lazily and therefore require the built C++ project on
-  ``PYTHONPATH``.
+  ``latency-budget``, ``audit-summary`` and ``rate-limit-mode``) read JSON/text
+  files only and need no compiled extension.
+* Native-backed commands (``replay-checksums``, ``diagnostics``, ``per-symbol`` and
+  ``risk-exposure``) import the ``asterion`` bindings lazily and therefore require
+  the built C++ project on ``PYTHONPATH``.
 
 Every command supports a readable text mode (default) and ``--json``.
 """
@@ -118,6 +119,100 @@ def cmd_latency_budget(args: argparse.Namespace) -> int:
     return 0
 
 
+def _normalise_rate_limit_mode(value: str) -> str:
+    token = value.strip().lower().replace("_", "-")
+    aliases = {
+        "fixed": "fixed-window",
+        "fixed-window": "fixed-window",
+        "sliding": "sliding-window",
+        "sliding-window": "sliding-window",
+    }
+    if token not in aliases:
+        raise ValueError(f"unknown rate-limit mode: {value}")
+    return aliases[token]
+
+
+def cmd_rate_limit_mode(args: argparse.Namespace) -> int:
+    try:
+        mode = _normalise_rate_limit_mode(args.mode)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    payload = {"mode": mode, "default": mode == "fixed-window"}
+    _emit(payload, f"mode={mode}\ndefault={str(payload['default']).lower()}", args.json)
+    return 0
+
+
+def _parse_bool(value: str) -> bool:
+    return value.lower() in {"1", "true", "yes"}
+
+
+def _audit_format(path: Path, requested: str) -> str:
+    if requested != "auto":
+        return requested
+    return "jsonl" if path.suffix == ".jsonl" else "text"
+
+
+def _read_audit_entries(path: Path, requested_format: str) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    fmt = _audit_format(path, requested_format)
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        if fmt == "jsonl":
+            entries.append(json.loads(line))
+            continue
+        fields: dict[str, Any] = {}
+        for item in line.split():
+            if "=" not in item:
+                continue
+            key, value = item.split("=", 1)
+            if key in {
+                "timestamp_ns",
+                "client_order_id",
+                "symbol_id",
+                "limit_value",
+                "observed_value",
+                "checksum",
+            }:
+                fields[key] = int(value)
+            elif key == "accepted":
+                fields[key] = _parse_bool(value)
+            else:
+                fields[key] = value
+        entries.append(fields)
+    return entries
+
+
+def cmd_audit_summary(args: argparse.Namespace) -> int:
+    entries = _read_audit_entries(args.input, args.format)
+    check_counts: dict[str, int] = {}
+    accepted_count = 0
+    for entry in entries:
+        check_name = str(entry.get("check_name", "unknown"))
+        check_counts[check_name] = check_counts.get(check_name, 0) + 1
+        if bool(entry.get("accepted", False)):
+            accepted_count += 1
+    payload = {
+        "input": str(args.input),
+        "entry_count": len(entries),
+        "accepted_count": accepted_count,
+        "rejected_count": len(entries) - accepted_count,
+        "last_checksum": entries[-1].get("checksum", 0) if entries else 0,
+        "check_counts": check_counts,
+    }
+    lines = [
+        f"entry_count={payload['entry_count']}",
+        f"accepted_count={payload['accepted_count']}",
+        f"rejected_count={payload['rejected_count']}",
+        f"last_checksum={payload['last_checksum']}",
+    ]
+    for name, count in sorted(check_counts.items()):
+        lines.append(f"check={name} count={count}")
+    _emit(payload, "\n".join(lines), args.json)
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # Replay commands (require the built extension)
 # --------------------------------------------------------------------------- #
@@ -188,7 +283,7 @@ def cmd_diagnostics(args: argparse.Namespace) -> int:
 def cmd_per_symbol(args: argparse.Namespace) -> int:
     import asterion  # noqa: PLC0415
 
-    summary = asterion.aggregate_by_symbol(Path(args.input), format=args.format)
+    summary = asterion.aggregate_by_symbol(Path(args.input), format=args.format, shared=args.shared)
     symbols = [
         {
             "symbol_id": symbol.symbol_id,
@@ -207,13 +302,17 @@ def cmd_per_symbol(args: argparse.Namespace) -> int:
         "input": str(args.input),
         "total_events": summary.total_events,
         "symbol_count": summary.symbol_count,
+        "combined_book_checksum": summary.combined_book_checksum,
         "aggregate_checksum": summary.aggregate_checksum,
+        "path": "shared" if args.shared else "grouped",
         "symbols": symbols,
     }
     lines = [
         f"total_events={summary.total_events}",
         f"symbol_count={summary.symbol_count}",
+        f"combined_book_checksum={summary.combined_book_checksum}",
         f"aggregate_checksum={summary.aggregate_checksum}",
+        f"path={payload['path']}",
     ]
     for symbol in symbols:
         lines.append(
@@ -221,6 +320,132 @@ def cmd_per_symbol(args: argparse.Namespace) -> int:
             f"final_book_checksum={symbol['final_book_checksum']} "
             f"sequence_valid={symbol['sequence_valid']}"
         )
+    _emit(payload, "\n".join(lines), args.json)
+    return 0
+
+
+def _enum(module: Any, enum_name: str, value: str) -> Any:
+    token = value.strip().replace("-", "_")
+    lookup = {
+        "none": "None_",
+        "buy": "Buy",
+        "sell": "Sell",
+        "limit": "Limit",
+        "market": "Market",
+        "new": "New",
+        "trade": "Trade",
+        "canceled": "Canceled",
+        "cancelled": "Canceled",
+        "replaced": "Replaced",
+        "rejected": "Rejected",
+        "partiallyfilled": "PartiallyFilled",
+        "partially_filled": "PartiallyFilled",
+        "filled": "Filled",
+        "none_": "None_",
+        "killswitch": "KillSwitch",
+        "kill_switch": "KillSwitch",
+        "fixedwindow": "FixedWindow",
+        "fixed_window": "FixedWindow",
+        "slidingwindow": "SlidingWindow",
+        "sliding_window": "SlidingWindow",
+    }
+    attr = lookup.get(token.lower(), token)
+    return getattr(getattr(module, enum_name), attr)
+
+
+def _new_order_from_dict(asterion: Any, item: dict[str, Any]) -> Any:
+    request = asterion.NewOrderRequest()
+    request.client_order_id = int(item["client_order_id"])
+    request.symbol_id = int(item.get("symbol_id", 1))
+    request.side = _enum(asterion, "Side", str(item.get("side", "Buy")))
+    request.order_type = _enum(asterion, "OrderType", str(item.get("order_type", "Limit")))
+    request.price_ticks = int(item.get("price_ticks", 0))
+    request.quantity = int(item.get("quantity", 0))
+    request.timestamp_ns = int(item.get("timestamp_ns", item.get("now_ns", 0)))
+    request.client_id = int(item.get("client_id", 0))
+    return request
+
+
+def _execution_report_from_dict(asterion: Any, item: dict[str, Any]) -> Any:
+    report = asterion.ExecutionReport()
+    report.client_order_id = int(item["client_order_id"])
+    report.exchange_order_id = int(item.get("exchange_order_id", 0))
+    report.symbol_id = int(item.get("symbol_id", 1))
+    report.side = _enum(asterion, "Side", str(item.get("side", "None")))
+    report.order_status = _enum(asterion, "OrderStatus", str(item.get("order_status", "New")))
+    report.exec_type = _enum(asterion, "ExecType", str(item.get("exec_type", "New")))
+    report.filled_quantity = int(item.get("filled_quantity", 0))
+    report.remaining_quantity = int(item.get("remaining_quantity", 0))
+    report.last_fill_quantity = int(item.get("last_fill_quantity", 0))
+    report.last_fill_price_ticks = int(item.get("last_fill_price_ticks", 0))
+    report.average_price_ticks = int(item.get("average_price_ticks", 0))
+    report.resting_price_ticks = int(item.get("resting_price_ticks", 0))
+    report.timestamp_ns = int(item.get("timestamp_ns", 0))
+    report.reject_reason = _enum(asterion, "RejectReason", str(item.get("reject_reason", "None")))
+    return report
+
+
+def cmd_risk_exposure(args: argparse.Namespace) -> int:
+    import asterion  # noqa: PLC0415
+
+    fixture = json.loads(args.input.read_text(encoding="utf-8"))
+    limits = asterion.RiskLimits()
+    for key, value in fixture.get("limits", {}).items():
+        if key == "rate_limit_mode":
+            setattr(limits, key, _enum(asterion, "RateLimitMode", str(value)))
+        else:
+            setattr(limits, key, value)
+    risk = asterion.RiskGateway(limits)
+    if fixture.get("audit_enabled", False):
+        risk.set_audit_enabled(True)
+    for item in fixture.get("market_data", []):
+        risk.on_market_data(
+            int(item["symbol_id"]),
+            int(item["reference_price_ticks"]),
+            int(item["timestamp_ns"]),
+        )
+    for item in fixture.get("positions", []):
+        risk.set_position(int(item["symbol_id"]), int(item["quantity"]))
+
+    decisions = []
+    for item in fixture.get("orders", []):
+        request = _new_order_from_dict(asterion, item)
+        result = risk.check_new_order(request, int(item.get("now_ns", request.timestamp_ns)))
+        decisions.append(
+            {
+                "client_order_id": request.client_order_id,
+                "accepted": result.accepted,
+                "reject_reason": str(result.reject_reason).split(".")[-1],
+            }
+        )
+    for item in fixture.get("execution_reports", []):
+        risk.on_execution_report(_execution_report_from_dict(asterion, item))
+    if "kill_switch_timestamp_ns" in fixture:
+        risk.enable_kill_switch(int(fixture["kill_switch_timestamp_ns"]))
+
+    snapshot = risk.exposure_snapshot()
+    payload = {
+        "input": str(args.input),
+        "decisions": decisions,
+        "positions": {str(key): value for key, value in dict(snapshot.positions).items()},
+        "working_quantity": {
+            str(key): value for key, value in dict(snapshot.working_quantity).items()
+        },
+        "working_order_count": snapshot.working_order_count,
+        "kill_switch_enabled": snapshot.kill_switch_enabled,
+        "rate_limit_mode": asterion.rate_limit_mode_to_string(snapshot.rate_limit_mode),
+        "audit_entry_count": snapshot.audit_entry_count,
+        "audit_checksum": snapshot.audit_checksum,
+    }
+    lines = [
+        f"working_order_count={payload['working_order_count']}",
+        f"kill_switch_enabled={str(payload['kill_switch_enabled']).lower()}",
+        f"rate_limit_mode={payload['rate_limit_mode']}",
+        f"audit_entry_count={payload['audit_entry_count']}",
+        f"audit_checksum={payload['audit_checksum']}",
+    ]
+    for symbol, quantity in sorted(payload["working_quantity"].items()):
+        lines.append(f"working_quantity symbol={symbol} quantity={quantity}")
     _emit(payload, "\n".join(lines), args.json)
     return 0
 
@@ -251,8 +476,31 @@ def build_parser() -> argparse.ArgumentParser:
     per_symbol = subparsers.add_parser("per-symbol", help="Aggregate per-symbol replay summaries.")
     per_symbol.add_argument("--input", required=True, type=Path)
     per_symbol.add_argument("--format", default="auto", choices=["auto", "csv", "binary"])
+    per_symbol.add_argument("--shared", action="store_true", help="Use the opt-in shared path.")
     per_symbol.add_argument("--json", action="store_true")
     per_symbol.set_defaults(func=cmd_per_symbol)
+
+    risk_exposure = subparsers.add_parser(
+        "risk-exposure", help="Run a small JSON risk flow and print exposure state."
+    )
+    risk_exposure.add_argument("--input", required=True, type=Path)
+    risk_exposure.add_argument("--json", action="store_true")
+    risk_exposure.set_defaults(func=cmd_risk_exposure)
+
+    audit_summary = subparsers.add_parser(
+        "audit-summary", help="Summarise an append-only risk audit log."
+    )
+    audit_summary.add_argument("--input", required=True, type=Path)
+    audit_summary.add_argument("--format", default="auto", choices=["auto", "jsonl", "text"])
+    audit_summary.add_argument("--json", action="store_true")
+    audit_summary.set_defaults(func=cmd_audit_summary)
+
+    rate_mode = subparsers.add_parser(
+        "rate-limit-mode", help="Normalise a configured rate-limit mode."
+    )
+    rate_mode.add_argument("--mode", required=True)
+    rate_mode.add_argument("--json", action="store_true")
+    rate_mode.set_defaults(func=cmd_rate_limit_mode)
 
     bench_summary = subparsers.add_parser(
         "benchmark-summary", help="Summarise a benchmark JSON file."

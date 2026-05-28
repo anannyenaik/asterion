@@ -64,7 +64,9 @@ They preserve the current replay implementation by partitioning events by symbol
 symbol independently, and reporting event counts, first/last sequence numbers, diagnostics and
 checksum summaries per symbol. Per-symbol sequence validation is disabled by default because many
 recorded multi-symbol feeds use one global sequence stream; it can be enabled explicitly to diagnose
-symbol-local gaps.
+symbol-local gaps. The opt-in shared replay path routes the same interleaved stream through
+`MultiSymbolBookSet` and is tested for parity with grouped replay on deterministic generated
+multi-symbol streams, including combined book checksums and strict sequence diagnostics.
 
 ## Inference Accounting
 
@@ -97,17 +99,21 @@ entries depend only on the order flow and configured limits, so the trail's FNV-
 deterministic and the incremental checksum matches a recomputation over the recorded entries. Tests
 assert the audit entry fields (deciding check name, decision, reject reason, limit and observed
 values) for duplicate-ID, kill-switch, stale-data, notional, quantity and position rejections.
+Persistent JSONL audit logging is tested as append-only output with the cumulative deterministic
+checksum in each entry.
 
 ## Opt-In Risk Controls
 
 The open-order exposure, message-rate and self-trade-prevention controls are tested for accepts,
-rejects and audit entries: working exposure rejects once projected resting quantity exceeds the cap
-and clears on `release_order`; message-rate limiting throttles a client after its fixed-window budget
-and resets after the window, with independent per-client budgets; self-trade prevention rejects a
-client crossing its own resting order (including market orders) but allows a different client. A
-determinism test asserts the audit checksum is reproducible and matches a recomputation, a
-compatibility test asserts the default gateway leaves all three controls disabled, and an allocation
-test asserts the warm self-trade-prevention reject path does not allocate.
+rejects and audit entries: working exposure rejects once projected resting quantity exceeds the cap,
+updates from partial fills, full fills, cancels, rejects and replace reports, and still clears on
+manual `release_order`; message-rate limiting throttles a client after its fixed-window or
+sliding-window budget and resets/expires deterministically, with independent per-client budgets;
+self-trade prevention rejects a client crossing its own resting order (including market orders) but
+allows a different client. Cancel-on-kill tests assert tracked simulated working exposure is released
+and later new orders are rejected. A determinism test asserts the audit checksum is reproducible and
+matches a recomputation, a compatibility test asserts the default gateway leaves all three controls
+disabled, and an allocation test asserts the warm self-trade-prevention reject path does not allocate.
 
 ## Inference Backend Selection
 
@@ -119,8 +125,9 @@ extraction and measured latency accounting, producing the same score as a refere
 ## Multi-Symbol Groundwork
 
 `MultiSymbolBookSet` is tested for per-symbol routing of an interleaved stream (each book matches an
-independently built single-symbol book), a deterministic combined checksum, and rejecting an unknown
-cancel without corrupting state.
+independently built single-symbol book), a deterministic combined checksum, rejecting an unknown
+cancel without corrupting state, and parity between the shared replay path and the grouped replay
+path for deterministic generated multi-symbol streams.
 
 ## Replay Output Stability
 
@@ -163,13 +170,17 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - crossed book state;
 - CSV-to-binary replay equivalence;
 - aggregate per-symbol replay summaries;
+- shared multi-symbol replay parity with grouped replay;
 - snapshot reset, reload and CSV/binary snapshot replay equivalence;
 - feature extraction and inference policy accounting;
 - inference backend selection and ONNX fallback;
 - multi-symbol single-pass routing groundwork;
 - stale market data;
 - working-order exposure, message-rate and self-trade-prevention controls;
-- kill switch rejection;
+- execution-report-driven risk exposure release;
+- fixed-window and sliding-window rate limits;
+- kill switch rejection and simulated cancel-on-kill exposure release;
+- persistent JSONL risk audit logging;
 - deterministic matching report order.
 
 Large fuzzing campaigns and exchange-specific malformed binary feeds remain out of scope for the current test suite.

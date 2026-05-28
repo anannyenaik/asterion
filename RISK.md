@@ -13,12 +13,13 @@ Asterion implements a basic but real pre-trade risk gateway. It is intentionally
 - global kill switch;
 - stale market-data rejection;
 - open-order (working) exposure per symbol (opt-in);
-- per-client message-rate limiting in a fixed window (opt-in);
+- per-client message-rate limiting in fixed-window or sliding-window mode (opt-in);
 - self-trade prevention against a client's own resting orders (opt-in).
 
 The three new controls default to a disabled sentinel in `RiskLimits` (`max_open_order_quantity` 0,
-`max_messages_per_window` 0, `enable_self_trade_prevention` false), so existing configurations behave
-exactly as before until they are explicitly enabled.
+`max_messages_per_window` 0, `enable_self_trade_prevention` false), so existing configurations
+behave exactly as before until they are explicitly enabled. Fixed-window rate limiting remains the
+default mode for compatibility; sliding-window mode is explicit.
 
 ## Reject Reasons
 
@@ -43,7 +44,9 @@ Rejects are returned as structured enum values:
 
 ## Kill Switch
 
-When enabled, the kill switch rejects all new orders before any other risk check. It does not cancel existing orders in this first version; cancel-on-kill behavior is a future extension.
+When enabled, the kill switch rejects all new orders before any other risk check. It also cancels
+tracked simulated working exposure inside the risk gateway. This is an internal simulated
+cancel-on-kill lifecycle release; it does not send live exchange cancels.
 
 ## Stale Data Policy
 
@@ -55,17 +58,19 @@ When `max_open_order_quantity > 0`, the gateway tracks the total resting (workin
 quantity per symbol. An accepted limit order is registered as working; market orders are assumed to
 take liquidity and do not contribute. A new order is rejected when the current working quantity plus
 the incoming quantity would exceed the limit. Callers signal completion with
-`RiskGateway::release_order(client_order_id)` once an order is fully filled or cancelled, which
-decrements the working exposure. Working-order tracking is only active when this control or self-trade
-prevention is enabled, so the default gateway does no extra work.
+`RiskGateway::on_execution_report(...)` updates the tracked quantity from partial fills, full fills,
+cancels, rejects and replace reports. `RiskGateway::release_order(client_order_id)` remains as a
+manual fallback when a caller has no execution report. Working-order tracking is only active when
+this control or self-trade prevention is enabled, so the default gateway does no extra work.
 
 ## Message-Rate Limiting
 
 When `max_messages_per_window > 0` and `rate_window_ns > 0`, the gateway counts inbound orders per
-`client_id` in a fixed window. The window resets when `now_ns - window_start >= rate_window_ns`. Each
-client has an independent budget; a message that would exceed the budget is rejected with
-`MessageRateLimit`. This is a fixed-window limiter (simple and allocation-free after warm-up), not a
-sliding-window limiter.
+`client_id`. `RateLimitMode::FixedWindow` resets when
+`now_ns - window_start >= rate_window_ns`. `RateLimitMode::SlidingWindow` keeps individual message
+timestamps and expires each one as it leaves the window. Each client has an independent budget; a
+message that would exceed the budget is rejected with `MessageRateLimit`. Fixed-window is the
+default. Sliding-window is opt-in and stores per-client timestamps while enabled.
 
 ## Self-Trade Prevention
 
@@ -96,9 +101,16 @@ Audit entries depend only on the order flow and configured limits, not on wall-c
 trail exposes a deterministic FNV-1a checksum (`RiskAuditTrail::checksum()`, equivalently
 `checksum_risk_audit(entries)`). Identical order streams produce identical audit checksums, which
 makes rejection behavior a reproducible artifact. Tests cover duplicate-ID, kill-switch, stale-data,
-notional, quantity, position, working-order, message-rate and self-trade-prevention audit entries.
+notional, quantity, position, working-order, message-rate, cancel-on-kill and
+self-trade-prevention audit entries.
+
+Persistent audit logging is also opt-in. `RiskGateway::open_audit_log(path, format)` appends JSONL
+or text entries to an existing or new file and enables audit recording. Each persisted entry includes
+the cumulative deterministic audit checksum. The log format intentionally does not add a wall-clock
+timestamp to the checksum. When audit logging is disabled, the normal pre-trade path does not write
+files or allocate audit strings.
 
 ## Future Controls
 
-Planned extensions include fat-finger bands by instrument class, cancel-on-disconnect,
-cancel-on-kill, sliding-window rate limiting and persistent audit logs.
+Planned extensions include fat-finger bands by instrument class, cancel-on-disconnect and richer
+exchange/broker order-lifecycle integration.

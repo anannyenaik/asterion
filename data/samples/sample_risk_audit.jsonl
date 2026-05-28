@@ -1,0 +1,2 @@
+{"timestamp_ns":10,"client_order_id":1,"symbol_id":1,"side":"Buy","accepted":true,"reject_reason":"None","check_name":"accepted","limit_value":1000000,"observed_value":10000,"checksum":14587322704882007556}
+{"timestamp_ns":11,"client_order_id":1,"symbol_id":1,"side":"Buy","accepted":false,"reject_reason":"DuplicateClientOrderId","check_name":"duplicate_client_order_id","limit_value":0,"observed_value":1,"checksum":8791500920141020186}

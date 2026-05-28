@@ -40,6 +40,7 @@ struct SymbolReplaySummary {
 struct AggregateReplaySummary {
   std::size_t total_events{0};
   std::size_t symbol_count{0};
+  std::uint64_t combined_book_checksum{0};
   std::uint64_t aggregate_checksum{0};
   std::vector<SymbolReplaySummary> symbols;
   std::string error;
@@ -48,6 +49,11 @@ struct AggregateReplaySummary {
 [[nodiscard]] AggregateReplaySummary replay_by_symbol(
     std::span<const MarketDataEvent> events, AggregateReplayConfig config = {});
 [[nodiscard]] AggregateReplaySummary replay_file_by_symbol(
+    const std::filesystem::path& path, EventLogFormat format = EventLogFormat::Auto,
+    AggregateReplayConfig config = {});
+[[nodiscard]] AggregateReplaySummary replay_shared_by_symbol(
+    std::span<const MarketDataEvent> events, AggregateReplayConfig config = {});
+[[nodiscard]] AggregateReplaySummary replay_file_shared_by_symbol(
     const std::filesystem::path& path, EventLogFormat format = EventLogFormat::Auto,
     AggregateReplayConfig config = {});
 

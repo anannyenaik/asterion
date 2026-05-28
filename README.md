@@ -18,7 +18,8 @@ It does **not** claim to be a real exchange, a live trading system, or a true pr
 - Structured execution reports with deterministic report checksums.
 - Pre-trade risk gateway with quantity, notional, position, exposure, price-band, stale-data,
   duplicate-ID and kill-switch checks, plus opt-in open-order (working) exposure, per-client
-  message-rate limiting and self-trade prevention.
+  fixed/sliding-window message-rate limiting, self-trade prevention, cancel-on-kill exposure
+  release and persistent audit logging.
 - Golden trace tests and randomized invariant tests.
 - Measured inference infrastructure through `Model`, `LinearModel`, `FeatureExtractor`,
   timeout/late-signal policy hooks and a documented TorchScript-style placeholder interface.
@@ -55,8 +56,9 @@ CSV / binary / synthetic events
 - Execution report schema with status, execution type, fill fields and reject reason.
 - Risk gateway and kill switch.
 - Deterministic CSV and binary replay, sample replay data and replay diagnostics.
-- Aggregate per-symbol replay summaries over multi-symbol logs, implemented as grouped
-  single-symbol replay views rather than full multi-symbol matching.
+- Aggregate per-symbol replay summaries over multi-symbol logs. The default path is the stable
+  grouped single-symbol replay view; an opt-in shared `MultiSymbolBookSet` replay path is also
+  tested for parity on deterministic generated streams.
 - Simulated market-data adapter modes for balanced, bursty, deep-book, high-cancel,
   wide-range and multi-symbol streams.
 - Python bindings and a small `python/asterion` package for event logs, replay diagnostics,
@@ -69,13 +71,15 @@ CSV / binary / synthetic events
   TorchScript-style placeholder that documents the future external-model boundary.
 - Explicit inference backend selection (`make_inference_backend`) with an optional ONNX Runtime
   backend behind a CMake flag that deterministically falls back to `LinearModel` when absent.
-- Optional shared multi-symbol book-set groundwork (`MultiSymbolBookSet`) that routes an interleaved
-  stream per symbol; it is not a cross-symbol matching engine and does not replace grouped replay.
+- Optional shared multi-symbol replay (`replay_shared_by_symbol`) that routes an interleaved stream
+  through `MultiSymbolBookSet`, emits per-symbol diagnostics/summaries and reports a combined book
+  checksum. It is not a cross-symbol matching engine and grouped replay remains the default.
 - Local historical benchmark store and cross-run trend reporting that reuse the regression schema.
 - Configurable per-stage latency-budget accounting (replay, book update, matching, risk,
   strategy, inference and total) with budget-used/exceeded reporting, worst-offender
   detection and stable JSON output.
-- Pre-trade risk audit trail recording every accepted/rejected decision with a deterministic
+- Pre-trade risk audit trail recording accepted/rejected decisions, automatic working-exposure
+  release from execution reports, optional append-only text/JSONL audit logs and a deterministic
   audit checksum.
 - Offline benchmark regression comparison and a replay/benchmark inspection CLI with readable
   text and JSON output.
@@ -164,10 +168,13 @@ carry the snapshot record's timestamp and sequence number, so the resulting book
 deterministic. Limitation: a snapshot is a sequence of single-order records, not an aggregated
 L2-only image; levels without per-order detail cannot be represented.
 
-Aggregate multi-symbol replay is available as a summary/helper view. It groups recorded events by
-symbol, runs the existing single-symbol replay engine per group, and reports per-symbol counts,
-first/last sequence numbers, diagnostics and checksum summaries. It does not implement a shared
-multi-symbol matching engine.
+Aggregate multi-symbol replay is available as a summary/helper view. By default it groups recorded
+events by symbol, runs the existing single-symbol replay engine per group, and reports per-symbol
+counts, first/last sequence numbers, diagnostics and checksum summaries. An opt-in shared path
+(`--shared` in the CLI, `aggregate_by_symbol(..., shared=True)` in Python) routes the interleaved
+stream through `MultiSymbolBookSet` in one pass and reports the same summary shape plus a combined
+book checksum. Tests assert parity with grouped replay for deterministic generated streams. Neither
+path implements cross-symbol matching.
 
 ## Python Usage
 
@@ -184,6 +191,7 @@ import asterion
 events = asterion.load_log("data/samples/sample_replay.csv")
 result = asterion.run_replay(events, symbol_id=1)
 summary = asterion.aggregate_by_symbol(events)
+shared = asterion.aggregate_by_symbol(events, shared=True)
 print(result.final_book_checksum, summary.symbol_count)
 ```
 
@@ -239,10 +247,14 @@ measured nanoseconds are not.
 PYTHONPATH=build/python python scripts/asterion_inspect.py replay-checksums --input data/samples/sample_replay.csv --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py diagnostics --input data/samples/sample_replay.csv
 PYTHONPATH=build/python python scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --json
+PYTHONPATH=build/python python scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --shared --json
+PYTHONPATH=build/python python scripts/asterion_inspect.py risk-exposure --input data/samples/sample_risk_flow.json --json
 
 # Offline JSON inspection (no compiled extension required).
 python scripts/asterion_inspect.py benchmark-summary --input data/samples/sample_benchmark_baseline.json
 python scripts/asterion_inspect.py latency-budget --input data/samples/sample_latency_budget.json --json
+python scripts/asterion_inspect.py audit-summary --input data/samples/sample_risk_audit.jsonl --json
+python scripts/asterion_inspect.py rate-limit-mode --mode sliding-window --json
 ```
 
 ## Benchmark Regression Comparison
@@ -286,15 +298,21 @@ when the dependency is absent the build still succeeds and ONNX requests fall ba
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_USE_ONNXRUNTIME=ON
 ```
 
-The ONNX backend is optional and is not exercised by CI; it requires ONNX Runtime to be installed.
+The ONNX backend is optional and is not exercised by default CI; it requires ONNX Runtime to be
+installed for a real ONNX backend to load. Default CI remains dependency-free. The `ci` workflow has
+a manual `onnx_backend` input that configures with `-DASTERION_USE_ONNXRUNTIME=ON` and verifies the
+same deterministic backend selection tests; no checked-in ONNX fixture is used because the default
+lane does not install ONNX Runtime.
 
 ## Risk Audit Trail
 
 The risk gateway can record every accepted or rejected order in an audit trail, capturing timestamp,
 client order ID, symbol, deciding check name, decision, reject reason and the relevant limit and
 observed values. The trail exposes a deterministic checksum for reproducible comparison across runs.
-Recording is opt-in (`set_audit_enabled(true)`) so the pre-trade hot path stays allocation-free by
-default. See [RISK.md](RISK.md).
+Recording is opt-in (`set_audit_enabled(true)` or `open_audit_log(...)`) so the pre-trade hot path
+stays allocation-free by default. Persistent audit logs are append-only text or JSONL and include
+the deterministic audit checksum; they do not add a wall-clock timestamp to that checksum. See
+[RISK.md](RISK.md).
 
 ## Honesty And Limitations
 

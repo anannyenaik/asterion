@@ -132,3 +132,26 @@ def test_latency_budget_fail_on_exceeded_flag() -> None:
         "--fail-on-exceeded",
     )
     assert result.returncode == 1
+
+
+def test_audit_summary_json() -> None:
+    result = _run(
+        "audit-summary",
+        "--input",
+        str(SAMPLES / "sample_risk_audit.jsonl"),
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["entry_count"] == 2
+    assert payload["accepted_count"] == 1
+    assert payload["rejected_count"] == 1
+    assert payload["check_counts"]["accepted"] == 1
+
+
+def test_rate_limit_mode_json() -> None:
+    result = _run("rate-limit-mode", "--mode", "sliding-window", "--json")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["mode"] == "sliding-window"
+    assert payload["default"] is False

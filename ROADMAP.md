@@ -65,10 +65,25 @@ Deferred from Phase 6:
 - a sliding-window message-rate limiter (the current limiter is fixed-window);
 - cancel-on-kill / cancel-on-disconnect lifecycle handling.
 
-## Phase 7 (candidate)
+## Phase 7
 
-- promote the multi-symbol book set into a validated shared matching/replay path with diagnostics;
-- exercise the ONNX Runtime backend in an opt-in CI lane with a checked-in tiny model fixture;
-- order-lifecycle integration so working-order release is driven by execution reports automatically;
-- sliding-window rate limiting and cancel-on-kill behaviour;
-- persistent, append-only risk audit logs.
+- opt-in shared multi-symbol replay path backed by `MultiSymbolBookSet`, with per-symbol summaries,
+  diagnostics, combined book checksums and parity tests against grouped replay;
+- execution-report-driven working exposure release for partial fills, full fills, cancels, rejects
+  and replace flows, with manual `release_order` retained as a fallback;
+- fixed-window and sliding-window rate-limit modes, with fixed-window remaining the default;
+- cancel-on-kill release of tracked simulated working exposure, plus continued kill-switch rejection
+  of new orders;
+- append-only text/JSONL risk audit logging, opt-in and separate from the default hot path;
+- CLI/Python exposure for shared replay summaries, risk exposure snapshots, audit-log summaries and
+  rate-limit mode;
+- manual ONNX CI toggle that configures with `-DASTERION_USE_ONNXRUNTIME=ON` while default CI remains
+  dependency-free.
+
+Deferred from Phase 7:
+
+- real ONNX Runtime installation plus a checked-in ONNX fixture in CI, if dependency setup becomes
+  clean and reliable;
+- cross-symbol matching or portfolio-level matching semantics;
+- cancel-on-disconnect and live venue/broker cancel integration;
+- broader malformed-feed fuzzing campaigns.

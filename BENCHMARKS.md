@@ -39,6 +39,10 @@ The runner currently covers:
 - measured linear inference only, which records model scoring latency separately from replay and
   matching overhead.
 
+The benchmark runner is not extended with performance claims for shared replay, persistent audit
+logging, sliding-window rate limiting or cancel-on-kill. Those paths are covered by correctness and
+smoke tests; any local measurements remain machine-dependent artifacts.
+
 ## Optional Google Benchmark
 
 Google Benchmark is opt-in so normal CI and local builds do not depend on fetching it.

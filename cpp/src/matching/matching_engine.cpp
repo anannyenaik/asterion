@@ -250,6 +250,9 @@ ExecutionReport MatchingEngine::make_report(const OrderState& state, ExecType ex
       state.status == OrderStatus::Rejected) {
     remaining = 0;
   }
+  const PriceTicks resting_price = remaining > 0 && state.order_type == OrderType::Limit
+                                       ? state.limit_price_ticks
+                                       : 0;
 
   return ExecutionReport{state.client_order_id,
                          state.exchange_order_id,
@@ -262,6 +265,7 @@ ExecutionReport MatchingEngine::make_report(const OrderState& state, ExecType ex
                          last_fill_quantity,
                          last_fill_price_ticks,
                          average_price_ticks(state),
+                         resting_price,
                          timestamp_ns,
                          reject_reason};
 }
@@ -275,6 +279,7 @@ ExecutionReport MatchingEngine::make_reject(ClientOrderId client_order_id, Symbo
                          side,
                          OrderStatus::Rejected,
                          ExecType::Rejected,
+                         0,
                          0,
                          0,
                          0,

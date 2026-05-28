@@ -6,8 +6,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <iosfwd>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace asterion {
@@ -29,9 +31,15 @@ struct RiskAuditEntry {
   std::int64_t observed_value{0};
 };
 
+enum class RiskAuditLogFormat : std::uint8_t { Text = 1, Jsonl = 2 };
+
+[[nodiscard]] std::string_view to_string(RiskAuditLogFormat format) noexcept;
 [[nodiscard]] std::uint64_t append_to_checksum(std::uint64_t seed,
                                                const RiskAuditEntry& entry) noexcept;
 [[nodiscard]] std::uint64_t checksum_risk_audit(std::span<const RiskAuditEntry> entries) noexcept;
+void append_risk_audit_log_entry(std::ostream& output, const RiskAuditEntry& entry,
+                                 std::uint64_t trail_checksum,
+                                 RiskAuditLogFormat format = RiskAuditLogFormat::Jsonl);
 
 class RiskAuditTrail {
 public:

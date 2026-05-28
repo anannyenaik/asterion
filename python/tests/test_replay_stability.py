@@ -30,3 +30,12 @@ def test_replay_checksums_match_across_formats() -> None:
     assert csv_result.final_book_checksum == bin_result.final_book_checksum
     assert csv_result.execution_report_checksum == bin_result.execution_report_checksum
     assert csv_result.diagnostics_checksum == bin_result.diagnostics_checksum
+
+
+def test_shared_multi_symbol_summary_matches_grouped_sample() -> None:
+    grouped = asterion.aggregate_by_symbol(SAMPLES / "sample_replay.csv")
+    shared = asterion.aggregate_by_symbol(SAMPLES / "sample_replay.csv", shared=True)
+
+    assert grouped.aggregate_checksum == shared.aggregate_checksum
+    assert grouped.combined_book_checksum == shared.combined_book_checksum
+    assert grouped.symbol_count == shared.symbol_count

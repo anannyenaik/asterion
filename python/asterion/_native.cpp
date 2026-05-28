@@ -9,6 +9,7 @@
 #include "asterion/market_data/replay.hpp"
 #include "asterion/market_data/replay_aggregate.hpp"
 #include "asterion/matching/execution_report.hpp"
+#include "asterion/risk/risk_gateway.hpp"
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -83,6 +84,10 @@ PYBIND11_MODULE(_native, module) {
       .value("Replaced", asterion::OrderStatus::Replaced)
       .value("Rejected", asterion::OrderStatus::Rejected);
 
+  py::enum_<asterion::OrderType>(module, "OrderType")
+      .value("Limit", asterion::OrderType::Limit)
+      .value("Market", asterion::OrderType::Market);
+
   py::enum_<asterion::ExecType>(module, "ExecType")
       .value("New", asterion::ExecType::New)
       .value("Trade", asterion::ExecType::Trade)
@@ -108,6 +113,14 @@ PYBIND11_MODULE(_native, module) {
       .value("MaxOpenOrderQuantity", asterion::RejectReason::MaxOpenOrderQuantity)
       .value("MessageRateLimit", asterion::RejectReason::MessageRateLimit)
       .value("SelfTradePrevention", asterion::RejectReason::SelfTradePrevention);
+
+  py::enum_<asterion::RateLimitMode>(module, "RateLimitMode")
+      .value("FixedWindow", asterion::RateLimitMode::FixedWindow)
+      .value("SlidingWindow", asterion::RateLimitMode::SlidingWindow);
+
+  py::enum_<asterion::RiskAuditLogFormat>(module, "RiskAuditLogFormat")
+      .value("Text", asterion::RiskAuditLogFormat::Text)
+      .value("Jsonl", asterion::RiskAuditLogFormat::Jsonl);
 
   py::enum_<asterion::InferenceDecision>(module, "InferenceDecision")
       .value("Accept", asterion::InferenceDecision::Accept)
@@ -216,6 +229,8 @@ PYBIND11_MODULE(_native, module) {
   py::class_<asterion::AggregateReplaySummary>(module, "AggregateReplaySummary")
       .def_readwrite("total_events", &asterion::AggregateReplaySummary::total_events)
       .def_readwrite("symbol_count", &asterion::AggregateReplaySummary::symbol_count)
+      .def_readwrite("combined_book_checksum",
+                     &asterion::AggregateReplaySummary::combined_book_checksum)
       .def_readwrite("aggregate_checksum", &asterion::AggregateReplaySummary::aggregate_checksum)
       .def_readwrite("symbols", &asterion::AggregateReplaySummary::symbols)
       .def_readwrite("error", &asterion::AggregateReplaySummary::error);
@@ -327,8 +342,100 @@ PYBIND11_MODULE(_native, module) {
       .def_readwrite("last_fill_price_ticks",
                      &asterion::ExecutionReport::last_fill_price_ticks)
       .def_readwrite("average_price_ticks", &asterion::ExecutionReport::average_price_ticks)
+      .def_readwrite("resting_price_ticks", &asterion::ExecutionReport::resting_price_ticks)
       .def_readwrite("timestamp_ns", &asterion::ExecutionReport::timestamp_ns)
       .def_readwrite("reject_reason", &asterion::ExecutionReport::reject_reason);
+
+  py::class_<asterion::NewOrderRequest>(module, "NewOrderRequest")
+      .def(py::init<>())
+      .def_readwrite("client_order_id", &asterion::NewOrderRequest::client_order_id)
+      .def_readwrite("symbol_id", &asterion::NewOrderRequest::symbol_id)
+      .def_readwrite("side", &asterion::NewOrderRequest::side)
+      .def_readwrite("order_type", &asterion::NewOrderRequest::order_type)
+      .def_readwrite("price_ticks", &asterion::NewOrderRequest::price_ticks)
+      .def_readwrite("quantity", &asterion::NewOrderRequest::quantity)
+      .def_readwrite("timestamp_ns", &asterion::NewOrderRequest::timestamp_ns)
+      .def_readwrite("client_id", &asterion::NewOrderRequest::client_id);
+
+  py::class_<asterion::RiskLimits>(module, "RiskLimits")
+      .def(py::init<>())
+      .def_readwrite("max_order_quantity", &asterion::RiskLimits::max_order_quantity)
+      .def_readwrite("max_notional_ticks", &asterion::RiskLimits::max_notional_ticks)
+      .def_readwrite("max_position_per_symbol",
+                     &asterion::RiskLimits::max_position_per_symbol)
+      .def_readwrite("max_gross_exposure_ticks",
+                     &asterion::RiskLimits::max_gross_exposure_ticks)
+      .def_readwrite("price_band_ticks", &asterion::RiskLimits::price_band_ticks)
+      .def_readwrite("stale_after_ns", &asterion::RiskLimits::stale_after_ns)
+      .def_readwrite("max_open_order_quantity",
+                     &asterion::RiskLimits::max_open_order_quantity)
+      .def_readwrite("max_messages_per_window",
+                     &asterion::RiskLimits::max_messages_per_window)
+      .def_readwrite("rate_window_ns", &asterion::RiskLimits::rate_window_ns)
+      .def_readwrite("rate_limit_mode", &asterion::RiskLimits::rate_limit_mode)
+      .def_readwrite("enable_self_trade_prevention",
+                     &asterion::RiskLimits::enable_self_trade_prevention);
+
+  py::class_<asterion::RiskResult>(module, "RiskResult")
+      .def_readwrite("accepted", &asterion::RiskResult::accepted)
+      .def_readwrite("reject_reason", &asterion::RiskResult::reject_reason);
+
+  py::class_<asterion::RiskExposureSnapshot>(module, "RiskExposureSnapshot")
+      .def_readwrite("positions", &asterion::RiskExposureSnapshot::positions)
+      .def_readwrite("working_quantity", &asterion::RiskExposureSnapshot::working_quantity)
+      .def_readwrite("working_order_count", &asterion::RiskExposureSnapshot::working_order_count)
+      .def_readwrite("kill_switch_enabled", &asterion::RiskExposureSnapshot::kill_switch_enabled)
+      .def_readwrite("rate_limit_mode", &asterion::RiskExposureSnapshot::rate_limit_mode)
+      .def_readwrite("audit_entry_count", &asterion::RiskExposureSnapshot::audit_entry_count)
+      .def_readwrite("audit_checksum", &asterion::RiskExposureSnapshot::audit_checksum);
+
+  py::class_<asterion::RiskAuditEntry>(module, "RiskAuditEntry")
+      .def_readwrite("timestamp_ns", &asterion::RiskAuditEntry::timestamp_ns)
+      .def_readwrite("client_order_id", &asterion::RiskAuditEntry::client_order_id)
+      .def_readwrite("symbol_id", &asterion::RiskAuditEntry::symbol_id)
+      .def_readwrite("side", &asterion::RiskAuditEntry::side)
+      .def_readwrite("accepted", &asterion::RiskAuditEntry::accepted)
+      .def_readwrite("reject_reason", &asterion::RiskAuditEntry::reject_reason)
+      .def_readwrite("check_name", &asterion::RiskAuditEntry::check_name)
+      .def_readwrite("limit_value", &asterion::RiskAuditEntry::limit_value)
+      .def_readwrite("observed_value", &asterion::RiskAuditEntry::observed_value);
+
+  py::class_<asterion::RiskAuditTrail>(module, "RiskAuditTrail")
+      .def("size", &asterion::RiskAuditTrail::size)
+      .def("empty", &asterion::RiskAuditTrail::empty)
+      .def("entries", &asterion::RiskAuditTrail::entries,
+           py::return_value_policy::reference_internal)
+      .def("checksum", &asterion::RiskAuditTrail::checksum)
+      .def("accepted_count", &asterion::RiskAuditTrail::accepted_count)
+      .def("rejected_count", &asterion::RiskAuditTrail::rejected_count);
+
+  py::class_<asterion::RiskGateway>(module, "RiskGateway")
+      .def(py::init<asterion::RiskLimits>(), py::arg_v("limits", asterion::RiskLimits{},
+                                                       "RiskLimits()"))
+      .def("set_limits", &asterion::RiskGateway::set_limits)
+      .def("limits", &asterion::RiskGateway::limits,
+           py::return_value_policy::reference_internal)
+      .def("enable_kill_switch",
+           py::overload_cast<asterion::TimestampNs>(&asterion::RiskGateway::enable_kill_switch),
+           py::arg("timestamp_ns") = 0)
+      .def("disable_kill_switch", &asterion::RiskGateway::disable_kill_switch)
+      .def("kill_switch_enabled", &asterion::RiskGateway::kill_switch_enabled)
+      .def("on_market_data", &asterion::RiskGateway::on_market_data)
+      .def("set_position", &asterion::RiskGateway::set_position)
+      .def("position", &asterion::RiskGateway::position)
+      .def("check_new_order", &asterion::RiskGateway::check_new_order)
+      .def("release_order", &asterion::RiskGateway::release_order)
+      .def("on_execution_report", &asterion::RiskGateway::on_execution_report)
+      .def("working_quantity", &asterion::RiskGateway::working_quantity)
+      .def("exposure_snapshot", &asterion::RiskGateway::exposure_snapshot)
+      .def("set_audit_enabled", &asterion::RiskGateway::set_audit_enabled)
+      .def("audit_enabled", &asterion::RiskGateway::audit_enabled)
+      .def("audit", &asterion::RiskGateway::audit, py::return_value_policy::reference_internal)
+      .def("clear_audit", &asterion::RiskGateway::clear_audit)
+      .def("open_audit_log", &asterion::RiskGateway::open_audit_log,
+           py::arg("path"), py::arg("format") = asterion::RiskAuditLogFormat::Jsonl)
+      .def("close_audit_log", &asterion::RiskGateway::close_audit_log)
+      .def("audit_log_enabled", &asterion::RiskGateway::audit_log_enabled);
 
   module.def("parse_event_log_format", &parse_format_or_throw);
   module.def("event_log_format_to_string",
@@ -338,6 +445,12 @@ PYBIND11_MODULE(_native, module) {
   });
   module.def("side_to_string",
              [](asterion::Side side) { return std::string(asterion::to_string(side)); });
+  module.def("rate_limit_mode_to_string", [](asterion::RateLimitMode mode) {
+    return std::string(asterion::to_string(mode));
+  });
+  module.def("risk_audit_log_format_to_string", [](asterion::RiskAuditLogFormat format) {
+    return std::string(asterion::to_string(format));
+  });
   module.def("diagnostic_severity_to_string",
              [](asterion::ReplayDiagnosticSeverity severity) {
                return std::string(asterion::to_string(severity));
@@ -420,6 +533,18 @@ PYBIND11_MODULE(_native, module) {
                        "AggregateReplayConfig()"));
   module.def("replay_file_by_symbol", &asterion::replay_file_by_symbol, py::arg("path"),
              py::arg("format") = asterion::EventLogFormat::Auto,
+             py::arg_v("config", asterion::AggregateReplayConfig{},
+                       "AggregateReplayConfig()"));
+  module.def("replay_shared_by_symbol",
+             [](const std::vector<asterion::MarketDataEvent>& events,
+                asterion::AggregateReplayConfig config) {
+               return asterion::replay_shared_by_symbol(events, config);
+             },
+             py::arg("events"),
+             py::arg_v("config", asterion::AggregateReplayConfig{},
+                       "AggregateReplayConfig()"));
+  module.def("replay_file_shared_by_symbol", &asterion::replay_file_shared_by_symbol,
+             py::arg("path"), py::arg("format") = asterion::EventLogFormat::Auto,
              py::arg_v("config", asterion::AggregateReplayConfig{},
                        "AggregateReplayConfig()"));
 

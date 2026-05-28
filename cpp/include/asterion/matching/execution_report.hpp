@@ -53,6 +53,9 @@ struct ExecutionReport {
   Quantity last_fill_quantity{0};
   PriceTicks last_fill_price_ticks{0};
   PriceTicks average_price_ticks{0};
+  // Current resting limit price when remaining_quantity > 0; 0 for market,
+  // terminal or rejected reports.
+  PriceTicks resting_price_ticks{0};
   TimestampNs timestamp_ns{0};
   RejectReason reject_reason{RejectReason::None};
 };

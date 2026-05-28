@@ -100,6 +100,7 @@ std::uint64_t append_to_checksum(std::uint64_t seed, const ExecutionReport& repo
   seed = checksum_append(seed, report.last_fill_quantity);
   seed = checksum_append(seed, report.last_fill_price_ticks);
   seed = checksum_append(seed, report.average_price_ticks);
+  seed = checksum_append(seed, report.resting_price_ticks);
   seed = checksum_append(seed, report.timestamp_ns);
   seed = checksum_append(seed, report.reject_reason);
   return seed;

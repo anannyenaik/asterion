@@ -1,5 +1,6 @@
 #include "asterion/market_data/event_log.hpp"
 #include "asterion/market_data/replay.hpp"
+#include "asterion/market_data/replay_aggregate.hpp"
 
 #include <filesystem>
 #include <iostream>
@@ -15,11 +16,13 @@ struct Options {
   EventLogFormat format{EventLogFormat::Auto};
   SymbolId symbol_id{1};
   bool print_diagnostics{true};
+  bool aggregate{false};
+  bool shared{false};
 };
 
 void print_usage(std::ostream& output) {
   output << "Usage: asterion_replay --input path [--format auto|csv|binary] [--symbol id]"
-         << " [--no-diagnostics]\n";
+         << " [--aggregate] [--shared] [--no-diagnostics]\n";
 }
 
 bool parse_options(int argc, char** argv, Options& options) {
@@ -62,6 +65,15 @@ bool parse_options(int argc, char** argv, Options& options) {
       options.print_diagnostics = false;
       continue;
     }
+    if (arg == "--aggregate") {
+      options.aggregate = true;
+      continue;
+    }
+    if (arg == "--shared") {
+      options.aggregate = true;
+      options.shared = true;
+      continue;
+    }
     if (!arg.empty() && arg.front() == '-') {
       std::cerr << "unknown option: " << arg << '\n';
       return false;
@@ -102,12 +114,41 @@ void print_diagnostics(const ReplayResult& result) {
   }
 }
 
+void print_aggregate_result(const AggregateReplaySummary& summary, bool shared) {
+  std::cout << "path=" << (shared ? "shared" : "grouped") << '\n';
+  std::cout << "total_events=" << summary.total_events << '\n';
+  std::cout << "symbol_count=" << summary.symbol_count << '\n';
+  std::cout << "combined_book_checksum=" << summary.combined_book_checksum << '\n';
+  std::cout << "aggregate_checksum=" << summary.aggregate_checksum << '\n';
+  if (!summary.error.empty()) {
+    std::cout << "error=" << summary.error << '\n';
+  }
+  for (const SymbolReplaySummary& symbol : summary.symbols) {
+    std::cout << "symbol=" << symbol.symbol_id << ",events=" << symbol.event_count
+              << ",first_sequence=" << symbol.first_sequence
+              << ",last_sequence=" << symbol.last_sequence
+              << ",sequence_valid=" << (symbol.sequence_valid ? "true" : "false")
+              << ",final_book_checksum=" << symbol.final_book_checksum
+              << ",execution_report_checksum=" << symbol.execution_report_checksum
+              << ",diagnostics_checksum=" << symbol.diagnostics_checksum
+              << ",diagnostic_errors=" << symbol.diagnostic_error_count << '\n';
+  }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
   Options options;
   if (!parse_options(argc, argv, options)) {
     return 1;
+  }
+
+  if (options.aggregate) {
+    const AggregateReplaySummary summary =
+        options.shared ? replay_file_shared_by_symbol(options.input_path, options.format)
+                       : replay_file_by_symbol(options.input_path, options.format);
+    print_aggregate_result(summary, options.shared);
+    return summary.error.empty() ? 0 : 2;
   }
 
   ReplayEngine replay(options.symbol_id);

@@ -22,13 +22,19 @@ Explicit limitations:
 - strategy examples are deterministic workloads, not profitable trading strategies;
 - inference defaults to a deterministic linear backend with measured latency accounting and policy
   hooks; an optional ONNX Runtime backend exists behind the `ASTERION_USE_ONNXRUNTIME` CMake flag but
-  is not exercised by CI, and ONNX requests fall back to `LinearModel` when the dependency is absent;
+  is only exercised by a manual CI toggle, and ONNX requests fall back to `LinearModel` when the
+  dependency is absent; there is no checked-in ONNX model fixture yet;
 - snapshot loading reconstructs the L3 book from framed single-order Snapshot records; it cannot
   represent an aggregated L2-only image whose levels lack per-order detail;
 - the new risk controls (open-order exposure, message-rate limiting, self-trade prevention) are
-  opt-in and disabled by default; message-rate limiting is a fixed-window, not sliding-window, limiter;
-- `MultiSymbolBookSet` is structural groundwork that routes events to per-symbol books; it is not a
-  cross-symbol matching engine and does not replace the grouped single-symbol replay path;
+  opt-in and disabled by default; sliding-window rate limiting is available but stores per-client
+  timestamps while enabled;
+- cancel-on-kill releases tracked simulated working exposure inside the risk gateway; it does not
+  send live exchange/broker cancels;
+- persistent risk audit logging is opt-in and append-only, but log rotation, signing and retention
+  policy are outside this repository;
+- `MultiSymbolBookSet` powers an opt-in shared replay path, but it is not a cross-symbol matching
+  engine and does not replace the default grouped single-symbol replay path;
 - historical benchmark trends are only meaningful on the same controlled hardware and are kept out of
   CI performance gates.
 
