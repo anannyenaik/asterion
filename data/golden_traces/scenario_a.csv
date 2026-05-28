@@ -1,0 +1,5 @@
+timestamp_ns,sequence_number,symbol_id,event_type,side,price_ticks,quantity,order_id,trade_id,flags
+1,1,1,Add,Sell,1001,100,1,0,0
+2,2,1,Add,Sell,1001,50,2,0,0
+3,3,1,Execute,Sell,1001,100,1,1,0
+4,4,1,Execute,Sell,1001,20,2,2,0

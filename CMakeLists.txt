@@ -72,6 +72,7 @@ if(ASTERION_BUILD_TESTS)
     tests/golden/test_golden_traces.cpp
     tests/property/test_book_properties.cpp)
   target_link_libraries(asterion_tests PRIVATE asterion Catch2::Catch2WithMain)
+  target_compile_definitions(asterion_tests PRIVATE ASTERION_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
   if(ASTERION_ENABLE_WARNINGS)
     if(MSVC)
@@ -81,9 +82,7 @@ if(ASTERION_BUILD_TESTS)
     endif()
   endif()
 
-  list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
-  include(Catch)
-  catch_discover_tests(asterion_tests)
+  add_test(NAME asterion_tests COMMAND asterion_tests)
 endif()
 
 if(ASTERION_BUILD_BENCHMARKS)

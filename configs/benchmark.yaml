@@ -1,0 +1,6 @@
+iterations:
+  add_order: 50000
+  cancel_order: 50000
+  simple_match: 10000
+replay_input: data/samples/sample_replay.csv
+notes: "Benchmark numbers are intentionally not checked in; generate them locally."

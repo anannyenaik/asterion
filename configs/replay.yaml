@@ -1,0 +1,5 @@
+symbol_id: 1
+input: data/samples/sample_replay.csv
+validate_sequence_numbers: true
+max_speed: true
+expected_final_checksum: null

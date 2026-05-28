@@ -1,0 +1,6 @@
+max_order_quantity: 1000
+max_notional_ticks: 1000000
+max_position_per_symbol: 10000
+max_gross_exposure_ticks: 10000000
+price_band_ticks: 100
+stale_after_ns: 1000000000
