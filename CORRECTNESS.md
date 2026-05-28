@@ -81,11 +81,12 @@ portable facts.
 
 ## Risk Audit Trail
 
-The risk gateway records every accepted and rejected decision in a `RiskAuditTrail`. Audit entries
-depend only on the order flow and configured limits, so the trail's FNV-1a checksum is deterministic
-and the incremental checksum matches a recomputation over the recorded entries. Tests assert the
-audit entry fields (deciding check name, decision, reject reason, limit and observed values) for
-duplicate-ID, kill-switch, stale-data, notional, quantity and position rejections.
+When auditing is enabled, the risk gateway records every accepted and rejected decision in a
+`RiskAuditTrail` (recording is opt-in so the default reject path stays allocation-free). Audit
+entries depend only on the order flow and configured limits, so the trail's FNV-1a checksum is
+deterministic and the incremental checksum matches a recomputation over the recorded entries. Tests
+assert the audit entry fields (deciding check name, decision, reject reason, limit and observed
+values) for duplicate-ID, kill-switch, stale-data, notional, quantity and position rejections.
 
 ## Replay Output Stability
 

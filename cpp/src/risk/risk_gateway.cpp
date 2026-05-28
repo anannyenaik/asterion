@@ -1,7 +1,7 @@
 #include "asterion/risk/risk_gateway.hpp"
 
 #include <cstdlib>
-#include <utility>
+#include <string>
 
 namespace asterion {
 
@@ -30,11 +30,13 @@ Quantity RiskGateway::position(SymbolId symbol_id) const noexcept {
 }
 
 RiskResult RiskGateway::decide(const NewOrderRequest& request, TimestampNs now_ns,
-                               std::string check_name, bool accepted, RejectReason reason,
+                               std::string_view check_name, bool accepted, RejectReason reason,
                                std::int64_t limit_value, std::int64_t observed_value) {
-  audit_.record(RiskAuditEntry{now_ns, request.client_order_id, request.symbol_id, request.side,
-                               accepted, reason, std::move(check_name), limit_value,
-                               observed_value});
+  if (record_audit_) {
+    audit_.record(RiskAuditEntry{now_ns, request.client_order_id, request.symbol_id, request.side,
+                                 accepted, reason, std::string(check_name), limit_value,
+                                 observed_value});
+  }
   return RiskResult{accepted, reason};
 }
 

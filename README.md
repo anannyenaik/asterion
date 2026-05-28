@@ -250,10 +250,11 @@ tooling fixtures, not measurements.
 
 ## Risk Audit Trail
 
-The risk gateway records every accepted or rejected order in an audit trail, capturing timestamp,
+The risk gateway can record every accepted or rejected order in an audit trail, capturing timestamp,
 client order ID, symbol, deciding check name, decision, reject reason and the relevant limit and
-observed values. The trail exposes a deterministic checksum for reproducible comparison across
-runs. See [RISK.md](RISK.md).
+observed values. The trail exposes a deterministic checksum for reproducible comparison across runs.
+Recording is opt-in (`set_audit_enabled(true)`) so the pre-trade hot path stays allocation-free by
+default. See [RISK.md](RISK.md).
 
 ## Honesty And Limitations
 

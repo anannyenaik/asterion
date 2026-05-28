@@ -6,7 +6,7 @@
 #include "asterion/risk/risk_audit.hpp"
 
 #include <cstdint>
-#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -35,6 +35,11 @@ public:
 
   [[nodiscard]] RiskResult check_new_order(const NewOrderRequest& request, TimestampNs now_ns);
 
+  // Audit recording is opt-in. It allocates (a per-entry string and the trail
+  // vector), so it is disabled by default to keep the pre-trade hot path
+  // allocation-free; enable it explicitly when an audit trail is wanted.
+  void set_audit_enabled(bool enabled) noexcept { record_audit_ = enabled; }
+  [[nodiscard]] bool audit_enabled() const noexcept { return record_audit_; }
   [[nodiscard]] const RiskAuditTrail& audit() const noexcept { return audit_; }
   void clear_audit() noexcept { audit_.clear(); }
 
@@ -47,7 +52,7 @@ private:
   [[nodiscard]] std::int64_t notional_for(const NewOrderRequest& request) const noexcept;
   [[nodiscard]] std::int64_t gross_exposure_with(const NewOrderRequest& request) const noexcept;
   [[nodiscard]] RiskResult decide(const NewOrderRequest& request, TimestampNs now_ns,
-                                  std::string check_name, bool accepted, RejectReason reason,
+                                  std::string_view check_name, bool accepted, RejectReason reason,
                                   std::int64_t limit_value, std::int64_t observed_value);
 
   RiskLimits limits_;
@@ -56,6 +61,7 @@ private:
   std::unordered_map<SymbolId, MarketState> market_state_;
   std::unordered_map<SymbolId, Quantity> positions_;
   RiskAuditTrail audit_;
+  bool record_audit_{false};
 };
 
 } // namespace asterion

@@ -19,6 +19,7 @@ NewOrderRequest limit_buy(ClientOrderId id, PriceTicks price, Quantity quantity,
 
 TEST_CASE("Risk audit records duplicate client order id rejections", "[risk][audit]") {
   RiskGateway risk(RiskLimits{1'000, 2'000'000, 5'000, 10'000'000, 50, 1'000});
+  risk.set_audit_enabled(true);
   risk.on_market_data(1, 1000, 100);
 
   REQUIRE(risk.check_new_order(limit_buy(10, 1001, 100, 101), 101).accepted);
@@ -39,6 +40,7 @@ TEST_CASE("Risk audit records duplicate client order id rejections", "[risk][aud
 
 TEST_CASE("Risk audit records kill switch rejections", "[risk][audit]") {
   RiskGateway risk;
+  risk.set_audit_enabled(true);
   risk.enable_kill_switch();
 
   const auto result = risk.check_new_order(limit_buy(1, 1000, 10, 5), 5);
@@ -51,6 +53,7 @@ TEST_CASE("Risk audit records kill switch rejections", "[risk][audit]") {
 
 TEST_CASE("Risk audit records stale market-data rejections with age", "[risk][audit]") {
   RiskGateway risk(RiskLimits{1'000, 2'000'000, 5'000, 10'000'000, 50, 5});
+  risk.set_audit_enabled(true);
   risk.on_market_data(1, 1000, 100);
 
   const auto result = risk.check_new_order(limit_buy(1, 1000, 10, 200), 200);
@@ -65,6 +68,7 @@ TEST_CASE("Risk audit records stale market-data rejections with age", "[risk][au
 
 TEST_CASE("Risk audit records max order quantity rejections", "[risk][audit]") {
   RiskGateway risk(RiskLimits{50, 1'000'000'000, 1'000'000, 1'000'000'000, 1'000'000, 1'000});
+  risk.set_audit_enabled(true);
   risk.on_market_data(1, 1000, 100);
 
   const auto result = risk.check_new_order(limit_buy(1, 1000, 100, 101), 101);
@@ -79,6 +83,7 @@ TEST_CASE("Risk audit records max order quantity rejections", "[risk][audit]") {
 
 TEST_CASE("Risk audit records notional limit rejections", "[risk][audit]") {
   RiskGateway risk(RiskLimits{1'000'000, 5'000, 1'000'000, 1'000'000'000, 1'000'000, 1'000});
+  risk.set_audit_enabled(true);
   risk.on_market_data(1, 1000, 100);
 
   // notional = 1000 * 10 = 10000 > 5000
@@ -95,6 +100,7 @@ TEST_CASE("Risk audit records notional limit rejections", "[risk][audit]") {
 TEST_CASE("Risk audit records position limit rejections", "[risk][audit]") {
   RiskGateway risk(
       RiskLimits{1'000'000, 1'000'000'000, 100, 1'000'000'000'000, 1'000'000, 1'000});
+  risk.set_audit_enabled(true);
   risk.on_market_data(1, 1000, 100);
   risk.set_position(1, 95);
 
@@ -112,6 +118,7 @@ TEST_CASE("Risk audit records position limit rejections", "[risk][audit]") {
 TEST_CASE("Risk audit checksum is deterministic and matches recomputation", "[risk][audit]") {
   const auto run = []() {
     RiskGateway risk(RiskLimits{1'000, 2'000'000, 5'000, 10'000'000, 50, 1'000});
+    risk.set_audit_enabled(true);
     risk.on_market_data(1, 1000, 100);
     (void)risk.check_new_order(limit_buy(10, 1001, 100, 101), 101);
     (void)risk.check_new_order(limit_buy(10, 1001, 100, 102), 102);
@@ -124,6 +131,7 @@ TEST_CASE("Risk audit checksum is deterministic and matches recomputation", "[ri
   REQUIRE(first != kFnvOffsetBasis);
 
   RiskGateway risk(RiskLimits{1'000, 2'000'000, 5'000, 10'000'000, 50, 1'000});
+  risk.set_audit_enabled(true);
   risk.on_market_data(1, 1000, 100);
   (void)risk.check_new_order(limit_buy(10, 1001, 100, 101), 101);
   (void)risk.check_new_order(limit_buy(11, 1001, 100, 102), 102);

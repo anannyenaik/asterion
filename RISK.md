@@ -41,8 +41,12 @@ Each symbol has a latest reference price and market-data timestamp. New orders a
 
 ## Audit Trail
 
-Every call to `check_new_order` appends a `RiskAuditEntry` to the gateway's `RiskAuditTrail`,
-whether the order is accepted or rejected. Each entry records:
+Audit recording is opt-in. It is disabled by default because recording allocates (a per-entry
+string and the trail vector) and the pre-trade reject path is intentionally allocation-free after
+warm-up. Enable it with `RiskGateway::set_audit_enabled(true)` when an audit trail is wanted.
+
+When enabled, every call to `check_new_order` appends a `RiskAuditEntry` to the gateway's
+`RiskAuditTrail`, whether the order is accepted or rejected. Each entry records:
 
 - timestamp (the `now_ns` passed to the check);
 - client order ID, symbol and side;
