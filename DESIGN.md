@@ -26,13 +26,16 @@ The first implementation keeps the hot path simple and auditable. It uses intege
   synthetic event generation.
 - `book`: L3 order book, price levels, FIFO queues, L2 views and invariant checks.
 - `matching`: price-time-priority matching and execution reports.
-- `risk`: pre-trade limits, duplicate client-order-ID tracking, stale-data policy and kill switch.
+- `risk`: pre-trade limits, duplicate client-order-ID tracking, stale-data policy, kill switch
+  and a deterministic pre-trade audit trail.
 - `strategy`: small deterministic strategies used as workloads, not profitability claims.
 - `inference`: model interface, deterministic linear backend, feature extraction,
   measured latency accounting and timeout/late-signal policy hooks.
-- `telemetry`: latency histogram and lightweight metrics.
-- `python/asterion`: thin bindings and analysis helpers for replay, checksums, aggregate views
-  and benchmark JSON summaries.
+- `telemetry`: latency histogram, lightweight metrics and per-stage latency-budget accounting.
+- `python/asterion`: thin bindings and analysis helpers for replay, checksums, aggregate views,
+  benchmark JSON summaries and offline benchmark/latency-budget regression analysis.
+- `scripts/asterion_inspect.py`: a single inspection CLI over replay checksums, diagnostics,
+  per-symbol summaries, latency-budget JSON, benchmark JSON and benchmark regression comparison.
 
 ## Data Flow
 
@@ -80,3 +83,27 @@ model-score latency separately from replay and matching, then applies timeout an
 hooks. A TorchScript-style class documents the external-model boundary, but it is a placeholder until
 LibTorch or another runtime is deliberately linked. This infrastructure measures plumbing cost; it
 does not imply a profitable model.
+
+### Latency Budget Accounting
+
+`LatencyBudgetAccountant` separates two concerns that are easy to conflate. The accounting logic
+(worst-case and total per stage, utilization, budget breaches and worst-offender selection) is a
+pure function of the durations it is fed, so it is unit-tested deterministically with injected
+values. The `asterion_latency_budget` tool wires real `monotonic_now_ns()` measurements into that
+same logic for ad-hoc inspection. Budgets are configurable and default to unset; the tool emits a
+deterministic config checksum but never claims the measured nanoseconds are portable.
+
+### Risk Audit Trail
+
+Each pre-trade decision is appended to a `RiskAuditTrail` with the deciding check name, decision,
+reject reason and the relevant limit and observed values. Entries depend only on the order flow and
+configured limits, not on timing, so the trail produces a deterministic checksum that can be
+compared across runs and machines — the same auditability property the book and execution-report
+checksums already provide.
+
+### Offline Regression Tooling
+
+Benchmark regression comparison and JSON inspection live in a pure-stdlib Python module
+(`asterion.regression`) that never imports the compiled extension. This keeps the comparison logic
+independently testable and usable without a built project, and keeps machine-dependent performance
+comparison clearly separated from the deterministic correctness path.

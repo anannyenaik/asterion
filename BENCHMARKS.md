@@ -50,9 +50,50 @@ cmake --build build-gbench --target asterion_google_benchmarks
 ./build-gbench/asterion_google_benchmarks --benchmark_format=json > build-gbench/google_benchmark.json
 ```
 
+## Regression Comparison
+
+The offline comparison tool compares two benchmark JSON files and reports per-benchmark percentage
+changes, new and missing benchmarks, and threshold breaches. The threshold and the compared metric
+(`avg_ns`, `total_ns` or `iterations`) are configurable.
+
+```bash
+python scripts/asterion_inspect.py benchmark-compare \
+  --baseline build/baseline.json \
+  --current build/current.json \
+  --threshold-pct 10 --metric avg_ns --json
+```
+
+The command exits non-zero only when `--fail-on-regression` is passed, so normal runs never fail on
+performance variance.
+
+**Benchmark regression results are machine-dependent.** Comparing two JSON files is only meaningful
+when both were produced on the same controlled hardware under comparable conditions (same compiler,
+build type, CPU governor and an otherwise quiet machine). Cross-machine comparison numbers are not
+meaningful. No benchmark numbers are checked into this repository; `data/samples/sample_benchmark_*.json`
+are synthetic tooling fixtures used only to exercise the comparison logic, not measurements.
+
+## Latency Budget
+
+`asterion_latency_budget` measures the tick-to-trade stages and accounts them against configurable
+budgets:
+
+```bash
+cmake --build build --target asterion_latency_budget
+./build/asterion_latency_budget --iterations 1000
+./build/asterion_latency_budget --risk-budget-ns 500 --json build/latency_budget.json --no-text
+python scripts/asterion_inspect.py latency-budget --input build/latency_budget.json --json
+```
+
+Budgets default to `0` (unset): stages are still measured but never flagged as exceeded. There are
+no default latency targets because realistic budgets depend on hardware and workload. The configuration
+checksum is deterministic; the observed nanoseconds are machine-dependent and are not portable
+performance claims.
+
 ## Optional CI Hook
 
-The `benchmarks` GitHub Actions workflow is manual-only (`workflow_dispatch`). It builds the benchmark target and validates JSON shape, but it does not fail normal CI on performance variance.
+The `benchmarks` GitHub Actions workflow is manual-only (`workflow_dispatch`). It builds the
+benchmark and latency-budget targets, validates JSON shape, and runs an informational two-run
+benchmark comparison and latency-budget summary. It does not fail normal CI on performance variance.
 
 ## Replay Corpora
 

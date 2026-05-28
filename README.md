@@ -63,6 +63,13 @@ CSV / binary / synthetic events
 - Strategy interface with market-maker and imbalance examples.
 - Deterministic linear inference backend, measured inference latency accounting and a
   TorchScript-style placeholder that documents the future external-model boundary.
+- Configurable per-stage latency-budget accounting (replay, book update, matching, risk,
+  strategy, inference and total) with budget-used/exceeded reporting, worst-offender
+  detection and stable JSON output.
+- Pre-trade risk audit trail recording every accepted/rejected decision with a deterministic
+  audit checksum.
+- Offline benchmark regression comparison and a replay/benchmark inspection CLI with readable
+  text and JSON output.
 - GitHub Actions CI for Linux build and test.
 
 ## Build
@@ -189,6 +196,64 @@ cmake --build build-gbench --target asterion_google_benchmarks
 
 No benchmark results are checked into this repository because they are hardware-dependent.
 See [BENCHMARKS.md](BENCHMARKS.md) and [docs/profiling.md](docs/profiling.md) for commands.
+
+## Latency Budget
+
+`asterion_latency_budget` times each stage of the tick-to-trade path (replay, book update,
+matching, risk, strategy, inference and a combined total) and reports observed worst-case and
+total nanoseconds against configurable budgets. Budgets default to `0`, which means "no budget
+configured": the stage is still measured but never flagged as exceeded. There are no hard-coded
+latency targets because realistic budgets depend on hardware and workload.
+
+```bash
+cmake --build build --target asterion_latency_budget
+./build/asterion_latency_budget --iterations 1000
+./build/asterion_latency_budget --risk-budget-ns 500 --json build/latency_budget.json --no-text
+python scripts/asterion_inspect.py latency-budget --input build/latency_budget.json --json
+```
+
+Observed latencies are machine-dependent. The configuration checksum is deterministic; the
+measured nanoseconds are not.
+
+## Inspection CLI
+
+`scripts/asterion_inspect.py` inspects replay output and benchmark/latency JSON in readable text
+(default) or `--json`:
+
+```bash
+# Replay inspection (requires the built Python bindings on PYTHONPATH).
+PYTHONPATH=build/python python scripts/asterion_inspect.py replay-checksums --input data/samples/sample_replay.csv --json
+PYTHONPATH=build/python python scripts/asterion_inspect.py diagnostics --input data/samples/sample_replay.csv
+PYTHONPATH=build/python python scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --json
+
+# Offline JSON inspection (no compiled extension required).
+python scripts/asterion_inspect.py benchmark-summary --input data/samples/sample_benchmark_baseline.json
+python scripts/asterion_inspect.py latency-budget --input data/samples/sample_latency_budget.json --json
+```
+
+## Benchmark Regression Comparison
+
+The offline comparison tool reports percentage changes, new/missing benchmarks and configurable
+threshold breaches between two benchmark JSON files:
+
+```bash
+python scripts/asterion_inspect.py benchmark-compare \
+  --baseline data/samples/sample_benchmark_baseline.json \
+  --current data/samples/sample_benchmark_current.json \
+  --threshold-pct 10 --json
+```
+
+It exits non-zero only with `--fail-on-regression`, so normal runs never fail on performance
+variance. Regression results are machine-dependent and are only meaningful when both JSON files
+were produced on the same controlled hardware. The `sample_benchmark_*.json` files are synthetic
+tooling fixtures, not measurements.
+
+## Risk Audit Trail
+
+The risk gateway records every accepted or rejected order in an audit trail, capturing timestamp,
+client order ID, symbol, deciding check name, decision, reject reason and the relevant limit and
+observed values. The trail exposes a deterministic checksum for reproducible comparison across
+runs. See [RISK.md](RISK.md).
 
 ## Honesty And Limitations
 

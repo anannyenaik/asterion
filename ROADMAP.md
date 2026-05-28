@@ -36,8 +36,22 @@
 
 ## Phase 5
 
-- benchmark regression thresholds if enough historical data exists;
-- latency budget accounting;
-- dashboard or CLI visualizer;
-- richer risk audit trail;
-- optional real ONNX Runtime or LibTorch backend once dependency setup is clean.
+- configurable per-stage latency-budget accounting with budget-used/exceeded reporting,
+  worst-offender detection and stable JSON output;
+- offline benchmark regression comparison with configurable thresholds and new/missing detection;
+- replay and benchmark inspection CLI with text and JSON output;
+- richer pre-trade risk audit trail with a deterministic audit checksum;
+- documentation that benchmark regression and latency results are machine-dependent.
+
+Deferred from Phase 5:
+
+- optional real ONNX Runtime or LibTorch backend once dependency setup is clean;
+- a graphical dashboard (the CLI inspector is the current visualizer).
+
+## Phase 6
+
+- optional real ONNX Runtime or LibTorch inference backend behind an explicit CMake flag;
+- historical benchmark store and trend reporting on controlled hardware;
+- richer risk controls (open-order exposure, message-rate limits, self-trade prevention);
+- snapshot-based book loading for Snapshot events;
+- shared multi-symbol matching rather than grouped single-symbol replay views.

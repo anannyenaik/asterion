@@ -35,12 +35,30 @@ jobs:
             -DASTERION_USE_GOOGLE_BENCHMARK=${GOOGLE_BENCHMARK}
 
       - name: Build benchmark targets
-        run: cmake --build build --target asterion_benchmarks
+        run: cmake --build build --target asterion_benchmarks asterion_latency_budget
 
       - name: Run chrono benchmark JSON smoke test
         run: |
           ./build/asterion_benchmarks --json build/asterion_benchmark.json --no-text
           python3 -m json.tool build/asterion_benchmark.json >/dev/null
+
+      - name: Benchmark regression comparison (informational)
+        run: |
+          # Two runs on the same machine. This demonstrates the comparison tool;
+          # it is informational only and does not fail on performance variance
+          # (no --fail-on-regression). Cross-machine comparisons are meaningless.
+          ./build/asterion_benchmarks --json build/asterion_benchmark_baseline.json --no-text
+          ./build/asterion_benchmarks --json build/asterion_benchmark_current.json --no-text
+          python3 scripts/asterion_inspect.py benchmark-compare \
+            --baseline build/asterion_benchmark_baseline.json \
+            --current build/asterion_benchmark_current.json \
+            --threshold-pct 25 --json
+
+      - name: Latency-budget JSON smoke test
+        run: |
+          ./build/asterion_latency_budget --json build/latency_budget.json --no-text
+          python3 -m json.tool build/latency_budget.json >/dev/null
+          python3 scripts/asterion_inspect.py latency-budget --input build/latency_budget.json --json
 
       - name: Run optional Google Benchmark target
         if: ${{ inputs.google_benchmark }}

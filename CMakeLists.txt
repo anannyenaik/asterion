@@ -58,6 +58,7 @@ add_library(
   cpp/src/matching/execution_report.cpp
   cpp/src/matching/matching_engine.cpp
   cpp/src/risk/kill_switch.cpp
+  cpp/src/risk/risk_audit.cpp
   cpp/src/risk/risk_gateway.cpp
   cpp/src/strategy/imbalance_strategy.cpp
   cpp/src/strategy/market_maker.cpp
@@ -65,6 +66,7 @@ add_library(
   cpp/src/inference/inference.cpp
   cpp/src/inference/linear_model.cpp
   cpp/src/inference/torchscript_model.cpp
+  cpp/src/telemetry/latency_budget.cpp
   cpp/src/telemetry/latency_histogram.cpp
   cpp/src/telemetry/metrics.cpp)
 
@@ -81,16 +83,24 @@ target_include_directories(asterion_allocation_tracker
 add_executable(asterion_replay cpp/tools/replay_main.cpp)
 target_link_libraries(asterion_replay PRIVATE asterion)
 
+add_executable(asterion_latency_budget cpp/tools/latency_budget_main.cpp)
+target_link_libraries(asterion_latency_budget PRIVATE asterion)
+target_compile_definitions(asterion_latency_budget
+                           PRIVATE ASTERION_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
 if(ASTERION_ENABLE_WARNINGS)
   if(MSVC)
     target_compile_options(asterion PRIVATE /W4 /permissive-)
     target_compile_options(asterion_allocation_tracker PRIVATE /W4 /permissive-)
     target_compile_options(asterion_replay PRIVATE /W4 /permissive-)
+    target_compile_options(asterion_latency_budget PRIVATE /W4 /permissive-)
   else()
     target_compile_options(asterion PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
     target_compile_options(asterion_allocation_tracker PRIVATE -Wall -Wextra -Wpedantic
                                                                -Wconversion -Wshadow)
     target_compile_options(asterion_replay PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    target_compile_options(asterion_latency_budget PRIVATE -Wall -Wextra -Wpedantic -Wconversion
+                                                           -Wshadow)
   endif()
 endif()
 
@@ -104,6 +114,9 @@ if(ASTERION_ENABLE_SANITIZERS)
     target_compile_options(asterion_replay PUBLIC -fsanitize=address,undefined
                                                   -fno-omit-frame-pointer)
     target_link_options(asterion_replay PUBLIC -fsanitize=address,undefined)
+    target_compile_options(asterion_latency_budget PUBLIC -fsanitize=address,undefined
+                                                          -fno-omit-frame-pointer)
+    target_link_options(asterion_latency_budget PUBLIC -fsanitize=address,undefined)
   endif()
 endif()
 
@@ -123,6 +136,8 @@ if(ASTERION_BUILD_TESTS)
     tests/unit/test_order_book.cpp
     tests/unit/test_event_log_replay.cpp
     tests/unit/test_risk_gateway.cpp
+    tests/unit/test_risk_audit.cpp
+    tests/unit/test_latency_budget.cpp
     tests/unit/test_telemetry_inference.cpp
     tests/unit/test_allocation_tracking.cpp
     tests/golden/test_golden_traces.cpp

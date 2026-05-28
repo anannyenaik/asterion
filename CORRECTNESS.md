@@ -70,6 +70,35 @@ timeout and late-signal policy hooks. Tests assert deterministic policy decision
 linear-model scores; measured nanoseconds are treated as local timing observations, not portable
 benchmark facts.
 
+## Latency Budget Accounting
+
+Latency-budget accounting is tested with injected, fixed durations rather than wall-clock
+measurements, so the assertions are deterministic. Tests cover worst-case and total per stage,
+budget utilization in parts-per-million, exceeded detection, worst-offender selection and a
+configuration checksum that depends only on the configured budgets (never on observed timings).
+Observed nanoseconds from `asterion_latency_budget` are treated as local timing observations, not
+portable facts.
+
+## Risk Audit Trail
+
+The risk gateway records every accepted and rejected decision in a `RiskAuditTrail`. Audit entries
+depend only on the order flow and configured limits, so the trail's FNV-1a checksum is deterministic
+and the incremental checksum matches a recomputation over the recorded entries. Tests assert the
+audit entry fields (deciding check name, decision, reject reason, limit and observed values) for
+duplicate-ID, kill-switch, stale-data, notional, quantity and position rejections.
+
+## Replay Output Stability
+
+Replay checksums are asserted to be stable across repeated runs over the same input and to match
+between CSV and binary encodings of the same events. These tests run against small checked-in sample
+logs and skip automatically when the compiled Python bindings are not available.
+
+## Benchmark Comparison Logic
+
+The offline benchmark regression comparison is tested on synthetic in-memory and checked-in fixtures
+(not measurements). Tests assert percentage-change computation, configurable threshold breaches,
+new/missing benchmark detection, zero-baseline handling and JSON-serializable output.
+
 ## Property-Style Tests
 
 The randomized tests generate add, cancel, replace and crossing streams, apply deterministic seeds and assert:

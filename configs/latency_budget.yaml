@@ -1,0 +1,19 @@
+# Per-stage latency budgets in nanoseconds for asterion_latency_budget.
+#
+# A value of 0 means "no budget configured": the stage is still measured but is
+# never flagged as exceeded. There are no default targets on purpose, because
+# realistic budgets depend on the hardware and workload you choose to measure.
+# Set values explicitly for your own controlled environment before treating an
+# "exceeded" result as meaningful.
+#
+# This file is reference documentation. Budgets are passed to the tool via CLI
+# flags (e.g. --risk-budget-ns 500); the tool does not parse YAML.
+replay_ns: 0
+book_update_ns: 0
+matching_ns: 0
+risk_ns: 0
+strategy_ns: 0
+inference_ns: 0
+total_ns: 0
+iterations: 1000
+notes: "Observed latencies are machine-dependent; only compare on controlled hardware."

@@ -3,7 +3,10 @@
 #include "asterion/matching/matching_engine.hpp"
 #include "asterion/risk/kill_switch.hpp"
 #include "asterion/risk/limits.hpp"
+#include "asterion/risk/risk_audit.hpp"
 
+#include <cstdint>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -32,6 +35,9 @@ public:
 
   [[nodiscard]] RiskResult check_new_order(const NewOrderRequest& request, TimestampNs now_ns);
 
+  [[nodiscard]] const RiskAuditTrail& audit() const noexcept { return audit_; }
+  void clear_audit() noexcept { audit_.clear(); }
+
 private:
   struct MarketState {
     PriceTicks reference_price_ticks{0};
@@ -40,12 +46,16 @@ private:
 
   [[nodiscard]] std::int64_t notional_for(const NewOrderRequest& request) const noexcept;
   [[nodiscard]] std::int64_t gross_exposure_with(const NewOrderRequest& request) const noexcept;
+  [[nodiscard]] RiskResult decide(const NewOrderRequest& request, TimestampNs now_ns,
+                                  std::string check_name, bool accepted, RejectReason reason,
+                                  std::int64_t limit_value, std::int64_t observed_value);
 
   RiskLimits limits_;
   KillSwitch kill_switch_;
   std::unordered_set<ClientOrderId> accepted_client_order_ids_;
   std::unordered_map<SymbolId, MarketState> market_state_;
   std::unordered_map<SymbolId, Quantity> positions_;
+  RiskAuditTrail audit_;
 };
 
 } // namespace asterion

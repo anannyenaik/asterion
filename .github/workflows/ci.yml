@@ -41,3 +41,21 @@ jobs:
           python3 python/examples/compare_checksums.py
           python3 python/examples/plot_diagnostics_counts.py
           python3 python/examples/load_benchmark_json.py
+
+      - name: Latency-budget tool smoke test
+        run: |
+          ./build/asterion_latency_budget --json build/latency_budget.json --no-text
+          python3 -m json.tool build/latency_budget.json >/dev/null
+          python3 scripts/asterion_inspect.py latency-budget --input build/latency_budget.json --json
+
+      - name: Inspection CLI smoke tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/build/python
+        run: |
+          python3 scripts/asterion_inspect.py replay-checksums --input data/samples/sample_replay.csv --json
+          python3 scripts/asterion_inspect.py diagnostics --input data/samples/sample_replay.csv --json
+          python3 scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --json
+          python3 scripts/asterion_inspect.py benchmark-summary --input data/samples/sample_benchmark_baseline.json --json
+          python3 scripts/asterion_inspect.py benchmark-compare \
+            --baseline data/samples/sample_benchmark_baseline.json \
+            --current data/samples/sample_benchmark_current.json --json

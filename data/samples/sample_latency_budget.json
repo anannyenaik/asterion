@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "note": "Synthetic latency-budget fixture for tooling tests. Observed values are illustrative placeholders, not measurements.",
+  "config_checksum": 0,
+  "stages": [
+    {"stage": "replay", "has_budget": false, "budget_ns": 0, "sample_count": 1, "worst_observed_ns": 0, "total_observed_ns": 0, "worst_utilization_ppm": 0, "exceeded": false},
+    {"stage": "book_update", "has_budget": false, "budget_ns": 0, "sample_count": 1000, "worst_observed_ns": 0, "total_observed_ns": 0, "worst_utilization_ppm": 0, "exceeded": false},
+    {"stage": "matching", "has_budget": false, "budget_ns": 0, "sample_count": 1000, "worst_observed_ns": 0, "total_observed_ns": 0, "worst_utilization_ppm": 0, "exceeded": false},
+    {"stage": "risk", "has_budget": true, "budget_ns": 100, "sample_count": 1000, "worst_observed_ns": 250, "total_observed_ns": 0, "worst_utilization_ppm": 2500000, "exceeded": true},
+    {"stage": "strategy", "has_budget": false, "budget_ns": 0, "sample_count": 1000, "worst_observed_ns": 0, "total_observed_ns": 0, "worst_utilization_ppm": 0, "exceeded": false},
+    {"stage": "inference", "has_budget": false, "budget_ns": 0, "sample_count": 1000, "worst_observed_ns": 0, "total_observed_ns": 0, "worst_utilization_ppm": 0, "exceeded": false},
+    {"stage": "total", "has_budget": false, "budget_ns": 0, "sample_count": 1000, "worst_observed_ns": 0, "total_observed_ns": 0, "worst_utilization_ppm": 0, "exceeded": false}
+  ],
+  "exceeded_count": 1,
+  "worst_offender": "risk"
+}

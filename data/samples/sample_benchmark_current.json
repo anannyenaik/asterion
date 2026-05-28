@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "environment": {
+    "note": "Synthetic fixture for the benchmark-regression tooling tests. These are not performance measurements.",
+    "dataset": "synthetic-fixture",
+    "logging_mode": "synthetic"
+  },
+  "benchmarks": [
+    {"name": "add_order", "iterations": 1000, "total_ns": 105000, "avg_ns": 105, "guard": 0, "allocations": 0, "deallocations": 0, "bytes_allocated": 0},
+    {"name": "cancel_order", "iterations": 1000, "total_ns": 150000, "avg_ns": 150, "guard": 0, "allocations": 0, "deallocations": 0, "bytes_allocated": 0},
+    {"name": "risk_check_only", "iterations": 1000, "total_ns": 60000, "avg_ns": 60, "guard": 0, "allocations": 0, "deallocations": 0, "bytes_allocated": 0},
+    {"name": "l2_snapshot_generation", "iterations": 1000, "total_ns": 50000, "avg_ns": 50, "guard": 0, "allocations": 0, "deallocations": 0, "bytes_allocated": 0}
+  ]
+}
