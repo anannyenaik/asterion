@@ -58,7 +58,11 @@ std::vector<ExecutionReport> MatchingEngine::submit_order(const NewOrderRequest&
     if (stored_state.filled_quantity > 0) {
       stored_state.status = OrderStatus::PartiallyFilled;
     }
-    rest_limit_order(stored_state, remaining, request.timestamp_ns);
+    if (!rest_limit_order(stored_state, remaining, request.timestamp_ns)) {
+      stored_state.status = OrderStatus::Rejected;
+      record_report(reports, make_report(stored_state, ExecType::Rejected, 0, 0,
+                                         request.timestamp_ns, RejectReason::InternalError));
+    }
   } else if (remaining > 0 && request.order_type == OrderType::Market) {
     stored_state.status = OrderStatus::Canceled;
     record_report(reports, make_report(stored_state, ExecType::Canceled, 0, 0,
@@ -84,7 +88,12 @@ std::vector<ExecutionReport> MatchingEngine::cancel_order(const CancelOrderReque
   }
 
   OrderState& state = state_it->second;
-  book_.cancel_order(request.exchange_order_id);
+  if (!book_.cancel_order(request.exchange_order_id)) {
+    state.status = OrderStatus::Rejected;
+    record_report(reports, make_report(state, ExecType::Rejected, 0, 0, request.timestamp_ns,
+                                       RejectReason::InternalError));
+    return reports;
+  }
   state.status = OrderStatus::Canceled;
   record_report(reports,
                 make_report(state, ExecType::Canceled, 0, 0, request.timestamp_ns,
@@ -119,7 +128,12 @@ std::vector<ExecutionReport> MatchingEngine::replace_order(const ReplaceOrderReq
   }
 
   OrderState& state = state_it->second;
-  book_.cancel_order(request.exchange_order_id);
+  if (!book_.cancel_order(request.exchange_order_id)) {
+    state.status = OrderStatus::Rejected;
+    record_report(reports, make_report(state, ExecType::Rejected, 0, 0, request.timestamp_ns,
+                                       RejectReason::InternalError));
+    return reports;
+  }
   state.limit_price_ticks = request.new_price_ticks;
   state.original_quantity = state.filled_quantity + request.new_quantity;
   state.status = OrderStatus::Replaced;
@@ -134,7 +148,11 @@ std::vector<ExecutionReport> MatchingEngine::replace_order(const ReplaceOrderReq
     if (state.filled_quantity > 0 && state.status != OrderStatus::Replaced) {
       state.status = OrderStatus::PartiallyFilled;
     }
-    rest_limit_order(state, remaining, request.timestamp_ns);
+    if (!rest_limit_order(state, remaining, request.timestamp_ns)) {
+      state.status = OrderStatus::Rejected;
+      record_report(reports, make_report(state, ExecType::Rejected, 0, 0, request.timestamp_ns,
+                                         RejectReason::InternalError));
+    }
   }
 
   return reports;
@@ -199,11 +217,16 @@ void MatchingEngine::match_against_book(OrderState& incoming, Quantity& remainin
     record_report(reports, make_report(incoming, ExecType::Trade, fill_quantity, fill_price,
                                        timestamp_ns, RejectReason::None));
 
-    book_.reduce_order(resting_order_id, fill_quantity);
+    if (!book_.reduce_order(resting_order_id, fill_quantity)) {
+      incoming.status = OrderStatus::Rejected;
+      record_report(reports, make_report(incoming, ExecType::Rejected, 0, 0, timestamp_ns,
+                                         RejectReason::InternalError));
+      return;
+    }
   }
 }
 
-void MatchingEngine::rest_limit_order(const OrderState& state, Quantity remaining,
+bool MatchingEngine::rest_limit_order(const OrderState& state, Quantity remaining,
                                       TimestampNs timestamp_ns) {
   Order order;
   order.order_id = state.exchange_order_id;
@@ -214,7 +237,7 @@ void MatchingEngine::rest_limit_order(const OrderState& state, Quantity remainin
   order.quantity = remaining;
   order.timestamp_ns = timestamp_ns;
   order.sequence_number = state.exchange_order_id;
-  book_.add_order(order);
+  return book_.add_order(order);
 }
 
 ExecutionReport MatchingEngine::make_report(const OrderState& state, ExecType exec_type,

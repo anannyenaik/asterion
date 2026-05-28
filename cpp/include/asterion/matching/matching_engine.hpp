@@ -49,7 +49,8 @@ private:
                              PriceTicks limit_price_ticks) const;
   void match_against_book(OrderState& incoming, Quantity& remaining, TimestampNs timestamp_ns,
                           std::vector<ExecutionReport>& reports);
-  void rest_limit_order(const OrderState& state, Quantity remaining, TimestampNs timestamp_ns);
+  [[nodiscard]] bool rest_limit_order(const OrderState& state, Quantity remaining,
+                                      TimestampNs timestamp_ns);
 
   [[nodiscard]] ExecutionReport make_report(const OrderState& state, ExecType exec_type,
                                             Quantity last_fill_quantity,

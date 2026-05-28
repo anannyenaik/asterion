@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <random>
+#include <string>
 #include <vector>
 
 using namespace asterion;
@@ -37,7 +38,8 @@ std::uint64_t apply_ops(const std::vector<Op>& ops) {
     }
 
     const auto report = book.check_invariants();
-    INFO(report.violations.empty() ? "" : report.violations.front());
+    const std::string violation = report.violations.empty() ? "" : report.violations.front();
+    INFO(violation);
     REQUIRE(report.ok);
     ++sequence;
   }

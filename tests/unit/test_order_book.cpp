@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
+#include <string>
 #include <vector>
 
 using namespace asterion;
@@ -38,7 +39,8 @@ TEST_CASE("L3 order book preserves FIFO and aggregates L2 levels", "[book]") {
   REQUIRE(view.bids.front().price_ticks == 999);
 
   const auto invariants = book.check_invariants();
-  INFO(invariants.violations.empty() ? "" : invariants.violations.front());
+  const std::string violation = invariants.violations.empty() ? "" : invariants.violations.front();
+  INFO(violation);
   REQUIRE(invariants.ok);
 }
 
