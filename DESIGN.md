@@ -28,8 +28,11 @@ The first implementation keeps the hot path simple and auditable. It uses intege
 - `matching`: price-time-priority matching and execution reports.
 - `risk`: pre-trade limits, duplicate client-order-ID tracking, stale-data policy and kill switch.
 - `strategy`: small deterministic strategies used as workloads, not profitability claims.
-- `inference`: model interface, linear model and feature extraction placeholder.
+- `inference`: model interface, deterministic linear backend, feature extraction,
+  measured latency accounting and timeout/late-signal policy hooks.
 - `telemetry`: latency histogram and lightweight metrics.
+- `python/asterion`: thin bindings and analysis helpers for replay, checksums, aggregate views
+  and benchmark JSON summaries.
 
 ## Data Flow
 
@@ -56,8 +59,10 @@ magic bytes, schema version, record size, event type, side and truncated records
 
 Replay emits structured diagnostics with event index, sequence number, symbol, severity and reason.
 Errors are included in a diagnostics checksum so malformed streams are reproducible artifacts too.
-The current replay engine owns one symbol book per run; multi-symbol generated logs can be replayed
-per symbol, while aggregate multi-symbol replay remains a future extension.
+The replay engine still owns one symbol book per run. Aggregate multi-symbol views group events by
+symbol and run that same engine per group, reporting per-symbol counts, first/last sequence,
+diagnostics and checksum summaries. This is intentionally not described as full multi-symbol
+matching.
 
 ### L3 Internally, L2 Externally
 
@@ -69,4 +74,9 @@ The risk gateway exists before matching because serious trading systems reject i
 
 ### Inference In The Measured Path
 
-The inference module is deliberately small. `LinearModel` is deterministic and can run inside an event loop, which makes it suitable for latency measurement. Future ONNX or TorchScript integration should preserve the same measured boundary instead of hiding model cost outside the pipeline.
+The inference module is deliberately small. `LinearModel` is deterministic and can run inside an
+event loop, which makes it suitable for latency measurement. `MeasuredInferenceEngine` records
+model-score latency separately from replay and matching, then applies timeout and late-signal policy
+hooks. A TorchScript-style class documents the external-model boundary, but it is a placeholder until
+LibTorch or another runtime is deliberately linked. This infrastructure measures plumbing cost; it
+does not imply a profitable model.

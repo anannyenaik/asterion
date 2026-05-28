@@ -9,6 +9,7 @@ namespace asterion {
 class LinearModel final : public Model {
 public:
   LinearModel(std::vector<double> weights, double bias);
+  [[nodiscard]] std::string_view backend_name() const noexcept override;
   [[nodiscard]] double score(std::span<const double> features) const override;
 
 private:

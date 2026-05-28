@@ -16,6 +16,7 @@ cmake --build build --target asterion_benchmarks
 ./build/asterion_benchmarks --dataset data/samples/sample_replay.csv
 ./build/asterion_benchmarks --dataset data/samples/sample_replay.bin
 ./build/asterion_benchmarks --json build/asterion_benchmark.json --no-text
+PYTHONPATH=build/python python python/examples/load_benchmark_json.py build/asterion_benchmark.json
 ```
 
 The JSON schema is stable and includes:
@@ -34,7 +35,9 @@ The runner currently covers:
 - L2 snapshot generation;
 - replay of sample events;
 - risk check only;
-- linear inference only.
+- linear inference only;
+- measured linear inference only, which records model scoring latency separately from replay and
+  matching overhead.
 
 ## Optional Google Benchmark
 
@@ -68,6 +71,20 @@ python scripts/convert_event_log.py --input data/generated/balanced.csv --output
 
 The replay benchmark uses recorded/simulated event logs only. It does not imply live exchange
 connectivity or portable hardware performance.
+
+## Python Analysis
+
+The Python package can load benchmark JSON and return a compact schema-aware summary:
+
+```python
+import asterion
+
+summary = asterion.summarise_benchmark_json("build/asterion_benchmark.json")
+print(summary["benchmark_count"])
+```
+
+`data/samples/sample_benchmark_schema.json` is a schema-only fixture for examples. It intentionally
+contains no benchmark numbers.
 
 ## Methodology
 

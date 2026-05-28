@@ -1,5 +1,7 @@
+#include "asterion/core/checksum.hpp"
 #include "asterion/market_data/event_log.hpp"
 #include "asterion/market_data/replay.hpp"
+#include "asterion/market_data/replay_aggregate.hpp"
 #include "asterion/market_data/synthetic_generator.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -176,6 +178,53 @@ TEST_CASE("Replay checksums are stable for the sample stream", "[replay][checksu
   REQUIRE(result_a.final_book_checksum == 8911332365672283169ULL);
   REQUIRE(result_a.execution_report_checksum == 4737330456958314376ULL);
   REQUIRE(result_a.diagnostics_checksum == 14695981039346656037ULL);
+}
+
+TEST_CASE("Aggregate replay summarizes global multi-symbol streams by symbol",
+          "[replay][aggregate]") {
+  const std::vector<MarketDataEvent> events{
+      MarketDataEvent{1, 1, 1, MarketEventType::Add, Side::Buy, 999, 10, 1, 0, 0},
+      MarketDataEvent{2, 2, 2, MarketEventType::Add, Side::Sell, 1001, 5, 2, 0, 0},
+      MarketDataEvent{3, 3, 1, MarketEventType::Cancel, Side::Buy, 999, 0, 1, 0, 0},
+      MarketDataEvent{4, 4, 2, MarketEventType::Execute, Side::Sell, 1001, 3, 2, 77, 0},
+  };
+
+  const AggregateReplaySummary aggregate = replay_by_symbol(events);
+  REQUIRE(aggregate.error.empty());
+  REQUIRE(aggregate.total_events == events.size());
+  REQUIRE(aggregate.symbol_count == 2);
+  REQUIRE(aggregate.symbols.size() == 2);
+
+  const SymbolReplaySummary& symbol_one = aggregate.symbols[0];
+  REQUIRE(symbol_one.symbol_id == 1);
+  REQUIRE(symbol_one.event_count == 2);
+  REQUIRE(symbol_one.first_sequence == 1);
+  REQUIRE(symbol_one.last_sequence == 3);
+  REQUIRE(symbol_one.sequence_valid);
+  REQUIRE(symbol_one.diagnostic_count == 0);
+
+  const SymbolReplaySummary& symbol_two = aggregate.symbols[1];
+  REQUIRE(symbol_two.symbol_id == 2);
+  REQUIRE(symbol_two.event_count == 2);
+  REQUIRE(symbol_two.first_sequence == 2);
+  REQUIRE(symbol_two.last_sequence == 4);
+  REQUIRE(symbol_two.sequence_valid);
+  REQUIRE(symbol_two.execution_report_checksum != kFnvOffsetBasis);
+
+  ReplayConfig replay_config;
+  replay_config.validate_sequence_numbers = false;
+  ReplayEngine replay_two(2, replay_config);
+  const std::vector<MarketDataEvent> symbol_two_events{events[1], events[3]};
+  const ReplayResult replay_two_result = replay_two.replay_events(symbol_two_events);
+  REQUIRE(symbol_two.final_book_checksum == replay_two_result.final_book_checksum);
+  REQUIRE(symbol_two.diagnostics_checksum == replay_two_result.diagnostics_checksum);
+
+  AggregateReplayConfig strict_config;
+  strict_config.validate_per_symbol_sequences = true;
+  const AggregateReplaySummary strict = replay_by_symbol(events, strict_config);
+  REQUIRE(strict.symbols[0].diagnostic_error_count == 1);
+  REQUIRE(strict.symbols[0].diagnostics.front().reason.find("sequence gap") !=
+          std::string::npos);
 }
 
 TEST_CASE("Generated streams replay identically from CSV and binary logs",

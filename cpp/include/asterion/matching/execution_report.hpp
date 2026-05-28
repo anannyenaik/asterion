@@ -3,6 +3,7 @@
 #include "asterion/core/types.hpp"
 
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 namespace asterion {
@@ -59,5 +60,7 @@ struct ExecutionReport {
 [[nodiscard]] std::string_view to_string(RejectReason value) noexcept;
 [[nodiscard]] std::uint64_t append_to_checksum(std::uint64_t seed,
                                                const ExecutionReport& report) noexcept;
+[[nodiscard]] std::uint64_t checksum_execution_reports(
+    std::span<const ExecutionReport> reports) noexcept;
 
 } // namespace asterion

@@ -1,5 +1,6 @@
 #include "asterion/book/order_book.hpp"
 #include "asterion/core/allocation_tracker.hpp"
+#include "asterion/inference/inference.hpp"
 #include "asterion/inference/linear_model.hpp"
 #include "asterion/market_data/replay.hpp"
 #include "asterion/matching/matching_engine.hpp"
@@ -301,6 +302,24 @@ BenchmarkResult benchmark_linear_inference_only() {
   });
 }
 
+BenchmarkResult benchmark_measured_linear_inference_only() {
+  constexpr std::size_t kIterations = 50'000;
+  LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
+  const std::array<double, 4> features{2.0, 1000.0, 0.35, 400.0};
+  MeasuredInferenceEngine inference(model, InferencePolicy{1'000'000, 0, true, true});
+
+  return run_benchmark("measured_linear_inference_only", kIterations, [&] {
+    std::uint64_t guard = 0;
+    for (std::size_t i = 0; i < kIterations; ++i) {
+      const InferenceResult result = inference.score(features);
+      guard ^= static_cast<std::uint64_t>(result.score * 1000.0);
+      guard ^= result.inference_latency_ns;
+      guard ^= result.accepted ? 0x9e3779b97f4a7c15ULL : 0ULL;
+    }
+    return guard;
+  });
+}
+
 void print_result(const BenchmarkResult& result) {
   std::cout << result.name << ",iterations=" << result.iterations
             << ",total_ns=" << result.total_ns << ",avg_ns=" << result.avg_ns
@@ -433,7 +452,7 @@ int main(int argc, char** argv) {
   }
 
   std::vector<BenchmarkResult> results;
-  results.reserve(9);
+  results.reserve(10);
   results.push_back(benchmark_add_order());
   results.push_back(benchmark_cancel_order());
   results.push_back(benchmark_replace_order());
@@ -443,6 +462,7 @@ int main(int argc, char** argv) {
   results.push_back(benchmark_replay_sample_events(options.dataset_path));
   results.push_back(benchmark_risk_check_only());
   results.push_back(benchmark_linear_inference_only());
+  results.push_back(benchmark_measured_linear_inference_only());
 
   if (options.text_output) {
     for (const BenchmarkResult& result : results) {

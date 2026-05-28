@@ -13,11 +13,13 @@ It does **not** claim to be a real exchange, a live trading system, or a true pr
 - Integer tick prices in the hot path; no floating-point prices in matching or book state.
 - L3 book reconstruction with order-ID lookup, FIFO queues per price level and deterministic checksums.
 - Recorded/simulated market-data logs in CSV and a compact ITCH-like binary format.
+- Thin Python bindings and analysis helpers for log conversion, replay and checksum inspection.
 - Price-time-priority matching for limit, market, cancel and replace flows.
 - Structured execution reports with deterministic report checksums.
 - Pre-trade risk gateway with quantity, notional, position, exposure, price-band, stale-data, duplicate-ID and kill-switch checks.
 - Golden trace tests and randomized invariant tests.
-- A clean placeholder path for measured in-loop inference through `Model`, `LinearModel` and `FeatureExtractor`.
+- Measured inference infrastructure through `Model`, `LinearModel`, `FeatureExtractor`,
+  timeout/late-signal policy hooks and a documented TorchScript-style placeholder interface.
 
 ## Architecture
 
@@ -49,13 +51,18 @@ CSV / binary / synthetic events
 - Execution report schema with status, execution type, fill fields and reject reason.
 - Risk gateway and kill switch.
 - Deterministic CSV and binary replay, sample replay data and replay diagnostics.
+- Aggregate per-symbol replay summaries over multi-symbol logs, implemented as grouped
+  single-symbol replay views rather than full multi-symbol matching.
 - Simulated market-data adapter modes for balanced, bursty, deep-book, high-cancel,
   wide-range and multi-symbol streams.
+- Python bindings and a small `python/asterion` package for event logs, replay diagnostics,
+  checksums, aggregate summaries and benchmark JSON summaries.
 - Catch2 tests for unit, golden and randomized property-style coverage.
 - Chrono benchmark executable with stable JSON output and allocation counters.
 - Optional Google Benchmark target behind an explicit CMake flag.
 - Strategy interface with market-maker and imbalance examples.
-- Deterministic linear inference placeholder.
+- Deterministic linear inference backend, measured inference latency accounting and a
+  TorchScript-style placeholder that documents the future external-model boundary.
 - GitHub Actions CI for Linux build and test.
 
 ## Build
@@ -73,6 +80,14 @@ cmake --build build-debug
 ```
 
 Catch2 v3 is used for tests. CMake will use a system package if available or fetch Catch2 during configure.
+
+Python bindings are optional:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_BUILD_PYTHON=ON
+cmake --build build
+PYTHONPATH=build/python python -m pytest python/tests
+```
 
 ## Test
 
@@ -117,7 +132,7 @@ cmake --build build --target asterion_replay
 ./build/asterion_replay --input data/samples/sample_replay.csv
 ./build/asterion_replay --input data/samples/sample_replay.bin --format binary
 python scripts/generate_synthetic_events.py --mode bursty --events 1000 --output data/generated/bursty.bin
-python scripts/convert_event_log.py --input data/samples/sample_replay.csv --output data/generated/sample_replay.bin
+PYTHONPATH=build/python python scripts/convert_event_log.py --input data/samples/sample_replay.csv --output data/generated/sample_replay.bin
 ```
 
 Replay reports deterministic final-book, execution-report, event-log and diagnostics checksums.
@@ -127,6 +142,29 @@ and invalid/crossed book states.
 
 Current Snapshot events are markers in the shared event schema; full snapshot book loading is not
 implemented yet.
+
+Aggregate multi-symbol replay is available as a summary/helper view. It groups recorded events by
+symbol, runs the existing single-symbol replay engine per group, and reports per-symbol counts,
+first/last sequence numbers, diagnostics and checksum summaries. It does not implement a shared
+multi-symbol matching engine.
+
+## Python Usage
+
+```bash
+PYTHONPATH=build/python python python/examples/replay_samples.py
+PYTHONPATH=build/python python python/examples/compare_checksums.py
+PYTHONPATH=build/python python python/examples/plot_diagnostics_counts.py
+PYTHONPATH=build/python python python/examples/load_benchmark_json.py
+```
+
+```python
+import asterion
+
+events = asterion.load_log("data/samples/sample_replay.csv")
+result = asterion.run_replay(events, symbol_id=1)
+summary = asterion.aggregate_by_symbol(events)
+print(result.final_book_checksum, summary.symbol_count)
+```
 
 ## Benchmark
 
@@ -139,7 +177,9 @@ cmake --build build --target asterion_benchmarks
 ./build/asterion_benchmarks --json build/asterion_benchmark.json --no-text
 ```
 
-The runner measures add, cancel, replace, market crossing, L2 snapshot, replay, risk-check and linear-inference paths using `std::chrono`. Google Benchmark integration is optional:
+The runner measures add, cancel, replace, market crossing, L2 snapshot, replay, risk-check,
+linear-inference and measured-linear-inference paths using `std::chrono`. Google Benchmark
+integration is optional:
 
 ```bash
 cmake -S . -B build-gbench -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_USE_GOOGLE_BENCHMARK=ON
@@ -155,7 +195,8 @@ See [BENCHMARKS.md](BENCHMARKS.md) and [docs/profiling.md](docs/profiling.md) fo
 Asterion is a deterministic systems lab. The market-data ingestion path is for recorded and
 simulated logs only. It is not connected to any exchange, does not trade live, does not implement
 kernel bypass, does not claim true HFT production performance and does not include fabricated
-benchmark results. See [LIMITATIONS.md](LIMITATIONS.md) for the full scope statement.
+benchmark results. The inference path measures model plumbing and policy accounting only; it is
+not a profitable strategy claim. See [LIMITATIONS.md](LIMITATIONS.md) for the full scope statement.
 
 ## Example CV Bullet
 

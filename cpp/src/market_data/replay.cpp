@@ -53,6 +53,14 @@ std::uint64_t append_to_checksum(std::uint64_t seed,
   return seed;
 }
 
+std::uint64_t checksum_diagnostics(std::span<const ReplayDiagnostic> diagnostics) noexcept {
+  std::uint64_t seed = kFnvOffsetBasis;
+  for (const ReplayDiagnostic& diagnostic : diagnostics) {
+    seed = append_to_checksum(seed, diagnostic);
+  }
+  return seed;
+}
+
 ReplayEngine::ReplayEngine(SymbolId symbol_id, ReplayConfig config)
     : config_(config), book_(symbol_id) {}
 

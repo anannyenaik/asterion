@@ -46,6 +46,8 @@ struct ReplayResult {
 [[nodiscard]] std::string_view to_string(ReplayDiagnosticSeverity severity) noexcept;
 [[nodiscard]] std::uint64_t append_to_checksum(std::uint64_t seed,
                                                const ReplayDiagnostic& diagnostic) noexcept;
+[[nodiscard]] std::uint64_t checksum_diagnostics(
+    std::span<const ReplayDiagnostic> diagnostics) noexcept;
 
 class ReplayEngine {
 public:

@@ -99,4 +99,12 @@ std::uint64_t append_to_checksum(std::uint64_t seed, const ExecutionReport& repo
   return seed;
 }
 
+std::uint64_t checksum_execution_reports(std::span<const ExecutionReport> reports) noexcept {
+  std::uint64_t seed = kFnvOffsetBasis;
+  for (const ExecutionReport& report : reports) {
+    seed = append_to_checksum(seed, report);
+  }
+  return seed;
+}
+
 } // namespace asterion

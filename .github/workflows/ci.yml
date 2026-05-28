@@ -17,13 +17,27 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build g++ git
+          sudo apt-get install -y cmake ninja-build g++ git python3 python3-dev python3-pytest
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_ENABLE_WARNINGS=ON
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_ENABLE_WARNINGS=ON -DASTERION_BUILD_PYTHON=ON
 
       - name: Build
         run: cmake --build build
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+      - name: Pytest
+        env:
+          PYTHONPATH: ${{ github.workspace }}/build/python
+        run: python3 -m pytest python/tests
+
+      - name: Python example smoke tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/build/python
+        run: |
+          python3 python/examples/replay_samples.py
+          python3 python/examples/compare_checksums.py
+          python3 python/examples/plot_diagnostics_counts.py
+          python3 python/examples/load_benchmark_json.py

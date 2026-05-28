@@ -8,6 +8,7 @@ project(
 
 option(ASTERION_BUILD_TESTS "Build Asterion tests" ON)
 option(ASTERION_BUILD_BENCHMARKS "Build Asterion benchmark runner" ON)
+option(ASTERION_BUILD_PYTHON "Build Python bindings" OFF)
 option(ASTERION_USE_GOOGLE_BENCHMARK "Build optional Google Benchmark target" OFF)
 option(ASTERION_ENABLE_WARNINGS "Enable strict compiler warnings" ON)
 option(ASTERION_ENABLE_SANITIZERS "Enable Address/Undefined sanitizers" OFF)
@@ -39,7 +40,8 @@ set(ASTERION_CONFIG_COMPILER_FLAGS
     "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${ASTERION_BUILD_TYPE_UPPER}}")
 string(STRIP "${ASTERION_CONFIG_COMPILER_FLAGS}" ASTERION_CONFIG_COMPILER_FLAGS)
 
-if(ASTERION_BUILD_TESTS OR (ASTERION_BUILD_BENCHMARKS AND ASTERION_USE_GOOGLE_BENCHMARK))
+if(ASTERION_BUILD_TESTS OR ASTERION_BUILD_PYTHON
+   OR (ASTERION_BUILD_BENCHMARKS AND ASTERION_USE_GOOGLE_BENCHMARK))
   include(FetchContent)
 endif()
 
@@ -50,6 +52,7 @@ add_library(
   cpp/src/market_data/event.cpp
   cpp/src/market_data/event_log.cpp
   cpp/src/market_data/replay.cpp
+  cpp/src/market_data/replay_aggregate.cpp
   cpp/src/market_data/synthetic_generator.cpp
   cpp/src/book/order_book.cpp
   cpp/src/matching/execution_report.cpp
@@ -59,11 +62,17 @@ add_library(
   cpp/src/strategy/imbalance_strategy.cpp
   cpp/src/strategy/market_maker.cpp
   cpp/src/inference/feature_extractor.cpp
+  cpp/src/inference/inference.cpp
   cpp/src/inference/linear_model.cpp
+  cpp/src/inference/torchscript_model.cpp
   cpp/src/telemetry/latency_histogram.cpp
   cpp/src/telemetry/metrics.cpp)
 
 target_include_directories(asterion PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include)
+
+if(ASTERION_BUILD_PYTHON)
+  set_target_properties(asterion PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
 
 add_library(asterion_allocation_tracker STATIC cpp/src/core/allocation_tracker.cpp)
 target_include_directories(asterion_allocation_tracker
@@ -131,6 +140,32 @@ if(ASTERION_BUILD_TESTS)
   endif()
 
   add_test(NAME asterion_tests COMMAND asterion_tests)
+endif()
+
+if(ASTERION_BUILD_PYTHON)
+  set(PYBIND11_FINDPYTHON
+      ON
+      CACHE BOOL "" FORCE)
+  find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+  find_package(pybind11 CONFIG QUIET)
+  if(NOT pybind11_FOUND)
+    FetchContent_Declare(
+      pybind11
+      URL https://github.com/pybind/pybind11/archive/refs/tags/v2.13.6.tar.gz)
+    FetchContent_MakeAvailable(pybind11)
+  endif()
+
+  pybind11_add_module(_native python/asterion/_native.cpp)
+  target_link_libraries(_native PRIVATE asterion)
+  target_include_directories(_native PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include)
+  set_target_properties(_native PROPERTIES LIBRARY_OUTPUT_DIRECTORY
+                                           ${CMAKE_CURRENT_BINARY_DIR}/python/asterion)
+
+  add_custom_target(
+    asterion_python_package ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/python/asterion
+            ${CMAKE_CURRENT_BINARY_DIR}/python/asterion
+    DEPENDS _native)
 endif()
 
 if(ASTERION_BUILD_BENCHMARKS)
