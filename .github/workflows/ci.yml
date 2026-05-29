@@ -63,9 +63,13 @@ jobs:
           python3 scripts/asterion_inspect.py diagnostics --input data/samples/sample_replay.csv --json
           python3 scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --json
           python3 scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --shared --json
+          python3 scripts/asterion_inspect.py replay-parity --input data/samples/sample_replay.csv --json
           python3 scripts/asterion_inspect.py shared-fuzz --seed 20260528 --events 32 --symbols 3 --json
           python3 scripts/asterion_inspect.py audit-summary --input data/samples/sample_risk_audit.jsonl --json
           python3 scripts/asterion_inspect.py audit-verify --input data/samples/sample_risk_audit.jsonl --json
+          python3 scripts/asterion_inspect.py audit-manifest --input data/samples/sample_risk_audit.jsonl --output build/sample_risk_audit.manifest.jsonl --json
+          python3 scripts/asterion_inspect.py audit-manifest-verify --manifest build/sample_risk_audit.manifest.jsonl --base-dir data/samples --json
+          python3 scripts/asterion_inspect.py onnx-status --json
           python3 scripts/asterion_inspect.py rate-limit-mode --mode sliding-window --json
           python3 scripts/asterion_inspect.py risk-exposure --input data/samples/sample_risk_flow.json --json
           python3 scripts/asterion_inspect.py risk-exposure --input data/samples/sample_disconnect_replace_risk.json --json
@@ -74,7 +78,10 @@ jobs:
             --baseline data/samples/sample_benchmark_baseline.json \
             --current data/samples/sample_benchmark_current.json --json
 
-  onnx-toggle:
+  # Opt-in lane: configure with the ONNX flag ON but WITHOUT the dependency present,
+  # to prove the build still succeeds and the inference layer falls back to the
+  # deterministic LinearModel when ONNX Runtime is absent.
+  onnx-fallback:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.onnx_backend }}
     runs-on: ubuntu-latest
 
@@ -87,16 +94,76 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build g++ git python3 python3-dev python3-pytest
 
-      - name: Configure with ONNX Runtime option
+      - name: Configure with ONNX Runtime option (dependency absent)
         run: cmake -S . -B build-onnx -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_ENABLE_WARNINGS=ON -DASTERION_BUILD_PYTHON=ON -DASTERION_USE_ONNXRUNTIME=ON
 
       - name: Build
         run: cmake --build build-onnx
 
-      - name: Test
+      - name: Test (fallback backend selection)
         run: ctest --test-dir build-onnx --output-on-failure
 
       - name: Pytest
         env:
           PYTHONPATH: ${{ github.workspace }}/build-onnx/python
+        run: python3 -m pytest python/tests
+
+  # Opt-in lane: download + cache a real ONNX Runtime, build with it, and run the
+  # tiny checked-in identity fixture to assert the ONNX backend is selected and
+  # scores deterministically. This dependency is never installed by the default CI.
+  onnx-runtime:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.onnx_backend }}
+    runs-on: ubuntu-latest
+
+    env:
+      ONNXRUNTIME_VERSION: "1.20.1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ git curl python3 python3-dev python3-pytest
+
+      - name: Cache ONNX Runtime
+        id: cache-onnxruntime
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/onnxruntime
+          key: onnxruntime-linux-x64-${{ env.ONNXRUNTIME_VERSION }}
+
+      - name: Download ONNX Runtime
+        if: steps.cache-onnxruntime.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          url="https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}.tgz"
+          curl -fsSL "$url" -o onnxruntime.tgz
+          mkdir -p onnxruntime
+          tar -xzf onnxruntime.tgz --strip-components=1 -C onnxruntime
+          test -f onnxruntime/include/onnxruntime_cxx_api.h
+          test -f onnxruntime/lib/libonnxruntime.so
+
+      - name: Configure with ONNX Runtime
+        run: |
+          cmake -S . -B build-onnxrt -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DASTERION_ENABLE_WARNINGS=ON \
+            -DASTERION_BUILD_PYTHON=ON \
+            -DASTERION_USE_ONNXRUNTIME=ON \
+            -DONNXRUNTIME_ROOT=${{ github.workspace }}/onnxruntime
+
+      - name: Build
+        run: cmake --build build-onnxrt
+
+      - name: Test (real ONNX backend + identity fixture)
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/onnxruntime/lib
+        run: ctest --test-dir build-onnxrt --output-on-failure
+
+      - name: Pytest
+        env:
+          PYTHONPATH: ${{ github.workspace }}/build-onnxrt/python
+          LD_LIBRARY_PATH: ${{ github.workspace }}/onnxruntime/lib
         run: python3 -m pytest python/tests

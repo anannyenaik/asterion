@@ -173,6 +173,18 @@ template <typename T> [[nodiscard]] std::optional<T> parse_integral(std::string_
   if (value == "Disconnected") {
     return RejectReason::Disconnected;
   }
+  if (value == "MaxPortfolioGrossExposure") {
+    return RejectReason::MaxPortfolioGrossExposure;
+  }
+  if (value == "MaxPortfolioNetExposure") {
+    return RejectReason::MaxPortfolioNetExposure;
+  }
+  if (value == "MaxSymbolConcentration") {
+    return RejectReason::MaxSymbolConcentration;
+  }
+  if (value == "MaxPortfolioLoss") {
+    return RejectReason::MaxPortfolioLoss;
+  }
   return std::nullopt;
 }
 

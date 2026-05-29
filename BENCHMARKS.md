@@ -40,7 +40,8 @@ The runner currently covers:
   matching overhead.
 
 The benchmark runner is not extended with performance claims for shared replay, persistent audit
-logging/rotation, sliding-window rate limiting, replace-risk checks, cancel-on-kill or
+logging/rotation/manifests, sliding-window rate limiting, replace-risk checks, simulated
+broker/session lifecycle, simulated portfolio risk, optional ONNX Runtime, cancel-on-kill or
 cancel-on-disconnect. Those paths are covered by correctness and smoke tests; any local measurements
 remain machine-dependent artifacts.
 

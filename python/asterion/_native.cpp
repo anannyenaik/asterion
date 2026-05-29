@@ -1,5 +1,6 @@
 #include "asterion/book/order.hpp"
 #include "asterion/book/order_book.hpp"
+#include "asterion/inference/backend.hpp"
 #include "asterion/inference/feature_extractor.hpp"
 #include "asterion/inference/inference.hpp"
 #include "asterion/inference/linear_model.hpp"
@@ -9,7 +10,10 @@
 #include "asterion/market_data/replay.hpp"
 #include "asterion/market_data/replay_aggregate.hpp"
 #include "asterion/matching/execution_report.hpp"
+#include "asterion/risk/audit_manifest.hpp"
+#include "asterion/risk/portfolio_risk.hpp"
 #include "asterion/risk/risk_gateway.hpp"
+#include "asterion/session/broker_session.hpp"
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -113,7 +117,11 @@ PYBIND11_MODULE(_native, module) {
       .value("MaxOpenOrderQuantity", asterion::RejectReason::MaxOpenOrderQuantity)
       .value("MessageRateLimit", asterion::RejectReason::MessageRateLimit)
       .value("SelfTradePrevention", asterion::RejectReason::SelfTradePrevention)
-      .value("Disconnected", asterion::RejectReason::Disconnected);
+      .value("Disconnected", asterion::RejectReason::Disconnected)
+      .value("MaxPortfolioGrossExposure", asterion::RejectReason::MaxPortfolioGrossExposure)
+      .value("MaxPortfolioNetExposure", asterion::RejectReason::MaxPortfolioNetExposure)
+      .value("MaxSymbolConcentration", asterion::RejectReason::MaxSymbolConcentration)
+      .value("MaxPortfolioLoss", asterion::RejectReason::MaxPortfolioLoss);
 
   py::enum_<asterion::RateLimitMode>(module, "RateLimitMode")
       .value("FixedWindow", asterion::RateLimitMode::FixedWindow)
@@ -474,6 +482,332 @@ PYBIND11_MODULE(_native, module) {
       .def("audit_log_enabled", &asterion::RiskGateway::audit_log_enabled)
       .def("audit_log_paths", &asterion::RiskGateway::audit_log_paths,
            py::return_value_policy::reference_internal);
+
+  // ---- Inference backend status (ONNX) ----
+  py::enum_<asterion::InferenceBackend>(module, "InferenceBackend")
+      .value("Linear", asterion::InferenceBackend::Linear)
+      .value("Onnx", asterion::InferenceBackend::Onnx);
+
+  module.attr("onnx_runtime_available") = asterion::kOnnxRuntimeAvailable;
+  module.def("inference_backend_to_string", [](asterion::InferenceBackend backend) {
+    return std::string(asterion::to_string(backend));
+  });
+  module.def(
+      "inference_backend_status",
+      [](asterion::InferenceBackend requested) {
+        asterion::InferenceBackendConfig config;
+        config.requested = requested;
+        config.linear_weights = {1.0, 0.0, 0.0, 0.0};
+        config.linear_bias = 0.0;
+        const asterion::InferenceBackendSelection selection =
+            asterion::make_inference_backend(std::move(config));
+        py::dict result;
+        result["requested"] = std::string(asterion::to_string(selection.requested));
+        result["active"] = std::string(asterion::to_string(selection.active));
+        result["fell_back"] = selection.fell_back;
+        result["detail"] = selection.detail;
+        result["onnx_runtime_available"] = asterion::kOnnxRuntimeAvailable;
+        return result;
+      },
+      py::arg("requested") = asterion::InferenceBackend::Onnx);
+
+  // ---- Shared replay parity ----
+  py::class_<asterion::SymbolParityEntry>(module, "SymbolParityEntry")
+      .def_readwrite("symbol_id", &asterion::SymbolParityEntry::symbol_id)
+      .def_readwrite("present_in_grouped", &asterion::SymbolParityEntry::present_in_grouped)
+      .def_readwrite("present_in_shared", &asterion::SymbolParityEntry::present_in_shared)
+      .def_readwrite("event_log_checksum_match",
+                     &asterion::SymbolParityEntry::event_log_checksum_match)
+      .def_readwrite("final_book_checksum_match",
+                     &asterion::SymbolParityEntry::final_book_checksum_match)
+      .def_readwrite("execution_report_checksum_match",
+                     &asterion::SymbolParityEntry::execution_report_checksum_match)
+      .def_readwrite("diagnostics_checksum_match",
+                     &asterion::SymbolParityEntry::diagnostics_checksum_match)
+      .def_readwrite("matched", &asterion::SymbolParityEntry::matched);
+
+  py::class_<asterion::ReplayParityReport>(module, "ReplayParityReport")
+      .def_readwrite("matched", &asterion::ReplayParityReport::matched)
+      .def_readwrite("symbol_count_grouped", &asterion::ReplayParityReport::symbol_count_grouped)
+      .def_readwrite("symbol_count_shared", &asterion::ReplayParityReport::symbol_count_shared)
+      .def_readwrite("mismatch_count", &asterion::ReplayParityReport::mismatch_count)
+      .def_readwrite("combined_book_checksum_match",
+                     &asterion::ReplayParityReport::combined_book_checksum_match)
+      .def_readwrite("aggregate_checksum_match",
+                     &asterion::ReplayParityReport::aggregate_checksum_match)
+      .def_readwrite("grouped_combined_book_checksum",
+                     &asterion::ReplayParityReport::grouped_combined_book_checksum)
+      .def_readwrite("shared_combined_book_checksum",
+                     &asterion::ReplayParityReport::shared_combined_book_checksum)
+      .def_readwrite("grouped_aggregate_checksum",
+                     &asterion::ReplayParityReport::grouped_aggregate_checksum)
+      .def_readwrite("shared_aggregate_checksum",
+                     &asterion::ReplayParityReport::shared_aggregate_checksum)
+      .def_readwrite("symbols", &asterion::ReplayParityReport::symbols);
+
+  module.def(
+      "compare_replay_parity",
+      [](const std::vector<asterion::MarketDataEvent>& events,
+         asterion::AggregateReplayConfig config) {
+        return asterion::compare_replay_parity(events, config);
+      },
+      py::arg("events"),
+      py::arg_v("config", asterion::AggregateReplayConfig{}, "AggregateReplayConfig()"));
+  module.def("compare_replay_parity_file", &asterion::compare_replay_parity_file, py::arg("path"),
+             py::arg("format") = asterion::EventLogFormat::Auto,
+             py::arg_v("config", asterion::AggregateReplayConfig{}, "AggregateReplayConfig()"));
+
+  // ---- Tamper-evident audit manifests ----
+  py::enum_<asterion::AuditManifestIssueType>(module, "AuditManifestIssueType")
+      .value("None_", asterion::AuditManifestIssueType::None)
+      .value("MissingFile", asterion::AuditManifestIssueType::MissingFile)
+      .value("SizeMismatch", asterion::AuditManifestIssueType::SizeMismatch)
+      .value("RecordCountMismatch", asterion::AuditManifestIssueType::RecordCountMismatch)
+      .value("ContentChecksumMismatch", asterion::AuditManifestIssueType::ContentChecksumMismatch)
+      .value("AuditChainMismatch", asterion::AuditManifestIssueType::AuditChainMismatch)
+      .value("ManifestChainMismatch", asterion::AuditManifestIssueType::ManifestChainMismatch)
+      .value("SignatureMismatch", asterion::AuditManifestIssueType::SignatureMismatch)
+      .value("SignatureMissing", asterion::AuditManifestIssueType::SignatureMissing)
+      .value("KeyMissing", asterion::AuditManifestIssueType::KeyMissing);
+
+  py::class_<asterion::AuditManifestFileEntry>(module, "AuditManifestFileEntry")
+      .def_readwrite("file_name", &asterion::AuditManifestFileEntry::file_name)
+      .def_readwrite("record_count", &asterion::AuditManifestFileEntry::record_count)
+      .def_readwrite("byte_size", &asterion::AuditManifestFileEntry::byte_size)
+      .def_readwrite("content_checksum", &asterion::AuditManifestFileEntry::content_checksum)
+      .def_readwrite("audit_chain_checksum",
+                     &asterion::AuditManifestFileEntry::audit_chain_checksum);
+
+  py::class_<asterion::AuditManifestSignature>(module, "AuditManifestSignature")
+      .def_readwrite("algorithm", &asterion::AuditManifestSignature::algorithm)
+      .def_readwrite("key_id", &asterion::AuditManifestSignature::key_id)
+      .def_readwrite("value_hex", &asterion::AuditManifestSignature::value_hex);
+
+  py::class_<asterion::AuditManifest>(module, "AuditManifest")
+      .def_readwrite("schema_version", &asterion::AuditManifest::schema_version)
+      .def_readwrite("creator", &asterion::AuditManifest::creator)
+      .def_readwrite("created_at", &asterion::AuditManifest::created_at)
+      .def_readwrite("format", &asterion::AuditManifest::format)
+      .def_readwrite("files", &asterion::AuditManifest::files)
+      .def_readwrite("chain_checksum", &asterion::AuditManifest::chain_checksum)
+      .def_readwrite("signature", &asterion::AuditManifest::signature);
+
+  py::class_<asterion::AuditManifestResult>(module, "AuditManifestResult")
+      .def_readwrite("ok", &asterion::AuditManifestResult::ok)
+      .def_readwrite("manifest", &asterion::AuditManifestResult::manifest)
+      .def_readwrite("error", &asterion::AuditManifestResult::error);
+
+  py::class_<asterion::AuditManifestIssue>(module, "AuditManifestIssue")
+      .def_readwrite("type", &asterion::AuditManifestIssue::type)
+      .def_readwrite("file_name", &asterion::AuditManifestIssue::file_name)
+      .def_readwrite("detail", &asterion::AuditManifestIssue::detail);
+
+  py::class_<asterion::AuditManifestVerification>(module, "AuditManifestVerification")
+      .def_readwrite("valid", &asterion::AuditManifestVerification::valid)
+      .def_readwrite("files_checked", &asterion::AuditManifestVerification::files_checked)
+      .def_readwrite("entries_checked", &asterion::AuditManifestVerification::entries_checked)
+      .def_readwrite("computed_chain_checksum",
+                     &asterion::AuditManifestVerification::computed_chain_checksum)
+      .def_readwrite("signature_present", &asterion::AuditManifestVerification::signature_present)
+      .def_readwrite("signature_valid", &asterion::AuditManifestVerification::signature_valid)
+      .def_readwrite("issues", &asterion::AuditManifestVerification::issues);
+
+  module.def("audit_manifest_issue_type_to_string", [](asterion::AuditManifestIssueType type) {
+    return std::string(asterion::to_string(type));
+  });
+  module.def(
+      "generate_audit_manifest",
+      [](const std::vector<std::filesystem::path>& paths, asterion::RiskAuditLogFormat format,
+         const std::string& creator, const std::string& created_at, py::bytes signing_key,
+         const std::string& signing_key_id) {
+        asterion::AuditManifestGenerateOptions options;
+        options.format = format;
+        options.creator = creator;
+        options.created_at = created_at;
+        options.signing_key_id = signing_key_id;
+        const std::string key = signing_key;
+        options.signing_key.assign(key.begin(), key.end());
+        return asterion::generate_audit_manifest(paths, std::move(options));
+      },
+      py::arg("paths"), py::arg("format") = asterion::RiskAuditLogFormat::Jsonl,
+      py::arg("creator") = "asterion", py::arg("created_at") = "",
+      py::arg("signing_key") = py::bytes(""), py::arg("signing_key_id") = "");
+  module.def("serialize_audit_manifest", &asterion::serialize_audit_manifest);
+  module.def("write_audit_manifest", &asterion::write_audit_manifest, py::arg("path"),
+             py::arg("manifest"));
+  module.def("read_audit_manifest", [](const std::filesystem::path& path) {
+    std::string error;
+    auto manifest = asterion::read_audit_manifest(path, &error);
+    if (!manifest) {
+      throw std::runtime_error(error);
+    }
+    return *manifest;
+  });
+  module.def("parse_audit_manifest", [](const std::string& text) {
+    std::string error;
+    auto manifest = asterion::parse_audit_manifest(text, &error);
+    if (!manifest) {
+      throw std::runtime_error(error);
+    }
+    return *manifest;
+  });
+  module.def(
+      "verify_audit_manifest",
+      [](const asterion::AuditManifest& manifest, const std::filesystem::path& base_dir,
+         py::bytes signing_key) {
+        asterion::AuditManifestVerifyOptions options;
+        options.base_dir = base_dir;
+        const std::string key = signing_key;
+        options.signing_key.assign(key.begin(), key.end());
+        return asterion::verify_audit_manifest(manifest, std::move(options));
+      },
+      py::arg("manifest"), py::arg("base_dir") = std::filesystem::path(),
+      py::arg("signing_key") = py::bytes(""));
+
+  // ---- Simulated broker/session lifecycle ----
+  py::enum_<asterion::SessionConnectionState>(module, "SessionConnectionState")
+      .value("Disconnected", asterion::SessionConnectionState::Disconnected)
+      .value("Connected", asterion::SessionConnectionState::Connected);
+  py::enum_<asterion::BrokerOrderState>(module, "BrokerOrderState")
+      .value("Accepted", asterion::BrokerOrderState::Accepted)
+      .value("PendingCancel", asterion::BrokerOrderState::PendingCancel)
+      .value("Canceled", asterion::BrokerOrderState::Canceled)
+      .value("Filled", asterion::BrokerOrderState::Filled);
+  py::enum_<asterion::BrokerEventType>(module, "BrokerEventType")
+      .value("Connect", asterion::BrokerEventType::Connect)
+      .value("Disconnect", asterion::BrokerEventType::Disconnect)
+      .value("Reconnect", asterion::BrokerEventType::Reconnect)
+      .value("OrderAccepted", asterion::BrokerEventType::OrderAccepted)
+      .value("CancelRequested", asterion::BrokerEventType::CancelRequested)
+      .value("CancelAcknowledged", asterion::BrokerEventType::CancelAcknowledged)
+      .value("CancelRejected", asterion::BrokerEventType::CancelRejected)
+      .value("OrderFilled", asterion::BrokerEventType::OrderFilled);
+
+  py::class_<asterion::BrokerSessionEvent>(module, "BrokerSessionEvent")
+      .def_readwrite("timestamp_ns", &asterion::BrokerSessionEvent::timestamp_ns)
+      .def_readwrite("type", &asterion::BrokerSessionEvent::type)
+      .def_readwrite("exchange_order_id", &asterion::BrokerSessionEvent::exchange_order_id)
+      .def_readwrite("client_order_id", &asterion::BrokerSessionEvent::client_order_id)
+      .def_readwrite("symbol_id", &asterion::BrokerSessionEvent::symbol_id)
+      .def_readwrite("side", &asterion::BrokerSessionEvent::side)
+      .def_readwrite("quantity", &asterion::BrokerSessionEvent::quantity);
+
+  py::class_<asterion::BrokerSessionSnapshot>(module, "BrokerSessionSnapshot")
+      .def_readwrite("connection_state", &asterion::BrokerSessionSnapshot::connection_state)
+      .def_readwrite("connect_count", &asterion::BrokerSessionSnapshot::connect_count)
+      .def_readwrite("disconnect_count", &asterion::BrokerSessionSnapshot::disconnect_count)
+      .def_readwrite("reconnect_count", &asterion::BrokerSessionSnapshot::reconnect_count)
+      .def_readwrite("live_order_count", &asterion::BrokerSessionSnapshot::live_order_count)
+      .def_readwrite("pending_cancel_count", &asterion::BrokerSessionSnapshot::pending_cancel_count)
+      .def_readwrite("filled_order_count", &asterion::BrokerSessionSnapshot::filled_order_count)
+      .def_readwrite("canceled_order_count", &asterion::BrokerSessionSnapshot::canceled_order_count)
+      .def_readwrite("cancel_reject_count", &asterion::BrokerSessionSnapshot::cancel_reject_count)
+      .def_readwrite("event_count", &asterion::BrokerSessionSnapshot::event_count)
+      .def_readwrite("event_checksum", &asterion::BrokerSessionSnapshot::event_checksum);
+
+  py::class_<asterion::SimulatedBrokerSession>(module, "SimulatedBrokerSession")
+      .def(py::init<>())
+      .def(py::init<bool>(), py::arg("cancel_on_disconnect"))
+      .def("attach_risk_gateway", &asterion::SimulatedBrokerSession::attach_risk_gateway,
+           py::keep_alive<1, 2>())
+      .def("set_cancel_on_disconnect",
+           &asterion::SimulatedBrokerSession::set_cancel_on_disconnect)
+      .def("cancel_on_disconnect", &asterion::SimulatedBrokerSession::cancel_on_disconnect)
+      .def("connect", &asterion::SimulatedBrokerSession::connect)
+      .def("disconnect", &asterion::SimulatedBrokerSession::disconnect)
+      .def("reconnect", &asterion::SimulatedBrokerSession::reconnect)
+      .def("on_order_accepted", &asterion::SimulatedBrokerSession::on_order_accepted)
+      .def("request_cancel", &asterion::SimulatedBrokerSession::request_cancel)
+      .def("acknowledge_cancel", &asterion::SimulatedBrokerSession::acknowledge_cancel)
+      .def("reject_cancel", &asterion::SimulatedBrokerSession::reject_cancel)
+      .def("on_order_filled", &asterion::SimulatedBrokerSession::on_order_filled)
+      .def("connection_state", &asterion::SimulatedBrokerSession::connection_state)
+      .def("connected", &asterion::SimulatedBrokerSession::connected)
+      .def("pending_cancel_count", &asterion::SimulatedBrokerSession::pending_cancel_count)
+      .def("live_order_count", &asterion::SimulatedBrokerSession::live_order_count)
+      .def("has_order", &asterion::SimulatedBrokerSession::has_order)
+      .def("order_state", &asterion::SimulatedBrokerSession::order_state)
+      .def("events", &asterion::SimulatedBrokerSession::events,
+           py::return_value_policy::reference_internal)
+      .def("event_checksum", &asterion::SimulatedBrokerSession::event_checksum)
+      .def("snapshot", &asterion::SimulatedBrokerSession::snapshot);
+
+  module.def("session_connection_state_to_string", [](asterion::SessionConnectionState state) {
+    return std::string(asterion::to_string(state));
+  });
+  module.def("broker_order_state_to_string", [](asterion::BrokerOrderState state) {
+    return std::string(asterion::to_string(state));
+  });
+  module.def("broker_event_type_to_string", [](asterion::BrokerEventType type) {
+    return std::string(asterion::to_string(type));
+  });
+
+  // ---- Portfolio-level risk ----
+  py::enum_<asterion::PortfolioBreach>(module, "PortfolioBreach")
+      .value("None_", asterion::PortfolioBreach::None)
+      .value("GrossExposure", asterion::PortfolioBreach::GrossExposure)
+      .value("NetExposure", asterion::PortfolioBreach::NetExposure)
+      .value("Concentration", asterion::PortfolioBreach::Concentration)
+      .value("Loss", asterion::PortfolioBreach::Loss);
+
+  py::class_<asterion::PortfolioRiskLimits>(module, "PortfolioRiskLimits")
+      .def(py::init<>())
+      .def_readwrite("max_gross_exposure_ticks",
+                     &asterion::PortfolioRiskLimits::max_gross_exposure_ticks)
+      .def_readwrite("max_net_exposure_ticks",
+                     &asterion::PortfolioRiskLimits::max_net_exposure_ticks)
+      .def_readwrite("max_symbol_concentration_bps",
+                     &asterion::PortfolioRiskLimits::max_symbol_concentration_bps)
+      .def_readwrite("max_loss_ticks", &asterion::PortfolioRiskLimits::max_loss_ticks);
+
+  py::class_<asterion::PortfolioCheckResult>(module, "PortfolioCheckResult")
+      .def_readwrite("accepted", &asterion::PortfolioCheckResult::accepted)
+      .def_readwrite("breach", &asterion::PortfolioCheckResult::breach)
+      .def_readwrite("symbol_id", &asterion::PortfolioCheckResult::symbol_id)
+      .def_readwrite("limit_value", &asterion::PortfolioCheckResult::limit_value)
+      .def_readwrite("observed_value", &asterion::PortfolioCheckResult::observed_value);
+
+  py::class_<asterion::PortfolioSnapshot>(module, "PortfolioSnapshot")
+      .def_readwrite("gross_exposure_ticks", &asterion::PortfolioSnapshot::gross_exposure_ticks)
+      .def_readwrite("net_exposure_ticks", &asterion::PortfolioSnapshot::net_exposure_ticks)
+      .def_readwrite("realised_pnl_ticks", &asterion::PortfolioSnapshot::realised_pnl_ticks)
+      .def_readwrite("unrealised_pnl_ticks", &asterion::PortfolioSnapshot::unrealised_pnl_ticks)
+      .def_readwrite("total_pnl_ticks", &asterion::PortfolioSnapshot::total_pnl_ticks)
+      .def_readwrite("max_concentration_symbol",
+                     &asterion::PortfolioSnapshot::max_concentration_symbol)
+      .def_readwrite("max_concentration_bps", &asterion::PortfolioSnapshot::max_concentration_bps)
+      .def_readwrite("symbol_count", &asterion::PortfolioSnapshot::symbol_count)
+      .def_readwrite("checksum", &asterion::PortfolioSnapshot::checksum);
+
+  py::class_<asterion::PortfolioRiskMonitor>(module, "PortfolioRiskMonitor")
+      .def(py::init<>())
+      .def(py::init<asterion::PortfolioRiskLimits>())
+      .def("set_limits", &asterion::PortfolioRiskMonitor::set_limits)
+      .def("limits", &asterion::PortfolioRiskMonitor::limits,
+           py::return_value_policy::reference_internal)
+      .def("active", &asterion::PortfolioRiskMonitor::active)
+      .def("set_mark", &asterion::PortfolioRiskMonitor::set_mark)
+      .def("apply_fill", &asterion::PortfolioRiskMonitor::apply_fill)
+      .def("set_position", &asterion::PortfolioRiskMonitor::set_position)
+      .def("position", &asterion::PortfolioRiskMonitor::position)
+      .def("gross_exposure_ticks", &asterion::PortfolioRiskMonitor::gross_exposure_ticks)
+      .def("net_exposure_ticks", &asterion::PortfolioRiskMonitor::net_exposure_ticks)
+      .def("realised_pnl_ticks", &asterion::PortfolioRiskMonitor::realised_pnl_ticks)
+      .def("unrealised_pnl_ticks", &asterion::PortfolioRiskMonitor::unrealised_pnl_ticks)
+      .def("total_pnl_ticks", &asterion::PortfolioRiskMonitor::total_pnl_ticks)
+      .def("evaluate_order", &asterion::PortfolioRiskMonitor::evaluate_order)
+      .def("evaluate_state", &asterion::PortfolioRiskMonitor::evaluate_state)
+      .def("check_order", &asterion::PortfolioRiskMonitor::check_order)
+      .def("set_audit_enabled", &asterion::PortfolioRiskMonitor::set_audit_enabled)
+      .def("audit_enabled", &asterion::PortfolioRiskMonitor::audit_enabled)
+      .def("audit", &asterion::PortfolioRiskMonitor::audit,
+           py::return_value_policy::reference_internal)
+      .def("clear_audit", &asterion::PortfolioRiskMonitor::clear_audit)
+      .def("snapshot", &asterion::PortfolioRiskMonitor::snapshot);
+
+  module.def("portfolio_breach_to_string", [](asterion::PortfolioBreach breach) {
+    return std::string(asterion::to_string(breach));
+  });
 
   module.def("parse_event_log_format", &parse_format_or_throw);
   module.def("event_log_format_to_string",

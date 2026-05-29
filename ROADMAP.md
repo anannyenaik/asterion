@@ -108,5 +108,27 @@ Deferred from Phase 8:
 - exhaustive shared replay parity sufficient to make shared replay the default;
 - cross-symbol matching or portfolio-level matching semantics;
 - live venue/broker cancel-on-disconnect integration;
-- audit signing, retention policy and tamper-evident storage;
+- audit retention policy and tamper-proof storage;
 - large external malformed-feed corpora.
+
+## Phase 9
+
+- optional real ONNX Runtime CI lane that is manual-only and keeps default CI dependency-free;
+- structured grouped-vs-shared replay parity reports, while grouped replay remains the default;
+- tamper-evident audit manifests over audit logs, with optional HMAC-SHA256 signing and no committed
+  real key material;
+- deterministic simulated broker/session lifecycle state machine for connect, disconnect,
+  reconnect, pending cancels, cancel acknowledgments/rejections and fills;
+- simulated portfolio-risk accounting gate for caller-supplied marks, gross/net exposure,
+  concentration and loss thresholds;
+- Python bindings and inspection CLI coverage for ONNX status, replay parity and audit manifests;
+- documentation that ONNX, audit signing, broker/session lifecycle, shared replay and portfolio risk
+  features are optional or simulated as applicable.
+
+Deferred from Phase 9:
+
+- installing ONNX Runtime in default CI;
+- making shared replay the default;
+- live venue/broker session management;
+- managed audit retention/custody or tamper-proof storage;
+- full portfolio management, market-risk data or cross-symbol matching semantics.

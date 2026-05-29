@@ -74,6 +74,7 @@ CSV / binary / synthetic events
 - Optional shared multi-symbol replay (`replay_shared_by_symbol`) that routes an interleaved stream
   through `MultiSymbolBookSet`, emits per-symbol diagnostics/summaries and reports a combined book
   checksum. It is not a cross-symbol matching engine and grouped replay remains the default.
+- Structured grouped-vs-shared replay parity reports for the opt-in shared replay path.
 - Local historical benchmark store and cross-run trend reporting that reuse the regression schema.
 - Configurable per-stage latency-budget accounting (replay, book update, matching, risk,
   strategy, inference and total) with budget-used/exceeded reporting, worst-offender
@@ -81,6 +82,12 @@ CSV / binary / synthetic events
 - Pre-trade risk audit trail recording accepted/rejected decisions, automatic working-exposure
   release from execution reports, optional append-only text/JSONL audit logs and a deterministic
   audit checksum, with opt-in file rotation and verification tooling.
+- Tamper-evident audit manifests over audit logs with optional HMAC-SHA256 signing. Signing is
+  opt-in, local-key based and not a managed retention or compliance system.
+- Simulated broker/session lifecycle state machine for connect, disconnect, reconnect, pending
+  cancels and fills. It never sends live broker or exchange messages.
+- Simulated portfolio risk monitor for caller-supplied marks, exposure, concentration and PnL
+  thresholds. It is an opt-in accounting gate, not a live portfolio management system.
 - Offline benchmark regression comparison and a replay/benchmark inspection CLI with readable
   text and JSON output.
 - GitHub Actions CI for Linux build and test.
@@ -176,8 +183,11 @@ stream through `MultiSymbolBookSet` in one pass and reports the same summary sha
 book checksum. Tests assert parity with grouped replay for deterministic generated streams. Neither
 path implements cross-symbol matching.
 
-Deterministic shared-replay fuzz summaries are exposed through Python and the inspection CLI. They
-are parity fixtures for the opt-in shared path; grouped replay remains the default.
+`compare_replay_parity(...)` returns a structured grouped-vs-shared parity report with per-symbol
+checksum agreement, combined-book agreement and aggregate checksum agreement. Deterministic
+shared-replay fuzz summaries are exposed through Python and the inspection CLI. They are parity
+fixtures for the opt-in shared path; grouped replay remains the default unless shared replay parity
+is exhaustively validated and documented.
 
 ## Python Usage
 
@@ -251,9 +261,13 @@ PYTHONPATH=build/python python scripts/asterion_inspect.py replay-checksums --in
 PYTHONPATH=build/python python scripts/asterion_inspect.py diagnostics --input data/samples/sample_replay.csv
 PYTHONPATH=build/python python scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py per-symbol --input data/samples/sample_replay.csv --shared --json
+PYTHONPATH=build/python python scripts/asterion_inspect.py replay-parity --input data/samples/sample_replay.csv --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py shared-fuzz --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py risk-exposure --input data/samples/sample_risk_flow.json --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py risk-exposure --input data/samples/sample_disconnect_replace_risk.json --json
+PYTHONPATH=build/python python scripts/asterion_inspect.py onnx-status --json
+PYTHONPATH=build/python python scripts/asterion_inspect.py audit-manifest --input data/samples/sample_risk_audit.jsonl --output build/sample_risk_audit.manifest.jsonl --json
+PYTHONPATH=build/python python scripts/asterion_inspect.py audit-manifest-verify --manifest build/sample_risk_audit.manifest.jsonl --base-dir data/samples --json
 
 # Offline JSON inspection (no compiled extension required).
 python scripts/asterion_inspect.py benchmark-summary --input data/samples/sample_benchmark_baseline.json
@@ -307,8 +321,10 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_USE_ONNXRUNTI
 The ONNX backend is optional and is not exercised by default CI; it requires ONNX Runtime to be
 installed for a real ONNX backend to load. Default CI remains dependency-free. A tiny checked-in
 identity-model fixture is decoded only by tests compiled with `ASTERION_HAVE_ONNXRUNTIME`; otherwise
-the fallback path is tested. The `ci` workflow has a manual `onnx_backend` input that configures with
-`-DASTERION_USE_ONNXRUNTIME=ON` and verifies the deterministic backend-selection lane.
+the fallback path is tested. The `ci` workflow has a manual `onnx_backend` input. When enabled, it
+runs an opt-in fallback lane with `-DASTERION_USE_ONNXRUNTIME=ON` and an opt-in ONNX Runtime lane
+that downloads the dependency, builds the real backend and runs the tiny identity fixture. Neither
+lane runs in default CI.
 
 ## Risk Audit Trail
 
@@ -320,6 +336,23 @@ stays allocation-free by default. Persistent audit logs are append-only text or 
 the deterministic audit checksum; they do not add a wall-clock timestamp to that checksum. Rotation
 by record count or byte size and checksum verification across rotated files are opt-in. See
 [RISK.md](RISK.md).
+
+`generate_audit_manifest(...)` records audit-log file names, byte sizes, record counts, raw content
+checksums and cumulative audit-chain checksums. Optional HMAC-SHA256 signing can authenticate the
+manifest when the verifier has the same local key. The repository includes only a public test
+fixture key; real signing keys must stay outside git. This is tamper-evident tooling, not managed
+retention, custody or regulatory storage.
+
+## Simulated Session And Portfolio Risk
+
+`SimulatedBrokerSession` is an in-process deterministic lifecycle model for connect, disconnect,
+reconnect, pending cancel, cancel acknowledgment/rejection and fills. It can be attached to a
+`RiskGateway` to exercise simulated cancel-on-disconnect exposure release, but it never opens a
+network connection or sends live broker messages.
+
+`PortfolioRiskMonitor` is a separate simulated accounting gate. It tracks caller-supplied positions,
+fills and marks, then evaluates gross exposure, net exposure, concentration and loss thresholds.
+All limits default to disabled and audit recording is opt-in, mirroring the risk gateway.
 
 ## Honesty And Limitations
 

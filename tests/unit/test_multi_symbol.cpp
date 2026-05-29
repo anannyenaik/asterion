@@ -211,3 +211,92 @@ TEST_CASE("Shared replay handles snapshots, cancels, replaces and multi-symbol b
 
   require_shared_matches_grouped(events);
 }
+
+TEST_CASE("Replay parity report matches across adds, cancels, replaces, executes, snapshots, "
+          "trades and heartbeats",
+          "[multi-symbol][parity]") {
+  const std::vector<MarketDataEvent> events{
+      MarketDataEvent{1, 1, 1, MarketEventType::Add, Side::Buy, 990, 10, 1, 0, 0},
+      MarketDataEvent{2, 2, 2, MarketEventType::Add, Side::Sell, 1010, 15, 2, 0, 0},
+      MarketDataEvent{3, 3, 1, MarketEventType::Add, Side::Buy, 985, 20, 3, 0, 0},
+      MarketDataEvent{4, 4, 3, MarketEventType::Add, Side::Buy, 970, 5, 4, 0, 0},
+      MarketDataEvent{5, 5, 1, MarketEventType::Replace, Side::Buy, 988, 12, 1, 0, 0},
+      MarketDataEvent{6, 6, 2, MarketEventType::Execute, Side::Sell, 1010, 5, 2, 77, 0},
+      MarketDataEvent{7, 7, 3, MarketEventType::Trade, Side::Buy, 970, 3, 0, 88, 0},
+      MarketDataEvent{8, 8, 1, MarketEventType::Cancel, Side::Buy, 0, 0, 3, 0, 0},
+      MarketDataEvent{9, 9, 2, MarketEventType::Snapshot, Side::None, 0, 0, 0, 0,
+                      kSnapshotBeginFlag},
+      MarketDataEvent{10, 10, 2, MarketEventType::Snapshot, Side::Sell, 1012, 8, 2, 0, 0},
+      MarketDataEvent{11, 11, 2, MarketEventType::Snapshot, Side::None, 0, 0, 0, 0,
+                      kSnapshotEndFlag},
+      MarketDataEvent{12, 12, 3, MarketEventType::Heartbeat, Side::None, 0, 0, 0, 0, 0},
+      MarketDataEvent{13, 13, 3, MarketEventType::Execute, Side::Buy, 970, 2, 4, 99, 0},
+      MarketDataEvent{14, 14, 1, MarketEventType::Cancel, Side::Buy, 0, 0, 1, 0, 0},
+  };
+
+  const ReplayParityReport report = compare_replay_parity(events);
+  REQUIRE(report.matched);
+  REQUIRE(report.mismatch_count == 0);
+  REQUIRE(report.combined_book_checksum_match);
+  REQUIRE(report.aggregate_checksum_match);
+  REQUIRE(report.symbol_count_grouped == 3);
+  REQUIRE(report.symbol_count_shared == 3);
+  REQUIRE(report.symbols.size() == 3);
+  for (const SymbolParityEntry& entry : report.symbols) {
+    INFO("symbol " << entry.symbol_id);
+    REQUIRE(entry.present_in_grouped);
+    REQUIRE(entry.present_in_shared);
+    REQUIRE(entry.event_log_checksum_match);
+    REQUIRE(entry.final_book_checksum_match);
+    REQUIRE(entry.execution_report_checksum_match);
+    REQUIRE(entry.diagnostics_checksum_match);
+    REQUIRE(entry.matched);
+  }
+}
+
+TEST_CASE("Replay parity report holds over many fixed seeds and symbol counts",
+          "[multi-symbol][parity][property]") {
+  constexpr std::array<std::uint32_t, 6> seeds{20260528U, 20260529U, 17U, 4099U, 123457U, 7U};
+  constexpr std::array<std::size_t, 4> symbol_counts{2U, 3U, 5U, 8U};
+  for (const std::uint32_t seed : seeds) {
+    for (const std::size_t symbols : symbol_counts) {
+      SyntheticGeneratorConfig config;
+      config.event_count = 500;
+      config.seed = seed;
+      config.mode = SyntheticFlowMode::MultiSymbol;
+      config.symbol_count = symbols;
+      const ReplayParityReport report = compare_replay_parity(generate_synthetic_events(config));
+      INFO("seed=" << seed << " symbols=" << symbols
+                   << " mismatches=" << report.mismatch_count);
+      REQUIRE(report.matched);
+    }
+  }
+}
+
+TEST_CASE("Replay parity report matches on malformed multi-symbol streams",
+          "[multi-symbol][parity][adversarial]") {
+  AggregateReplayConfig strict;
+  strict.validate_per_symbol_sequences = true;
+  const std::vector<MarketDataEvent> events{
+      MarketDataEvent{1, 1, 1, MarketEventType::Add, Side::Buy, 990, 10, 1, 0, 0},
+      MarketDataEvent{2, 3, 1, MarketEventType::Cancel, Side::Buy, 0, 0, 1, 0, 0}, // seq gap
+      MarketDataEvent{3, 1, 2, MarketEventType::Add, Side::Sell, 1010, 5, 2, 0, 0},
+      MarketDataEvent{4, 2, 2, MarketEventType::Add, Side::Sell, 1010, 5, 2, 0, 0}, // dup add
+      MarketDataEvent{5, 1, 3, MarketEventType::Cancel, Side::Buy, 0, 0, 99, 0, 0}, // unknown
+  };
+
+  const ReplayParityReport report = compare_replay_parity(events, strict);
+  INFO("mismatches=" << report.mismatch_count);
+  REQUIRE(report.matched);
+  REQUIRE(report.mismatch_count == 0);
+  for (const SymbolParityEntry& entry : report.symbols) {
+    REQUIRE(entry.diagnostics_checksum_match);
+  }
+
+  const AggregateReplaySummary grouped = replay_by_symbol(events, strict);
+  std::size_t diagnostic_errors = 0;
+  for (const SymbolReplaySummary& summary : grouped.symbols) {
+    diagnostic_errors += summary.diagnostic_error_count;
+  }
+  REQUIRE(diagnostic_errors > 0);
+}

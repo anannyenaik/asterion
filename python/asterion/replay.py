@@ -149,25 +149,20 @@ def shared_replay_fuzz_summary(
     mismatch_count = 0
     for seed in seeds:
         events = _fuzz_events(int(seed), event_count, symbol_count)
-        grouped = _native.replay_by_symbol(events, _native.AggregateReplayConfig())
-        shared = _native.replay_shared_by_symbol(events, _native.AggregateReplayConfig())
-        matched = (
-            grouped.aggregate_checksum == shared.aggregate_checksum
-            and grouped.combined_book_checksum == shared.combined_book_checksum
-            and grouped.symbol_count == shared.symbol_count
-        )
-        if not matched:
+        report = _native.compare_replay_parity(events, _native.AggregateReplayConfig())
+        if not report.matched:
             mismatch_count += 1
         cases.append(
             {
                 "seed": int(seed),
                 "events": len(events),
-                "matched": matched,
-                "grouped_aggregate_checksum": grouped.aggregate_checksum,
-                "shared_aggregate_checksum": shared.aggregate_checksum,
-                "grouped_combined_book_checksum": grouped.combined_book_checksum,
-                "shared_combined_book_checksum": shared.combined_book_checksum,
-                "symbol_count": grouped.symbol_count,
+                "matched": report.matched,
+                "per_symbol_mismatch_count": report.mismatch_count,
+                "grouped_aggregate_checksum": report.grouped_aggregate_checksum,
+                "shared_aggregate_checksum": report.shared_aggregate_checksum,
+                "grouped_combined_book_checksum": report.grouped_combined_book_checksum,
+                "shared_combined_book_checksum": report.shared_combined_book_checksum,
+                "symbol_count": report.symbol_count_grouped,
             }
         )
     return {

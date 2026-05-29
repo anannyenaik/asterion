@@ -39,7 +39,11 @@ enum class RejectReason : std::uint8_t {
   MaxOpenOrderQuantity = 14,
   MessageRateLimit = 15,
   SelfTradePrevention = 16,
-  Disconnected = 17
+  Disconnected = 17,
+  MaxPortfolioGrossExposure = 18,
+  MaxPortfolioNetExposure = 19,
+  MaxSymbolConcentration = 20,
+  MaxPortfolioLoss = 21
 };
 
 struct ExecutionReport {

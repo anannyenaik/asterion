@@ -16,7 +16,8 @@ Asterion implements a basic but real pre-trade risk gateway. It is intentionally
 - per-client message-rate limiting in fixed-window or sliding-window mode (opt-in);
 - self-trade prevention against a client's own resting orders (opt-in);
 - replace-order rechecks for tracked resting simulated orders;
-- simulated disconnect rejection and cancel-on-disconnect release (opt-in cancellation).
+- simulated disconnect rejection and cancel-on-disconnect release (opt-in cancellation);
+- separate simulated portfolio-risk accounting for caller-supplied marks and positions (opt-in).
 
 The opt-in controls default to disabled sentinels in `RiskLimits` (`max_open_order_quantity` 0,
 `max_messages_per_window` 0, `enable_self_trade_prevention` false), so existing configurations
@@ -48,6 +49,10 @@ Rejects are returned as structured enum values:
 - `MessageRateLimit`
 - `SelfTradePrevention`
 - `Disconnected`
+- `MaxPortfolioGrossExposure`
+- `MaxPortfolioNetExposure`
+- `MaxSymbolConcentration`
+- `MaxPortfolioLoss`
 
 ## Kill Switch
 
@@ -62,6 +67,11 @@ cancel-on-kill lifecycle release; it does not send live exchange cancels.
 are emitted with `disconnect_cancel` and `Disconnected`. While disconnected, new orders are rejected
 unless `disconnect_order_policy` is explicitly set to `AllowNewOrders`. `on_reconnect(...)` restores
 the connected state. This is a simulation hook only; it does not send broker or exchange messages.
+
+`SimulatedBrokerSession` builds on that hook with a deterministic in-process session lifecycle:
+connect, disconnect, reconnect, order accepted, cancel requested, cancel acknowledged/rejected and
+filled. It can attach to a `RiskGateway` so simulated cancel-on-disconnect releases tracked working
+exposure. It is not a live broker adapter and never sends network messages.
 
 ## Stale Data Policy
 
@@ -86,6 +96,19 @@ working-exposure delta, position exposure, gross exposure, duplicate replace com
 message-rate limits and self-trade risk before mutating the tracked working order. Partial-fill
 reports update the remaining quantity first, so the working-exposure check uses the delta from the
 current resting quantity rather than adding the replacement quantity on top.
+
+## Simulated Portfolio Risk
+
+`PortfolioRiskMonitor` is a separate simulated accounting gate, not a replacement for
+`RiskGateway`. It tracks signed positions, average cost, realised PnL and caller-supplied simulated
+mark prices per symbol. It can evaluate gross exposure, net exposure, max single-symbol
+concentration and loss thresholds. Every limit defaults to `0`, which means disabled, so an
+unconfigured monitor enforces nothing.
+
+Portfolio checks are integer-only and deterministic. A prospective order is evaluated as if it were
+fully applied to the simulated portfolio state, and `check_order(...)` can record an opt-in audit
+entry with portfolio-specific reject reasons. Because marks are supplied by the caller, the loss and
+exposure values are simulated accounting outputs, not live portfolio-risk guarantees.
 
 ## Message-Rate Limiting
 
@@ -137,7 +160,14 @@ files or allocate audit strings. `open_rotating_audit_log(...)` can rotate by re
 size, and `verify_risk_audit_logs(...)` plus `scripts/asterion_inspect.py audit-verify` recompute
 checksums across one or more JSONL/text files.
 
+`generate_audit_manifest(...)` can create a tamper-evident manifest over one or more audit log
+files, including rotated logs. The manifest records file names, byte sizes, record counts, raw file
+checksums and cumulative audit-chain checksums. Optional HMAC-SHA256 signing authenticates the
+manifest only when the verifier has the same local key; signing is disabled by default, and real
+keys must not be committed. This is integrity tooling, not a retention policy or tamper-proof
+storage system.
+
 ## Future Controls
 
-Planned extensions include fat-finger bands by instrument class and richer exchange/broker
-order-lifecycle integration.
+Planned extensions include fat-finger bands by instrument class, managed audit retention policies
+and real exchange/broker order-lifecycle integration.

@@ -7,8 +7,9 @@ Commands are split into two groups:
   ``latency-budget``, ``audit-summary``, ``audit-verify`` and
   ``rate-limit-mode``) read JSON/text files only and need no compiled extension.
 * Native-backed commands (``replay-checksums``, ``diagnostics``, ``per-symbol`` and
-  ``shared-fuzz`` and ``risk-exposure``) import the ``asterion`` bindings lazily
-  and therefore require the built C++ project on ``PYTHONPATH``.
+  ``replay-parity``, ``shared-fuzz``, ``risk-exposure``, ``audit-manifest``,
+  ``audit-manifest-verify`` and ``onnx-status``) import the ``asterion`` bindings
+  lazily and therefore require the built C++ project on ``PYTHONPATH``.
 
 Every command supports a readable text mode (default) and ``--json``.
 """
@@ -18,6 +19,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -230,6 +232,10 @@ _REJECT_REASON_VALUES = {
     "MessageRateLimit": 15,
     "SelfTradePrevention": 16,
     "Disconnected": 17,
+    "MaxPortfolioGrossExposure": 18,
+    "MaxPortfolioNetExposure": 19,
+    "MaxSymbolConcentration": 20,
+    "MaxPortfolioLoss": 21,
 }
 
 
@@ -343,6 +349,130 @@ def cmd_audit_verify(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 2
 
 
+def _load_signing_key(args: argparse.Namespace) -> bytes:
+    key_file = getattr(args, "signing_key_file", None)
+    key_env = getattr(args, "signing_key_env", None)
+    if key_file is not None and key_env is not None:
+        raise ValueError("use --signing-key-file or --signing-key-env, not both")
+    if key_file is not None:
+        return Path(key_file).read_bytes()
+    if key_env is not None:
+        value = os.environ.get(str(key_env))
+        if value is None:
+            raise ValueError(f"environment variable is unset: {key_env}")
+        return value.encode("utf-8")
+    return b""
+
+
+def _risk_audit_format_enum(asterion: Any, value: str) -> Any:
+    token = value.strip().lower()
+    if token == "jsonl":
+        return asterion.RiskAuditLogFormat.Jsonl
+    if token == "text":
+        return asterion.RiskAuditLogFormat.Text
+    raise ValueError(f"unknown audit log format: {value}")
+
+
+def _audit_manifest_verification_payload(asterion: Any, verification: Any) -> dict[str, Any]:
+    issues = [
+        {
+            "type": asterion.audit_manifest_issue_type_to_string(issue.type),
+            "file_name": issue.file_name,
+            "detail": issue.detail,
+        }
+        for issue in verification.issues
+    ]
+    return {
+        "valid": verification.valid,
+        "files_checked": verification.files_checked,
+        "entries_checked": verification.entries_checked,
+        "computed_chain_checksum": verification.computed_chain_checksum,
+        "signature_present": verification.signature_present,
+        "signature_valid": verification.signature_valid,
+        "issue_count": len(issues),
+        "issues": issues,
+    }
+
+
+def cmd_audit_manifest(args: argparse.Namespace) -> int:
+    import asterion  # noqa: PLC0415
+
+    try:
+        signing_key = _load_signing_key(args)
+        fmt = _risk_audit_format_enum(asterion, args.format)
+    except (OSError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    result = asterion.generate_audit_manifest(
+        args.input,
+        fmt,
+        args.creator,
+        args.created_at,
+        signing_key,
+        args.signing_key_id,
+    )
+    if result.ok and args.output is not None:
+        if not asterion.write_audit_manifest(args.output, result.manifest):
+            print(f"unable to write manifest: {args.output}", file=sys.stderr)
+            return 1
+
+    payload = {
+        "ok": result.ok,
+        "input_count": len(args.input),
+        "output": str(args.output) if args.output is not None else "",
+        "file_count": len(result.manifest.files),
+        "chain_checksum": result.manifest.chain_checksum,
+        "signature_present": result.manifest.signature is not None,
+        "signature_key_id": (
+            result.manifest.signature.key_id if result.manifest.signature is not None else ""
+        ),
+        "error": result.error,
+    }
+    lines = [
+        f"ok={str(payload['ok']).lower()}",
+        f"file_count={payload['file_count']}",
+        f"chain_checksum={payload['chain_checksum']}",
+        f"signature_present={str(payload['signature_present']).lower()}",
+    ]
+    if payload["output"]:
+        lines.append(f"output={payload['output']}")
+    if payload["error"]:
+        lines.append(f"error={payload['error']}")
+    _emit(payload, "\n".join(lines), args.json)
+    return 0 if result.ok else 2
+
+
+def cmd_audit_manifest_verify(args: argparse.Namespace) -> int:
+    import asterion  # noqa: PLC0415
+
+    try:
+        signing_key = _load_signing_key(args)
+        manifest = asterion.read_audit_manifest(args.manifest)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    base_dir = args.base_dir if args.base_dir is not None else args.manifest.parent
+    verification = asterion.verify_audit_manifest(manifest, base_dir, signing_key)
+    payload = _audit_manifest_verification_payload(asterion, verification)
+    payload["manifest"] = str(args.manifest)
+    payload["base_dir"] = str(base_dir)
+    lines = [
+        f"valid={str(payload['valid']).lower()}",
+        f"files_checked={payload['files_checked']}",
+        f"entries_checked={payload['entries_checked']}",
+        f"computed_chain_checksum={payload['computed_chain_checksum']}",
+        f"signature_present={str(payload['signature_present']).lower()}",
+        f"signature_valid={str(payload['signature_valid']).lower()}",
+    ]
+    for issue in payload["issues"]:
+        suffix = f" file={issue['file_name']}" if issue["file_name"] else ""
+        lines.append(f"issue={issue['type']}{suffix} detail={issue['detail']}")
+    _emit(payload, "\n".join(lines), args.json)
+    return 0 if verification.valid else 2
+
+
 # --------------------------------------------------------------------------- #
 # Replay commands (require the built extension)
 # --------------------------------------------------------------------------- #
@@ -454,6 +584,61 @@ def cmd_per_symbol(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_replay_parity(args: argparse.Namespace) -> int:
+    import asterion  # noqa: PLC0415
+
+    report = asterion.compare_replay_parity_file(
+        Path(args.input),
+        asterion.parse_event_log_format(args.format),
+        asterion.AggregateReplayConfig(),
+    )
+    symbols = [
+        {
+            "symbol_id": entry.symbol_id,
+            "present_in_grouped": entry.present_in_grouped,
+            "present_in_shared": entry.present_in_shared,
+            "event_log_checksum_match": entry.event_log_checksum_match,
+            "final_book_checksum_match": entry.final_book_checksum_match,
+            "execution_report_checksum_match": entry.execution_report_checksum_match,
+            "diagnostics_checksum_match": entry.diagnostics_checksum_match,
+            "matched": entry.matched,
+        }
+        for entry in report.symbols
+    ]
+    payload = {
+        "input": str(args.input),
+        "matched": report.matched,
+        "mismatch_count": report.mismatch_count,
+        "symbol_count_grouped": report.symbol_count_grouped,
+        "symbol_count_shared": report.symbol_count_shared,
+        "combined_book_checksum_match": report.combined_book_checksum_match,
+        "aggregate_checksum_match": report.aggregate_checksum_match,
+        "grouped_combined_book_checksum": report.grouped_combined_book_checksum,
+        "shared_combined_book_checksum": report.shared_combined_book_checksum,
+        "grouped_aggregate_checksum": report.grouped_aggregate_checksum,
+        "shared_aggregate_checksum": report.shared_aggregate_checksum,
+        "symbols": symbols,
+    }
+    lines = [
+        f"matched={str(report.matched).lower()}",
+        f"mismatch_count={report.mismatch_count}",
+        f"symbol_count_grouped={report.symbol_count_grouped}",
+        f"symbol_count_shared={report.symbol_count_shared}",
+        f"combined_book_checksum_match={str(report.combined_book_checksum_match).lower()}",
+        f"aggregate_checksum_match={str(report.aggregate_checksum_match).lower()}",
+    ]
+    for symbol in symbols:
+        lines.append(
+            f"symbol={symbol['symbol_id']} matched={str(symbol['matched']).lower()} "
+            f"event_log={str(symbol['event_log_checksum_match']).lower()} "
+            f"book={str(symbol['final_book_checksum_match']).lower()} "
+            f"reports={str(symbol['execution_report_checksum_match']).lower()} "
+            f"diagnostics={str(symbol['diagnostics_checksum_match']).lower()}"
+        )
+    _emit(payload, "\n".join(lines), args.json)
+    return 0 if report.matched else 2
+
+
 def cmd_shared_fuzz(args: argparse.Namespace) -> int:
     import asterion  # noqa: PLC0415
 
@@ -477,6 +662,22 @@ def cmd_shared_fuzz(args: argparse.Namespace) -> int:
         )
     _emit(payload, "\n".join(lines), args.json)
     return 0 if payload["mismatch_count"] == 0 else 2
+
+
+def cmd_onnx_status(args: argparse.Namespace) -> int:
+    import asterion  # noqa: PLC0415
+
+    status = dict(asterion.inference_backend_status(asterion.InferenceBackend.Onnx))
+    payload = {
+        "onnx_runtime_available": bool(status["onnx_runtime_available"]),
+        "requested": str(status["requested"]),
+        "active": str(status["active"]),
+        "fell_back": bool(status["fell_back"]),
+        "detail": str(status["detail"]),
+    }
+    text = "\n".join(f"{key}={value}" for key, value in payload.items())
+    _emit(payload, text, args.json)
+    return 0
 
 
 def _enum(module: Any, enum_name: str, value: str) -> Any:
@@ -510,6 +711,18 @@ def _enum(module: Any, enum_name: str, value: str) -> Any:
         "allow_new_orders": "AllowNewOrders",
         "allow-new-orders": "AllowNewOrders",
         "disconnected": "Disconnected",
+        "maxportfoliogrossexposure": "MaxPortfolioGrossExposure",
+        "max_portfolio_gross_exposure": "MaxPortfolioGrossExposure",
+        "max-portfolio-gross-exposure": "MaxPortfolioGrossExposure",
+        "maxportfolionetexposure": "MaxPortfolioNetExposure",
+        "max_portfolio_net_exposure": "MaxPortfolioNetExposure",
+        "max-portfolio-net-exposure": "MaxPortfolioNetExposure",
+        "maxsymbolconcentration": "MaxSymbolConcentration",
+        "max_symbol_concentration": "MaxSymbolConcentration",
+        "max-symbol-concentration": "MaxSymbolConcentration",
+        "maxportfolioloss": "MaxPortfolioLoss",
+        "max_portfolio_loss": "MaxPortfolioLoss",
+        "max-portfolio-loss": "MaxPortfolioLoss",
     }
     attr = lookup.get(token.lower(), token)
     return getattr(getattr(module, enum_name), attr)
@@ -681,6 +894,14 @@ def build_parser() -> argparse.ArgumentParser:
     per_symbol.add_argument("--json", action="store_true")
     per_symbol.set_defaults(func=cmd_per_symbol)
 
+    replay_parity = subparsers.add_parser(
+        "replay-parity", help="Compare grouped replay with the opt-in shared replay path."
+    )
+    replay_parity.add_argument("--input", required=True, type=Path)
+    replay_parity.add_argument("--format", default="auto", choices=["auto", "csv", "binary"])
+    replay_parity.add_argument("--json", action="store_true")
+    replay_parity.set_defaults(func=cmd_replay_parity)
+
     shared_fuzz = subparsers.add_parser(
         "shared-fuzz", help="Run deterministic shared-vs-grouped replay fuzz summaries."
     )
@@ -712,6 +933,38 @@ def build_parser() -> argparse.ArgumentParser:
     audit_verify.add_argument("--format", default="auto", choices=["auto", "jsonl", "text"])
     audit_verify.add_argument("--json", action="store_true")
     audit_verify.set_defaults(func=cmd_audit_verify)
+
+    audit_manifest = subparsers.add_parser(
+        "audit-manifest",
+        help="Generate a tamper-evident manifest for one or more risk audit logs.",
+    )
+    audit_manifest.add_argument("--input", required=True, nargs="+", type=Path)
+    audit_manifest.add_argument("--format", default="jsonl", choices=["jsonl", "text"])
+    audit_manifest.add_argument("--output", type=Path)
+    audit_manifest.add_argument("--creator", default="asterion")
+    audit_manifest.add_argument("--created-at", default="")
+    audit_manifest.add_argument("--signing-key-file", type=Path)
+    audit_manifest.add_argument("--signing-key-env")
+    audit_manifest.add_argument("--signing-key-id", default="")
+    audit_manifest.add_argument("--json", action="store_true")
+    audit_manifest.set_defaults(func=cmd_audit_manifest)
+
+    audit_manifest_verify = subparsers.add_parser(
+        "audit-manifest-verify",
+        help="Verify a risk-audit manifest and its referenced audit logs.",
+    )
+    audit_manifest_verify.add_argument("--manifest", required=True, type=Path)
+    audit_manifest_verify.add_argument("--base-dir", type=Path)
+    audit_manifest_verify.add_argument("--signing-key-file", type=Path)
+    audit_manifest_verify.add_argument("--signing-key-env")
+    audit_manifest_verify.add_argument("--json", action="store_true")
+    audit_manifest_verify.set_defaults(func=cmd_audit_manifest_verify)
+
+    onnx_status = subparsers.add_parser(
+        "onnx-status", help="Report optional ONNX Runtime backend availability and fallback status."
+    )
+    onnx_status.add_argument("--json", action="store_true")
+    onnx_status.set_defaults(func=cmd_onnx_status)
 
     rate_mode = subparsers.add_parser(
         "rate-limit-mode", help="Normalise a configured rate-limit mode."

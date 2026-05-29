@@ -174,6 +174,69 @@ def test_shared_fuzz_cli_json() -> None:
     assert payload["mismatch_count"] == 0
 
 
+def test_replay_parity_cli_json() -> None:
+    pytest.importorskip("asterion")
+    result = _run(
+        "replay-parity",
+        "--input",
+        str(SAMPLES / "sample_replay.csv"),
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["matched"] is True
+    assert payload["mismatch_count"] == 0
+
+
+def test_audit_manifest_cli_json(tmp_path: Path) -> None:
+    pytest.importorskip("asterion")
+    manifest = tmp_path / "sample_risk_audit.manifest.jsonl"
+    key = tmp_path / "manifest.key"
+    key.write_bytes(b"phase9-cli-test-key")
+
+    generated = _run(
+        "audit-manifest",
+        "--input",
+        str(SAMPLES / "sample_risk_audit.jsonl"),
+        "--output",
+        str(manifest),
+        "--signing-key-file",
+        str(key),
+        "--signing-key-id",
+        "cli-test",
+        "--json",
+    )
+    assert generated.returncode == 0, generated.stderr
+    payload = json.loads(generated.stdout)
+    assert payload["ok"] is True
+    assert payload["signature_present"] is True
+    assert manifest.exists()
+
+    verified = _run(
+        "audit-manifest-verify",
+        "--manifest",
+        str(manifest),
+        "--base-dir",
+        str(SAMPLES),
+        "--signing-key-file",
+        str(key),
+        "--json",
+    )
+    assert verified.returncode == 0, verified.stderr
+    verification = json.loads(verified.stdout)
+    assert verification["valid"] is True
+    assert verification["signature_valid"] is True
+
+
+def test_onnx_status_cli_json() -> None:
+    pytest.importorskip("asterion")
+    result = _run("onnx-status", "--json")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["requested"] == "onnx"
+    assert payload["active"] in {"linear", "onnx"}
+
+
 def test_rate_limit_mode_json() -> None:
     result = _run("rate-limit-mode", "--mode", "sliding-window", "--json")
     assert result.returncode == 0, result.stderr

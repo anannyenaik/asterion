@@ -46,6 +46,43 @@ struct AggregateReplaySummary {
   std::string error;
 };
 
+// Per-symbol parity between the grouped and shared replay paths. Each flag is true
+// when the two paths agree on that checksum for the symbol.
+struct SymbolParityEntry {
+  SymbolId symbol_id{kInvalidSymbolId};
+  bool present_in_grouped{false};
+  bool present_in_shared{false};
+  bool event_log_checksum_match{false};
+  bool final_book_checksum_match{false};
+  bool execution_report_checksum_match{false};
+  bool diagnostics_checksum_match{false};
+  bool matched{false};
+};
+
+// Structured grouped-vs-shared replay parity report. The shared multi-symbol path
+// stays opt-in; this report is how parity is demonstrated. matched is true only when
+// every per-symbol checksum, the combined book checksum and the aggregate checksum
+// agree and both paths see the same symbols.
+struct ReplayParityReport {
+  bool matched{false};
+  std::size_t symbol_count_grouped{0};
+  std::size_t symbol_count_shared{0};
+  std::size_t mismatch_count{0};
+  bool combined_book_checksum_match{false};
+  bool aggregate_checksum_match{false};
+  std::uint64_t grouped_combined_book_checksum{0};
+  std::uint64_t shared_combined_book_checksum{0};
+  std::uint64_t grouped_aggregate_checksum{0};
+  std::uint64_t shared_aggregate_checksum{0};
+  std::vector<SymbolParityEntry> symbols;
+};
+
+[[nodiscard]] ReplayParityReport compare_replay_parity(std::span<const MarketDataEvent> events,
+                                                       AggregateReplayConfig config = {});
+[[nodiscard]] ReplayParityReport compare_replay_parity_file(
+    const std::filesystem::path& path, EventLogFormat format = EventLogFormat::Auto,
+    AggregateReplayConfig config = {});
+
 [[nodiscard]] AggregateReplaySummary replay_by_symbol(
     std::span<const MarketDataEvent> events, AggregateReplayConfig config = {});
 [[nodiscard]] AggregateReplaySummary replay_file_by_symbol(

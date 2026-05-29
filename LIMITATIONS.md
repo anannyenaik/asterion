@@ -32,12 +32,18 @@ Explicit limitations:
   limiting is available but stores per-client timestamps while enabled;
 - cancel-on-kill and cancel-on-disconnect release tracked simulated working exposure inside the risk
   gateway; they do not send live exchange/broker cancels;
+- `SimulatedBrokerSession` is an in-process deterministic lifecycle model; it is not a broker
+  adapter, does not maintain real sessions and never sends network messages;
 - replace-order risk checks apply to tracked resting simulated orders after an execution report has
   bound the exchange order ID; they are not a full broker order-management system;
-- persistent risk audit logging, rotation and verification are opt-in and append-only, but signing,
-  retention policy and tamper-evident storage are outside this repository;
+- `PortfolioRiskMonitor` is a simulated accounting gate over caller-supplied marks and positions;
+  it does not provide live portfolio management, market-risk data or cross-symbol matching;
+- persistent risk audit logging, rotation, verification and audit manifests are opt-in and
+  append-only; optional HMAC-SHA256 manifest signing uses caller-managed local keys and is not a
+  retention policy, custody system, compliance guarantee or tamper-proof storage layer;
 - `MultiSymbolBookSet` powers an opt-in shared replay path, but it is not a cross-symbol matching
-  engine and does not replace the default grouped single-symbol replay path;
+  engine and does not replace the default grouped single-symbol replay path; grouped replay remains
+  the default unless shared replay parity is exhaustively validated and documented;
 - historical benchmark trends are only meaningful on the same controlled hardware and are kept out of
   CI performance gates.
 

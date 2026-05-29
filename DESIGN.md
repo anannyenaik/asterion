@@ -27,7 +27,10 @@ The first implementation keeps the hot path simple and auditable. It uses intege
 - `book`: L3 order book, price levels, FIFO queues, L2 views and invariant checks.
 - `matching`: price-time-priority matching and execution reports.
 - `risk`: pre-trade limits, duplicate client-order-ID tracking, stale-data policy, kill switch,
-  working-exposure lifecycle handling and deterministic audit trails/logs.
+  working-exposure lifecycle handling, simulated portfolio-risk accounting and deterministic audit
+  trails/logs/manifests.
+- `session`: simulated broker/session lifecycle state machine for deterministic order-lifecycle
+  tests. It is not a live broker adapter.
 - `strategy`: small deterministic strategies used as workloads, not profitability claims.
 - `inference`: model interface, deterministic linear backend, feature extraction,
   measured latency accounting and timeout/late-signal policy hooks.
@@ -36,8 +39,8 @@ The first implementation keeps the hot path simple and auditable. It uses intege
   risk exposure snapshots, benchmark JSON summaries and offline benchmark/latency-budget regression
   analysis.
 - `scripts/asterion_inspect.py`: a single inspection CLI over replay checksums, diagnostics,
-  per-symbol summaries, risk exposure fixtures, audit logs, rate-limit mode, latency-budget JSON,
-  benchmark JSON and benchmark regression comparison.
+  per-symbol summaries, replay parity, risk exposure fixtures, audit logs/manifests, optional ONNX
+  status, rate-limit mode, latency-budget JSON, benchmark JSON and benchmark regression comparison.
 
 ## Data Flow
 
@@ -73,6 +76,9 @@ summary shape and exposes a deterministic combined book checksum. Tests compare 
 the grouped path on deterministic generated streams, fixed-seed fuzz cases and malformed
 multi-symbol streams. It is a routing/replay surface, not a cross-symbol matching engine, and
 grouped replay remains the default.
+Structured parity reports compare every per-symbol checksum plus combined-book and aggregate
+checksums. They document coverage for the opt-in shared path; they are not a reason to make shared
+replay the default without exhaustive validation.
 
 ### L3 Internally, L2 Externally
 
@@ -94,6 +100,16 @@ working exposure and blocks new orders. Simulated disconnect state is also expli
 cancel-on-disconnect is opt-in, and the disconnected new-order policy is configured rather than
 implied. Only the reject paths that matter for the hot path stay allocation-free; working-order and
 self-trade state is built only when those controls are enabled.
+
+`SimulatedBrokerSession` is a deterministic lifecycle model around this risk state: it records
+connect/disconnect/reconnect, order accepted, pending cancel, cancel ack/reject and fill events with
+a checksum. It can call into `RiskGateway` on disconnect/reconnect, but it never owns a socket or
+sends live broker messages.
+
+`PortfolioRiskMonitor` is deliberately separate from `RiskGateway`. It is an opt-in simulated
+accounting gate over caller-supplied marks, signed positions and fills, with deterministic checks
+for gross exposure, net exposure, concentration and mark-to-market loss. Audit recording is opt-in,
+matching the risk gateway's default allocation posture.
 
 ### Inference In The Measured Path
 
@@ -131,6 +147,11 @@ size is opt-in and uses deterministic file naming. Verification tooling recomput
 across one or more audit files, including rotated files. Entries depend only on the order flow and
 configured limits, not on wall-clock time, so the trail can be compared across runs and machines -
 the same auditability property the book and execution-report checksums already provide.
+
+Audit manifests add a file-level layer over those logs: record count, byte size, raw content
+checksum, cumulative audit-chain checksum and an optional HMAC-SHA256 signature. Signing is disabled
+by default and depends on caller-managed local key material; it is tamper-evident tooling, not
+managed retention or compliance storage.
 
 ### Offline Regression Tooling
 

@@ -68,6 +68,9 @@ symbol-local gaps. The opt-in shared replay path routes the same interleaved str
 `MultiSymbolBookSet` and is tested for parity with grouped replay on deterministic generated
 multi-symbol streams, fixed-seed fuzz streams, malformed multi-symbol diagnostics, snapshot bursts,
 cancels and replaces, including combined book checksums and strict sequence diagnostics.
+`compare_replay_parity(...)` exposes this as a structured report with per-symbol checksum agreement,
+combined-book agreement and aggregate-checksum agreement. The report is a validation surface for the
+opt-in shared path; grouped replay remains the default.
 
 ## Inference Accounting
 
@@ -104,6 +107,14 @@ Persistent JSONL audit logging is tested as append-only output with the cumulati
 checksum in each entry. Rotated JSONL logs are verified by recomputing deterministic checksums
 across every rotated file.
 
+## Audit Manifest Signing
+
+Audit manifests are tested over rotated logs for clean verification, serialization round-trips,
+edited files, truncated files, missing files and reordered manifest entries. HMAC-SHA256 signing is
+tested with a public fixture key, wrong-key rejection, missing-key rejection and signature-stripping
+rejection. Signing covers deterministic manifest provenance and file entries; `created_at` remains
+free-form provenance and is deliberately excluded from the signature payload.
+
 ## Opt-In Risk Controls
 
 The open-order exposure, message-rate and self-trade-prevention controls are tested for accepts,
@@ -130,6 +141,18 @@ compiled in) with an honest detail string; and the selected backend integrates w
 extraction and measured latency accounting, producing the same score as a reference `LinearModel`.
 When ONNX Runtime is genuinely compiled in, a tiny checked-in identity fixture is decoded and loaded
 to assert active backend selection, deterministic scoring and measured latency accounting.
+
+## Simulated Session And Portfolio Risk
+
+`SimulatedBrokerSession` tests cover accept/cancel lifecycles, disconnected acceptance rejection,
+cancel rejection, fills, duplicate cancel requests, deterministic event checksums and
+cancel-on-disconnect interaction with `RiskGateway` exposure release. The session is a deterministic
+in-process state machine, not a live broker adapter.
+
+`PortfolioRiskMonitor` tests cover disabled-by-default behavior, gross and net exposure rejects,
+concentration rejects, simulated mark-to-market loss rejects, realised/unrealised PnL accounting,
+position flips, deterministic audit entries and deterministic snapshot checksums. Marks are supplied
+by the caller, so the tests validate simulated accounting behavior rather than live portfolio risk.
 
 ## Multi-Symbol Groundwork
 
@@ -183,6 +206,7 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - CSV-to-binary replay equivalence;
 - aggregate per-symbol replay summaries;
 - shared multi-symbol replay parity with grouped replay;
+- structured shared replay parity reports;
 - snapshot reset, reload and CSV/binary snapshot replay equivalence;
 - feature extraction and inference policy accounting;
 - inference backend selection and ONNX fallback;
@@ -195,6 +219,9 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - disconnect rejection and simulated cancel-on-disconnect exposure release;
 - replace-order risk rechecks;
 - persistent JSONL risk audit logging, rotation and verification;
+- audit manifest generation, verification and optional HMAC signing;
+- simulated broker/session lifecycle;
+- simulated portfolio-risk accounting checks;
 - deterministic matching report order.
 
 Large fuzzing campaigns and exchange-specific malformed binary feeds remain out of scope for the current test suite.

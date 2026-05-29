@@ -11,8 +11,9 @@
 namespace asterion {
 
 // Real ONNX Runtime inference backend. Only compiled when the project is built
-// with the optional ONNX Runtime dependency (-DASTERION_USE_ONNXRUNTIME). It is
-// not exercised by CI; the deterministic LinearModel is the default and fallback.
+// with the optional ONNX Runtime dependency (-DASTERION_USE_ONNXRUNTIME). Default
+// CI never installs that dependency; an opt-in CI lane may exercise this backend.
+// The deterministic LinearModel is the default and fallback.
 class OnnxModel final : public Model {
 public:
   explicit OnnxModel(std::filesystem::path model_path);

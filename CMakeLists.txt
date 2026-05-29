@@ -50,6 +50,7 @@ add_library(
   asterion
   cpp/src/core/checksum.cpp
   cpp/src/core/clock.cpp
+  cpp/src/core/hmac_sha256.cpp
   cpp/src/market_data/event.cpp
   cpp/src/market_data/event_log.cpp
   cpp/src/market_data/replay.cpp
@@ -60,7 +61,10 @@ add_library(
   cpp/src/matching/matching_engine.cpp
   cpp/src/risk/kill_switch.cpp
   cpp/src/risk/risk_audit.cpp
+  cpp/src/risk/audit_manifest.cpp
+  cpp/src/risk/portfolio_risk.cpp
   cpp/src/risk/risk_gateway.cpp
+  cpp/src/session/broker_session.cpp
   cpp/src/strategy/imbalance_strategy.cpp
   cpp/src/strategy/market_maker.cpp
   cpp/src/inference/feature_extractor.cpp
@@ -78,15 +82,39 @@ target_include_directories(asterion PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp/inclu
 # Optional real inference backend. When requested and ONNX Runtime is found, the
 # library is built with the ONNX backend; otherwise the build still succeeds with
 # the deterministic LinearModel fallback. The dependency is never required in CI.
+#
+# Two discovery paths are supported so the opt-in CI lane is reliable:
+#   1. find_package(onnxruntime CONFIG) for distributions that ship a CMake package.
+#   2. A manual header/library search rooted at ONNXRUNTIME_ROOT (or the environment
+#      variable of the same name) for the official prebuilt archives, which do not
+#      include a CMake config file.
 if(ASTERION_USE_ONNXRUNTIME)
   find_package(onnxruntime CONFIG QUIET)
   if(onnxruntime_FOUND)
     target_compile_definitions(asterion PUBLIC ASTERION_HAVE_ONNXRUNTIME)
     target_link_libraries(asterion PUBLIC onnxruntime::onnxruntime)
-    message(STATUS "Asterion: ONNX Runtime inference backend enabled")
+    message(STATUS "Asterion: ONNX Runtime inference backend enabled (CMake package)")
   else()
-    message(STATUS "Asterion: ONNX Runtime requested but not found; "
-                   "using the deterministic LinearModel fallback")
+    find_path(
+      ASTERION_ONNXRUNTIME_INCLUDE_DIR
+      NAMES onnxruntime_cxx_api.h
+      HINTS ${ONNXRUNTIME_ROOT} $ENV{ONNXRUNTIME_ROOT}
+      PATH_SUFFIXES include include/onnxruntime include/onnxruntime/core/session)
+    find_library(
+      ASTERION_ONNXRUNTIME_LIBRARY
+      NAMES onnxruntime
+      HINTS ${ONNXRUNTIME_ROOT} $ENV{ONNXRUNTIME_ROOT}
+      PATH_SUFFIXES lib lib64)
+    if(ASTERION_ONNXRUNTIME_INCLUDE_DIR AND ASTERION_ONNXRUNTIME_LIBRARY)
+      target_compile_definitions(asterion PUBLIC ASTERION_HAVE_ONNXRUNTIME)
+      target_include_directories(asterion PUBLIC ${ASTERION_ONNXRUNTIME_INCLUDE_DIR})
+      target_link_libraries(asterion PUBLIC ${ASTERION_ONNXRUNTIME_LIBRARY})
+      message(STATUS "Asterion: ONNX Runtime inference backend enabled (manual: "
+                     "${ASTERION_ONNXRUNTIME_LIBRARY})")
+    else()
+      message(STATUS "Asterion: ONNX Runtime requested but not found; "
+                     "using the deterministic LinearModel fallback")
+    endif()
   endif()
 endif()
 
@@ -158,6 +186,9 @@ if(ASTERION_BUILD_TESTS)
     tests/unit/test_risk_gateway.cpp
     tests/unit/test_risk_audit.cpp
     tests/unit/test_risk_controls.cpp
+    tests/unit/test_audit_manifest.cpp
+    tests/unit/test_broker_session.cpp
+    tests/unit/test_portfolio_risk.cpp
     tests/unit/test_latency_budget.cpp
     tests/unit/test_telemetry_inference.cpp
     tests/unit/test_inference_backend.cpp

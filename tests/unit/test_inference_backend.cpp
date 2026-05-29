@@ -133,7 +133,11 @@ TEST_CASE("ONNX Runtime fixture backend scores deterministically when opt-in dep
   REQUIRE(selection.model->backend_name() == "onnx");
 
   const std::array<double, 4> features{3.5, 2.0, 1.0, -1.0};
-  REQUIRE(selection.model->score(features) == Catch::Approx(3.5));
+  const double first_score = selection.model->score(features);
+  const double second_score = selection.model->score(features);
+  // The identity fixture returns its first input element; scoring must be deterministic.
+  REQUIRE(first_score == Catch::Approx(3.5));
+  REQUIRE(first_score == Catch::Approx(second_score));
 
   MeasuredInferenceEngine engine(*selection.model, InferencePolicy{1'000'000'000, 0, true, true});
   const InferenceResult result = engine.score(features);

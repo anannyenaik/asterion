@@ -420,4 +420,77 @@ AggregateReplaySummary replay_file_shared_by_symbol(const std::filesystem::path&
   return replay_shared_by_symbol(read_result.events, config);
 }
 
+ReplayParityReport compare_replay_parity(std::span<const MarketDataEvent> events,
+                                         AggregateReplayConfig config) {
+  const AggregateReplaySummary grouped = replay_by_symbol(events, config);
+  const AggregateReplaySummary shared = replay_shared_by_symbol(events, config);
+
+  ReplayParityReport report;
+  report.symbol_count_grouped = grouped.symbol_count;
+  report.symbol_count_shared = shared.symbol_count;
+  report.grouped_combined_book_checksum = grouped.combined_book_checksum;
+  report.shared_combined_book_checksum = shared.combined_book_checksum;
+  report.combined_book_checksum_match =
+      grouped.combined_book_checksum == shared.combined_book_checksum;
+  report.grouped_aggregate_checksum = grouped.aggregate_checksum;
+  report.shared_aggregate_checksum = shared.aggregate_checksum;
+  report.aggregate_checksum_match = grouped.aggregate_checksum == shared.aggregate_checksum;
+
+  std::map<SymbolId, const SymbolReplaySummary*> grouped_by_symbol;
+  std::map<SymbolId, const SymbolReplaySummary*> shared_by_symbol;
+  for (const SymbolReplaySummary& summary : grouped.symbols) {
+    grouped_by_symbol[summary.symbol_id] = &summary;
+  }
+  for (const SymbolReplaySummary& summary : shared.symbols) {
+    shared_by_symbol[summary.symbol_id] = &summary;
+  }
+  std::map<SymbolId, bool> all_symbols;
+  for (const auto& item : grouped_by_symbol) {
+    all_symbols[item.first] = true;
+  }
+  for (const auto& item : shared_by_symbol) {
+    all_symbols[item.first] = true;
+  }
+
+  for (const auto& item : all_symbols) {
+    const SymbolId symbol_id = item.first;
+    SymbolParityEntry entry;
+    entry.symbol_id = symbol_id;
+    const auto grouped_it = grouped_by_symbol.find(symbol_id);
+    const auto shared_it = shared_by_symbol.find(symbol_id);
+    entry.present_in_grouped = grouped_it != grouped_by_symbol.end();
+    entry.present_in_shared = shared_it != shared_by_symbol.end();
+    if (entry.present_in_grouped && entry.present_in_shared) {
+      const SymbolReplaySummary& g = *grouped_it->second;
+      const SymbolReplaySummary& s = *shared_it->second;
+      entry.event_log_checksum_match = g.event_log_checksum == s.event_log_checksum;
+      entry.final_book_checksum_match = g.final_book_checksum == s.final_book_checksum;
+      entry.execution_report_checksum_match =
+          g.execution_report_checksum == s.execution_report_checksum;
+      entry.diagnostics_checksum_match = g.diagnostics_checksum == s.diagnostics_checksum;
+      entry.matched = entry.event_log_checksum_match && entry.final_book_checksum_match &&
+                      entry.execution_report_checksum_match && entry.diagnostics_checksum_match;
+    }
+    if (!entry.matched) {
+      ++report.mismatch_count;
+    }
+    report.symbols.push_back(entry);
+  }
+
+  report.matched = report.mismatch_count == 0 && report.combined_book_checksum_match &&
+                   report.aggregate_checksum_match &&
+                   report.symbol_count_grouped == report.symbol_count_shared;
+  return report;
+}
+
+ReplayParityReport compare_replay_parity_file(const std::filesystem::path& path,
+                                              EventLogFormat format,
+                                              AggregateReplayConfig config) {
+  EventLogReadResult read_result = read_event_log(path, format);
+  if (!read_result.error.empty()) {
+    return ReplayParityReport{};
+  }
+  return compare_replay_parity(read_result.events, config);
+}
+
 } // namespace asterion

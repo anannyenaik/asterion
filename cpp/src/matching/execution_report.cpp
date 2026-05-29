@@ -86,6 +86,14 @@ std::string_view to_string(RejectReason value) noexcept {
     return "SelfTradePrevention";
   case RejectReason::Disconnected:
     return "Disconnected";
+  case RejectReason::MaxPortfolioGrossExposure:
+    return "MaxPortfolioGrossExposure";
+  case RejectReason::MaxPortfolioNetExposure:
+    return "MaxPortfolioNetExposure";
+  case RejectReason::MaxSymbolConcentration:
+    return "MaxSymbolConcentration";
+  case RejectReason::MaxPortfolioLoss:
+    return "MaxPortfolioLoss";
   }
   return "Unknown";
 }
