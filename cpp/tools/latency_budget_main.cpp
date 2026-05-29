@@ -50,7 +50,11 @@ void print_usage(std::ostream& output) {
 
 [[nodiscard]] bool parse_u64(const char* text, std::uint64_t& out) {
   try {
-    out = static_cast<std::uint64_t>(std::stoull(text));
+    std::size_t parsed = 0;
+    out = static_cast<std::uint64_t>(std::stoull(text, &parsed, 10));
+    if (parsed != std::string_view(text).size()) {
+      return false;
+    }
   } catch (const std::exception&) {
     return false;
   }
@@ -153,7 +157,9 @@ NewOrderRequest make_risk_request(std::size_t i) {
                          static_cast<TimestampNs>(1'000 + i)};
 }
 
-void measure_pipeline(const Options& options, LatencyBudgetAccountant& accountant) {
+bool measure_pipeline(const Options& options, LatencyBudgetAccountant& accountant) {
+  bool pipeline_ok = true;
+
   // Replay: decode and reconstruct the book from the recorded sample log.
   {
     ReplayEngine replay(1);
@@ -163,6 +169,7 @@ void measure_pipeline(const Options& options, LatencyBudgetAccountant& accountan
     accountant.record(LatencyStage::Replay, elapsed);
     if (!result.error.empty()) {
       std::cerr << "replay error: " << result.error << '\n';
+      pipeline_ok = false;
     }
   }
 
@@ -263,6 +270,8 @@ void measure_pipeline(const Options& options, LatencyBudgetAccountant& accountan
       (void)score;
     }
   }
+
+  return pipeline_ok;
 }
 
 void print_text(const LatencyBudgetAccountant& accountant) {
@@ -294,20 +303,36 @@ void write_json(const std::filesystem::path& path, const LatencyBudgetAccountant
 } // namespace
 
 int main(int argc, char** argv) {
+  if (argc == 2) {
+    const std::string_view arg(argv[1]);
+    if (arg == "--help" || arg == "-h") {
+      print_usage(std::cout);
+      return 0;
+    }
+  }
+
   Options options;
   if (!parse_options(argc, argv, options)) {
     return 1;
   }
 
   LatencyBudgetAccountant accountant(options.budget);
-  measure_pipeline(options, accountant);
+  const bool measured = measure_pipeline(options, accountant);
 
   if (options.text_output) {
     print_text(accountant);
   }
   if (options.json_path.has_value()) {
-    write_json(*options.json_path, accountant);
+    try {
+      write_json(*options.json_path, accountant);
+    } catch (const std::exception& exc) {
+      std::cerr << exc.what() << '\n';
+      return 1;
+    }
   }
 
+  if (!measured) {
+    return 2;
+  }
   return accountant.exceeded_count() == 0 ? 0 : 3;
 }

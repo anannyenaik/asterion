@@ -7,9 +7,10 @@ Commands are split into two groups:
   ``latency-budget``, ``audit-summary``, ``audit-verify`` and
   ``rate-limit-mode``) read JSON/text files only and need no compiled extension.
 * Native-backed commands (``replay-checksums``, ``diagnostics``, ``per-symbol`` and
-  ``replay-parity``, ``shared-fuzz``, ``risk-exposure``, ``audit-manifest``,
-  ``audit-manifest-verify`` and ``onnx-status``) import the ``asterion`` bindings
-  lazily and therefore require the built C++ project on ``PYTHONPATH``.
+  ``replay-parity``, ``shared-fuzz``, ``risk-exposure``, ``portfolio-risk``,
+  ``audit-manifest``, ``audit-manifest-verify`` and ``onnx-status``) import the
+  ``asterion`` bindings lazily and therefore require the built C++ project on
+  ``PYTHONPATH``.
 
 Every command supports a readable text mode (default) and ``--json``.
 """
@@ -25,6 +26,22 @@ from pathlib import Path
 from typing import Any
 
 _ROOT = Path(__file__).resolve().parents[1]
+
+
+class AsterionArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        if "--json" in sys.argv[1:]:
+            print(json.dumps({"ok": False, "error": message}, sort_keys=True))
+            raise SystemExit(2)
+        super().error(message)
+
+
+def _fail(message: str, as_json: bool, *, code: int = 1) -> int:
+    if as_json:
+        print(json.dumps({"ok": False, "error": str(message)}, sort_keys=True))
+    else:
+        print(f"error: {message}", file=sys.stderr)
+    return code
 
 
 def _load_regression() -> Any:
@@ -99,11 +116,9 @@ def cmd_benchmark_trend(args: argparse.Namespace) -> int:
     elif args.history_dir is not None:
         sources = sorted(Path(args.history_dir).glob(args.glob))
     else:
-        print("provide --inputs or --history-dir", file=sys.stderr)
-        return 1
+        return _fail("provide --inputs or --history-dir", args.json)
     if not sources:
-        print("no benchmark JSON files found", file=sys.stderr)
-        return 1
+        return _fail("no benchmark JSON files found", args.json)
     trend = regression.load_trend(sources, metric=args.metric)
     _emit(regression.trend_to_dict(trend), regression.format_trend_text(trend), args.json)
     return 0
@@ -138,8 +153,7 @@ def cmd_rate_limit_mode(args: argparse.Namespace) -> int:
     try:
         mode = _normalise_rate_limit_mode(args.mode)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(str(exc), args.json)
     payload = {"mode": mode, "default": mode == "fixed-window"}
     _emit(payload, f"mode={mode}\ndefault={str(payload['default']).lower()}", args.json)
     return 0
@@ -401,8 +415,7 @@ def cmd_audit_manifest(args: argparse.Namespace) -> int:
         signing_key = _load_signing_key(args)
         fmt = _risk_audit_format_enum(asterion, args.format)
     except (OSError, ValueError) as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(str(exc), args.json)
 
     result = asterion.generate_audit_manifest(
         args.input,
@@ -414,8 +427,7 @@ def cmd_audit_manifest(args: argparse.Namespace) -> int:
     )
     if result.ok and args.output is not None:
         if not asterion.write_audit_manifest(args.output, result.manifest):
-            print(f"unable to write manifest: {args.output}", file=sys.stderr)
-            return 1
+            return _fail(f"unable to write manifest: {args.output}", args.json)
 
     payload = {
         "ok": result.ok,
@@ -450,8 +462,7 @@ def cmd_audit_manifest_verify(args: argparse.Namespace) -> int:
         signing_key = _load_signing_key(args)
         manifest = asterion.read_audit_manifest(args.manifest)
     except (OSError, RuntimeError, ValueError) as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _fail(str(exc), args.json)
 
     base_dir = args.base_dir if args.base_dir is not None else args.manifest.parent
     verification = asterion.verify_audit_manifest(manifest, base_dir, signing_key)
@@ -499,7 +510,7 @@ def cmd_replay_checksums(args: argparse.Namespace) -> int:
     }
     text = "\n".join(f"{key}={value}" for key, value in payload.items())
     _emit(payload, text, args.json)
-    return 0
+    return 0 if result.sequence_valid and not result.error else 2
 
 
 def cmd_diagnostics(args: argparse.Namespace) -> int:
@@ -518,6 +529,7 @@ def cmd_diagnostics(args: argparse.Namespace) -> int:
     ]
     payload = {
         "input": str(args.input),
+        "error": result.error,
         "diagnostic_count": len(diagnostics),
         "diagnostic_error_count": result.diagnostic_error_count,
         "diagnostic_warning_count": result.diagnostic_warning_count,
@@ -537,7 +549,7 @@ def cmd_diagnostics(args: argparse.Namespace) -> int:
             f"severity={diagnostic['severity']} reason={diagnostic['reason']}"
         )
     _emit(payload, "\n".join(lines), args.json)
-    return 0
+    return 0 if result.sequence_valid and not result.error else 2
 
 
 def cmd_per_symbol(args: argparse.Namespace) -> int:
@@ -565,6 +577,7 @@ def cmd_per_symbol(args: argparse.Namespace) -> int:
         "combined_book_checksum": summary.combined_book_checksum,
         "aggregate_checksum": summary.aggregate_checksum,
         "path": "shared" if args.shared else "grouped",
+        "error": summary.error,
         "symbols": symbols,
     }
     lines = [
@@ -581,7 +594,7 @@ def cmd_per_symbol(args: argparse.Namespace) -> int:
             f"sequence_valid={symbol['sequence_valid']}"
         )
     _emit(payload, "\n".join(lines), args.json)
-    return 0
+    return 0 if not summary.error else 2
 
 
 def cmd_replay_parity(args: argparse.Namespace) -> int:
@@ -725,7 +738,11 @@ def _enum(module: Any, enum_name: str, value: str) -> Any:
         "max-portfolio-loss": "MaxPortfolioLoss",
     }
     attr = lookup.get(token.lower(), token)
-    return getattr(getattr(module, enum_name), attr)
+    try:
+        enum_type = getattr(module, enum_name)
+        return getattr(enum_type, attr)
+    except AttributeError as exc:
+        raise ValueError(f"unknown {enum_name}: {value}") from exc
 
 
 def _new_order_from_dict(asterion: Any, item: dict[str, Any]) -> Any:
@@ -768,6 +785,13 @@ def _replace_order_from_dict(asterion: Any, item: dict[str, Any]) -> Any:
     request.new_quantity = int(item.get("new_quantity", item.get("quantity", 0)))
     request.timestamp_ns = int(item.get("timestamp_ns", item.get("now_ns", 0)))
     return request
+
+
+def _set_public_fields(target: Any, values: dict[str, Any], context: str) -> None:
+    for key, value in values.items():
+        if not hasattr(target, key):
+            raise ValueError(f"unknown {context} field: {key}")
+        setattr(target, key, value)
 
 
 def cmd_risk_exposure(args: argparse.Namespace) -> int:
@@ -864,14 +888,113 @@ def cmd_risk_exposure(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_portfolio_risk(args: argparse.Namespace) -> int:
+    import asterion  # noqa: PLC0415
+
+    fixture = json.loads(args.input.read_text(encoding="utf-8"))
+    limits = asterion.PortfolioRiskLimits()
+    _set_public_fields(limits, fixture.get("limits", {}), "portfolio limits")
+
+    monitor = asterion.PortfolioRiskMonitor(limits)
+    if fixture.get("audit_enabled", False):
+        monitor.set_audit_enabled(True)
+
+    for item in fixture.get("marks", []):
+        monitor.set_mark(int(item["symbol_id"]), int(item["mark_ticks"]))
+    for item in fixture.get("positions", []):
+        monitor.set_position(
+            int(item["symbol_id"]),
+            int(item["quantity"]),
+            int(item["average_cost_ticks"]),
+        )
+    for item in fixture.get("fills", []):
+        monitor.apply_fill(
+            int(item["symbol_id"]),
+            _enum(asterion, "Side", str(item["side"])),
+            int(item["quantity"]),
+            int(item["price_ticks"]),
+        )
+
+    checks = []
+    for item in fixture.get("orders", []):
+        result = monitor.check_order(
+            int(item["symbol_id"]),
+            _enum(asterion, "Side", str(item["side"])),
+            int(item["quantity"]),
+            int(item["price_ticks"]),
+            int(item.get("timestamp_ns", item.get("now_ns", 0))),
+        )
+        checks.append(
+            {
+                "symbol_id": result.symbol_id or int(item["symbol_id"]),
+                "accepted": result.accepted,
+                "breach": asterion.portfolio_breach_to_string(result.breach),
+                "limit_value": result.limit_value,
+                "observed_value": result.observed_value,
+            }
+        )
+
+    state = monitor.evaluate_state()
+    snapshot = monitor.snapshot()
+    payload = {
+        "input": str(args.input),
+        "active": monitor.active(),
+        "state": {
+            "accepted": state.accepted,
+            "breach": asterion.portfolio_breach_to_string(state.breach),
+            "symbol_id": state.symbol_id,
+            "limit_value": state.limit_value,
+            "observed_value": state.observed_value,
+        },
+        "checks": checks,
+        "snapshot": {
+            "gross_exposure_ticks": snapshot.gross_exposure_ticks,
+            "net_exposure_ticks": snapshot.net_exposure_ticks,
+            "realised_pnl_ticks": snapshot.realised_pnl_ticks,
+            "unrealised_pnl_ticks": snapshot.unrealised_pnl_ticks,
+            "total_pnl_ticks": snapshot.total_pnl_ticks,
+            "max_concentration_symbol": snapshot.max_concentration_symbol,
+            "max_concentration_bps": snapshot.max_concentration_bps,
+            "symbol_count": snapshot.symbol_count,
+            "checksum": snapshot.checksum,
+        },
+        "audit_entry_count": monitor.audit().size(),
+        "audit_checksum": monitor.audit().checksum(),
+    }
+    lines = [
+        f"active={str(payload['active']).lower()}",
+        f"state_accepted={str(payload['state']['accepted']).lower()}",
+        f"state_breach={payload['state']['breach']}",
+        f"symbol_count={payload['snapshot']['symbol_count']}",
+        f"gross_exposure_ticks={payload['snapshot']['gross_exposure_ticks']}",
+        f"net_exposure_ticks={payload['snapshot']['net_exposure_ticks']}",
+        f"total_pnl_ticks={payload['snapshot']['total_pnl_ticks']}",
+        f"max_concentration_bps={payload['snapshot']['max_concentration_bps']}",
+        f"snapshot_checksum={payload['snapshot']['checksum']}",
+        f"audit_entry_count={payload['audit_entry_count']}",
+        f"audit_checksum={payload['audit_checksum']}",
+    ]
+    for index, check in enumerate(checks, start=1):
+        lines.append(
+            f"check={index} accepted={str(check['accepted']).lower()} "
+            f"breach={check['breach']} observed={check['observed_value']}"
+        )
+    _emit(payload, "\n".join(lines), args.json)
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # Argument parsing
 # --------------------------------------------------------------------------- #
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Inspect Asterion replay and benchmark artifacts.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser = AsterionArgumentParser(
+        description="Inspect Asterion replay and benchmark artifacts."
+    )
+    subparsers = parser.add_subparsers(
+        dest="command", required=True, parser_class=AsterionArgumentParser
+    )
 
     def add_replay_args(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument("--input", required=True, type=Path)
@@ -917,6 +1040,13 @@ def build_parser() -> argparse.ArgumentParser:
     risk_exposure.add_argument("--input", required=True, type=Path)
     risk_exposure.add_argument("--json", action="store_true")
     risk_exposure.set_defaults(func=cmd_risk_exposure)
+
+    portfolio_risk = subparsers.add_parser(
+        "portfolio-risk", help="Run a small simulated portfolio-risk flow."
+    )
+    portfolio_risk.add_argument("--input", required=True, type=Path)
+    portfolio_risk.add_argument("--json", action="store_true")
+    portfolio_risk.set_defaults(func=cmd_portfolio_risk)
 
     audit_summary = subparsers.add_parser(
         "audit-summary", help="Summarise an append-only risk audit log."
@@ -1028,7 +1158,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError, ImportError, KeyError) as exc:
+        return _fail(str(exc), bool(getattr(args, "json", False)))
 
 
 if __name__ == "__main__":

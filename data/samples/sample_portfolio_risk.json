@@ -1,0 +1,55 @@
+{
+  "audit_enabled": true,
+  "limits": {
+    "max_gross_exposure_ticks": 250000,
+    "max_net_exposure_ticks": 200000,
+    "max_symbol_concentration_bps": 8000,
+    "max_loss_ticks": 20000
+  },
+  "marks": [
+    {
+      "symbol_id": 1,
+      "mark_ticks": 1010
+    },
+    {
+      "symbol_id": 2,
+      "mark_ticks": 1980
+    }
+  ],
+  "positions": [
+    {
+      "symbol_id": 1,
+      "quantity": 60,
+      "average_cost_ticks": 1000
+    },
+    {
+      "symbol_id": 2,
+      "quantity": -40,
+      "average_cost_ticks": 2000
+    }
+  ],
+  "fills": [
+    {
+      "symbol_id": 1,
+      "side": "Buy",
+      "quantity": 10,
+      "price_ticks": 1005
+    }
+  ],
+  "orders": [
+    {
+      "symbol_id": 1,
+      "side": "Buy",
+      "quantity": 20,
+      "price_ticks": 1010,
+      "timestamp_ns": 10
+    },
+    {
+      "symbol_id": 2,
+      "side": "Sell",
+      "quantity": 100,
+      "price_ticks": 1980,
+      "timestamp_ns": 20
+    }
+  ]
+}

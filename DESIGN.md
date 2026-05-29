@@ -39,8 +39,9 @@ The first implementation keeps the hot path simple and auditable. It uses intege
   risk exposure snapshots, benchmark JSON summaries and offline benchmark/latency-budget regression
   analysis.
 - `scripts/asterion_inspect.py`: a single inspection CLI over replay checksums, diagnostics,
-  per-symbol summaries, replay parity, risk exposure fixtures, audit logs/manifests, optional ONNX
-  status, rate-limit mode, latency-budget JSON, benchmark JSON and benchmark regression comparison.
+  per-symbol summaries, replay parity, risk exposure fixtures, simulated portfolio snapshots,
+  audit logs/manifests, optional ONNX status, rate-limit mode, latency-budget JSON, benchmark JSON
+  and benchmark regression comparison.
 
 ## Data Flow
 

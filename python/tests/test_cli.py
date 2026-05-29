@@ -243,3 +243,105 @@ def test_rate_limit_mode_json() -> None:
     payload = json.loads(result.stdout)
     assert payload["mode"] == "sliding-window"
     assert payload["default"] is False
+
+
+def test_portfolio_risk_cli_json() -> None:
+    pytest.importorskip("asterion")
+    result = _run(
+        "portfolio-risk",
+        "--input",
+        str(SAMPLES / "sample_portfolio_risk.json"),
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["active"] is True
+    assert payload["snapshot"]["symbol_count"] == 2
+    assert payload["audit_entry_count"] == 2
+    assert [check["accepted"] for check in payload["checks"]] == [True, False]
+
+
+def test_json_error_for_missing_offline_file() -> None:
+    result = _run(
+        "benchmark-summary",
+        "--input",
+        str(SAMPLES / "missing_benchmark.json"),
+        "--json",
+    )
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "missing_benchmark.json" in payload["error"]
+
+
+def test_json_error_for_malformed_json(tmp_path: Path) -> None:
+    bad_json = tmp_path / "bad.json"
+    bad_json.write_text("{bad json", encoding="utf-8")
+
+    result = _run("benchmark-summary", "--input", str(bad_json), "--json")
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "Expecting property name" in payload["error"]
+
+
+def test_json_error_for_invalid_flag() -> None:
+    result = _run(
+        "benchmark-summary",
+        "--input",
+        str(SAMPLES / "sample_benchmark_baseline.json"),
+        "--json",
+        "--bad-flag",
+    )
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "unrecognized arguments" in payload["error"]
+
+
+def test_json_error_for_unsupported_replay_format() -> None:
+    result = _run(
+        "replay-checksums",
+        "--input",
+        str(SAMPLES / "sample_replay.csv"),
+        "--format",
+        "xml",
+        "--json",
+    )
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "invalid choice" in payload["error"]
+
+
+def test_replay_missing_file_returns_parseable_json() -> None:
+    pytest.importorskip("asterion")
+    result = _run(
+        "replay-checksums",
+        "--input",
+        str(SAMPLES / "missing_replay.csv"),
+        "--json",
+    )
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["sequence_valid"] is False
+    assert "missing_replay.csv" in payload["error"]
+
+
+def test_audit_manifest_bad_file_returns_parseable_json(tmp_path: Path) -> None:
+    pytest.importorskip("asterion")
+    manifest = tmp_path / "bad_manifest.jsonl"
+    manifest.write_text("{bad json", encoding="utf-8")
+
+    result = _run(
+        "audit-manifest-verify",
+        "--manifest",
+        str(manifest),
+        "--json",
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["error"]

@@ -4,6 +4,8 @@
 
 #include <filesystem>
 #include <iostream>
+#include <limits>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -23,6 +25,21 @@ struct Options {
 void print_usage(std::ostream& output) {
   output << "Usage: asterion_replay --input path [--format auto|csv|binary] [--symbol id]"
          << " [--aggregate] [--shared] [--no-diagnostics]\n";
+}
+
+bool parse_symbol_id(const char* text, SymbolId& output) {
+  try {
+    std::size_t parsed = 0;
+    const unsigned long value = std::stoul(text, &parsed, 10);
+    if (parsed != std::string_view(text).size() || value == 0 ||
+        value > std::numeric_limits<SymbolId>::max()) {
+      return false;
+    }
+    output = static_cast<SymbolId>(value);
+  } catch (const std::exception&) {
+    return false;
+  }
+  return true;
 }
 
 bool parse_options(int argc, char** argv, Options& options) {
@@ -58,7 +75,10 @@ bool parse_options(int argc, char** argv, Options& options) {
         std::cerr << "--symbol requires an integer symbol id\n";
         return false;
       }
-      options.symbol_id = static_cast<SymbolId>(std::stoul(argv[++i]));
+      if (!parse_symbol_id(argv[++i], options.symbol_id)) {
+        std::cerr << "--symbol requires a positive integer symbol id\n";
+        return false;
+      }
       continue;
     }
     if (arg == "--no-diagnostics") {
@@ -138,6 +158,14 @@ void print_aggregate_result(const AggregateReplaySummary& summary, bool shared) 
 } // namespace
 
 int main(int argc, char** argv) {
+  if (argc == 2) {
+    const std::string_view arg(argv[1]);
+    if (arg == "--help" || arg == "-h") {
+      print_usage(std::cout);
+      return 0;
+    }
+  }
+
   Options options;
   if (!parse_options(argc, argv, options)) {
     return 1;

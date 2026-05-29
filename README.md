@@ -2,13 +2,39 @@
 
 **Asterion: Deterministic Low-Latency Trading Systems Lab**
 
-CV title: **C++20 Low-Latency Trading Engine with Market Replay, Risk Gateway and Real-Time ML Inference**
+CV title: **C++20 Deterministic Trading Systems Lab with Market Replay, Risk Gateway and Measured Inference**
 
 Asterion is a Linux-first C++20 trading systems lab focused on deterministic replay, L3 order book reconstruction, price-time-priority matching, pre-trade risk checks, execution reports, latency instrumentation and correctness testing. It is intentionally built as a serious foundation rather than a toy exchange simulator.
 
 It does **not** claim to be a real exchange, a live trading system, or a true production HFT stack. The goal is to make the important engineering properties visible: deterministic behavior, testability, clean boundaries and benchmarkability.
 
-## What Asterion Proves
+## How To Review This Repo In 10 Minutes
+
+```bash
+./scripts/configure_release.sh
+cmake --build build
+ctest --test-dir build --output-on-failure
+PYTHONPATH=build/python python -m pytest python/tests
+./scripts/run_demo.sh --skip-build
+```
+
+Windows PowerShell equivalents are available for the same path:
+
+```powershell
+.\scripts\configure_release.ps1
+cmake --build build
+ctest --test-dir build --output-on-failure
+$env:PYTHONPATH = "$PWD\build\python"
+python -m pytest python/tests
+.\scripts\run_demo.ps1 -SkipBuild
+```
+
+For a quick reviewer pass, read `README.md`, `DESIGN.md`, `CORRECTNESS.md`,
+`RISK.md`, `BENCHMARKS.md`, `ROADMAP.md` and `LIMITATIONS.md`, then run the demo.
+The demo uses checked-in sample data and writes generated audit/latency/benchmark
+artifacts under `build/demo/`, which is ignored by git.
+
+## What This Proves
 
 - Integer tick prices in the hot path; no floating-point prices in matching or book state.
 - L3 book reconstruction with order-ID lookup, FIFO queues per price level and deterministic checksums.
@@ -23,6 +49,17 @@ It does **not** claim to be a real exchange, a live trading system, or a true pr
 - Golden trace tests and randomized invariant tests.
 - Measured inference infrastructure through `Model`, `LinearModel`, `FeatureExtractor`,
   timeout/late-signal policy hooks and a documented TorchScript-style placeholder interface.
+- A reproducible reviewer demo that exercises replay, diagnostics, parity, audit manifests,
+  simulated risk snapshots, latency-budget JSON and benchmark JSON generation without external
+  services or committed benchmark results.
+
+## What This Does Not Claim
+
+- No live exchange, broker or market-data connectivity.
+- No production HFT performance, kernel-bypass, FPGA, colocated networking or profitability claim.
+- No portable benchmark or latency numbers; generated timing JSON is local machine evidence only.
+- No managed audit retention, custody, compliance guarantee or tamper-proof storage.
+- No full portfolio management, market-risk feed or cross-symbol matching engine.
 
 ## Architecture
 
@@ -90,6 +127,8 @@ CSV / binary / synthetic events
   thresholds. It is an opt-in accounting gate, not a live portfolio management system.
 - Offline benchmark regression comparison and a replay/benchmark inspection CLI with readable
   text and JSON output.
+- One-command demo scripts for Linux/macOS shell and Windows PowerShell that run only on checked-in
+  sample data and ignored generated outputs.
 - GitHub Actions CI for Linux build and test.
 
 ## Build
@@ -265,6 +304,7 @@ PYTHONPATH=build/python python scripts/asterion_inspect.py replay-parity --input
 PYTHONPATH=build/python python scripts/asterion_inspect.py shared-fuzz --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py risk-exposure --input data/samples/sample_risk_flow.json --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py risk-exposure --input data/samples/sample_disconnect_replace_risk.json --json
+PYTHONPATH=build/python python scripts/asterion_inspect.py portfolio-risk --input data/samples/sample_portfolio_risk.json --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py onnx-status --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py audit-manifest --input data/samples/sample_risk_audit.jsonl --output build/sample_risk_audit.manifest.jsonl --json
 PYTHONPATH=build/python python scripts/asterion_inspect.py audit-manifest-verify --manifest build/sample_risk_audit.manifest.jsonl --base-dir data/samples --json
@@ -276,6 +316,19 @@ python scripts/asterion_inspect.py audit-summary --input data/samples/sample_ris
 python scripts/asterion_inspect.py audit-verify --input data/samples/sample_risk_audit.jsonl --json
 python scripts/asterion_inspect.py rate-limit-mode --mode sliding-window --json
 ```
+
+## Developer Scripts
+
+```bash
+./scripts/configure_release.sh
+./scripts/configure_sanitizer.sh
+./scripts/run_all_tests.sh
+./scripts/run_python_tests.sh
+./scripts/run_demo.sh
+./scripts/clean_generated.sh
+```
+
+PowerShell equivalents with the same names and `.ps1` extension are provided for Windows.
 
 ## Benchmark Regression Comparison
 

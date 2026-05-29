@@ -86,7 +86,7 @@ Deferred from Phase 7:
 
 ## Phase 8
 
-- local Windows build-tool bootstrap with MSYS2/MinGW-w64 when no host C++20 toolchain is present;
+- Windows-friendly PowerShell helper scripts that can use an existing MSYS2/MinGW-w64 toolchain;
 - optional real ONNX Runtime fixture testing through a tiny checked-in identity model, while default
   CI remains dependency-free and continues to test deterministic fallback behavior;
 - simulated disconnect state with opt-in cancel-on-disconnect release, explicit disconnected
@@ -132,3 +132,21 @@ Deferred from Phase 9:
 - live venue/broker session management;
 - managed audit retention/custody or tamper-proof storage;
 - full portfolio management, market-risk data or cross-symbol matching semantics.
+
+## Phase 10
+
+- release-candidate demo scripts for shell and PowerShell, using checked-in sample data and ignored
+  generated outputs;
+- concise release checklist for clean checkout builds, tests, demo, docs and optional lanes;
+- CLI error-path hardening for missing files, malformed JSON/logs, invalid options and bad audit
+  manifests, with parseable JSON errors when `--json` is requested;
+- simulated portfolio-risk fixture and CLI snapshot for the reviewer demo;
+- default CI smoke test for the one-command demo, while ONNX and benchmark-history paths remain
+  manual or opt-in.
+
+Deferred from Phase 10:
+
+- publishing benchmark numbers;
+- live trading or broker/exchange connectivity;
+- making optional ONNX Runtime part of default CI;
+- managed audit retention/compliance workflows.
