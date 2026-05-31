@@ -24,7 +24,8 @@ The first implementation keeps the hot path simple and auditable. It uses intege
 - `core`: shared integer types, monotonic clock helpers and deterministic checksum utilities.
 - `market_data`: fixed event schema, CSV/binary log IO, deterministic replay diagnostics and
   synthetic event generation.
-- `book`: L3 order book, price levels, FIFO queues, L2 views and invariant checks.
+- `book`: L3 order books, price levels, FIFO queues, L2 views and invariant checks. The
+  correctness-first `OrderBook` remains the default; `PooledOrderBook` is an opt-in benchmark path.
 - `matching`: price-time-priority matching and execution reports.
 - `risk`: pre-trade limits, duplicate client-order-ID tracking, stale-data policy, kill switch,
   working-exposure lifecycle handling, simulated portfolio-risk accounting and deterministic audit
@@ -109,6 +110,13 @@ The book stores L3 state internally because matching and replay correctness depe
 The value-returning `l2_view(...)` API remains for convenience, while `fill_l2_view(...)` lets
 callers reuse preallocated bid/ask vectors in measured paths.
 
+`PooledOrderBook` is a focused allocation-reduction adapter for measured replay experiments. It
+keeps price levels and order nodes in reusable vectors and uses a flat open-addressed order-id index
+instead of rebuilding `std::map`, `std::list` and node-based lookup entries every replay pass. It
+implements the same Add, Cancel, Replace, Execute-as-reduce, Snapshot and L2 projection semantics
+needed by the recorded-data benchmarks, and parity tests compare checksums and L2 views against the
+default `OrderBook`. It is deliberately opt-in and does not replace the auditable default book.
+
 ### Measured Hot Path
 
 The benchmark target includes a scoped end-to-end path over `sample_hot_path_replay.bin`: binary
@@ -116,6 +124,8 @@ events are replayed into the L3 book, a reusable L2 view is filled, `ImbalanceSt
 fixed-size decision batch and the risk gateway checks the resulting orders. The path deliberately
 keeps logging and string formatting outside the measured event loop. It is representative
 instrumentation for this codebase, not a production HFT architecture claim.
+The runner reports both the correctness-first L3 book path and the opt-in pooled L3 book path so the
+allocation tradeoff is visible without changing default replay semantics.
 
 ### Risk Gateway
 

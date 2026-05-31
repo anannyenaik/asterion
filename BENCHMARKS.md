@@ -36,6 +36,8 @@ Core (replay / book / matching / risk):
 
 - binary replay -> L3 book update -> reusable L2 view -> fixed-size imbalance strategy callback ->
   risk check (`hot_path_binary_replay_l3_l2_strategy_risk`);
+- the same binary replay path through the opt-in pooled L3 book
+  (`hot_path_binary_replay_pooled_l3_l2_strategy_risk`);
 - add order;
 - cancel order;
 - replace order;
@@ -69,14 +71,21 @@ ONNX inference allocations are measured and reported honestly, not asserted to b
 The hot-path benchmark defaults to `data/samples/sample_hot_path_replay.bin`, a small checked-in
 binary fixture with both sides of book so the strategy callback emits decisions and the risk gateway
 is exercised. The benchmark warms the path before resetting timing and allocation counters. The
-current optimized path avoids heap allocation in reusable L2 generation, fixed strategy decisions and
-reserved risk client-ID tracking after warm-up. Add/Replace events still allocate in the L3 book
-because the current book uses standard `std::map` and `std::list` nodes; those remaining allocations
-are reported rather than hidden.
+correctness-first path avoids heap allocation in reusable L2 generation, fixed strategy decisions
+and reserved risk client-ID tracking after warm-up. Add/Replace events still allocate in the default
+L3 book because it uses standard node-based containers for price levels, FIFO queues and lookup
+entries; those remaining allocations are reported rather than hidden.
+
+The pooled L3 benchmark is opt-in and uses `PooledOrderBook`, a vector-backed price-level/order-node
+book with a reusable flat order-id index. It shares the same replay semantics in parity tests but is
+not the default replay or matching book. It exists to measure the allocation-reduction experiment
+under disclosed warm-up conditions.
 
 A curated local report is checked in at
 `reports/benchmark_report_2026_05_31.md`. It is representative local evidence from one laptop, not a
 portable performance claim.
+The pooled-book allocation experiment is reported in
+`reports/allocation_optimisation_report_2026_05_31.md`.
 
 The benchmark runner is not extended with performance claims for shared replay, persistent audit
 logging/rotation/manifests, sliding-window rate limiting, replace-risk checks, simulated

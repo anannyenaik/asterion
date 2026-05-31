@@ -2,6 +2,9 @@
 
 Representative local measurements on this machine, not portable performance claims.
 
+Update: a later same-day allocation experiment added the opt-in pooled L3 benchmark path. See
+`reports/allocation_optimisation_report_2026_05_31.md` for the before/after allocation comparison.
+
 ## Scope
 
 Measured path: binary event replay -> L3 book update -> reusable L2 view generation -> fixed-size

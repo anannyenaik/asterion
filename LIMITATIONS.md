@@ -11,8 +11,9 @@ Explicit limitations:
 - simplified market impact model;
 - no kernel bypass;
 - no FPGA path;
-- no custom allocator and no broad allocation-avoidance claim; only the documented reusable L2,
-  fixed strategy callback and reserved risk sub-paths are allocation-free after warm-up;
+- no broad allocation-avoidance claim; only the documented reusable L2, fixed strategy callback,
+  reserved risk sub-paths and opt-in pooled L3 benchmark path are shown allocation-free after
+  warm-up under their scoped tests;
 - no concurrency model in the first implementation;
 - benchmark results are hardware-dependent; generic dumps are not checked in;
 - the checked-in benchmark report is representative local evidence for one laptop and one optimized
@@ -55,6 +56,10 @@ Explicit limitations:
 - `MultiSymbolBookSet` powers an opt-in shared replay path, but it is not a cross-symbol matching
   engine and does not replace the default grouped single-symbol replay path; grouped replay remains
   the default unless shared replay parity is exhaustively validated and documented;
+- `PooledOrderBook` is an opt-in allocation experiment for measured L3 replay. It is not production
+  HFT infrastructure, not a general allocator framework, and not a replacement for the
+  correctness-first `OrderBook`; its zero-allocation result applies only after explicit warm-up and
+  reservation in the disclosed benchmark/test paths;
 - historical benchmark trends are only meaningful on the same controlled hardware and are kept out of
   CI performance gates;
 - event-log schema v1 is stable for the checked-in fixtures and guarded by manifest/tests, but

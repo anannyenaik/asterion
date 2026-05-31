@@ -26,6 +26,14 @@ perf stat -e branch-misses ./build/asterion_benchmarks --no-text --json build/be
 perf stat -e cycles,instructions,cache-references,cache-misses,branches,branch-misses ./build/asterion_benchmarks
 ```
 
+The benchmark JSON contains both L3 book variants:
+
+- `hot_path_binary_replay_l3_l2_strategy_risk`
+- `hot_path_binary_replay_pooled_l3_l2_strategy_risk`
+
+Compare allocation counters only after the configured warm-up has completed. Latency counters are
+local observations and should not be used as CI gates.
+
 Record flamegraph-ready samples:
 
 ```bash

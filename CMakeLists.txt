@@ -57,6 +57,7 @@ add_library(
   cpp/src/market_data/replay_aggregate.cpp
   cpp/src/market_data/synthetic_generator.cpp
   cpp/src/book/order_book.cpp
+  cpp/src/book/pooled_order_book.cpp
   cpp/src/matching/execution_report.cpp
   cpp/src/matching/matching_engine.cpp
   cpp/src/risk/kill_switch.cpp
@@ -193,6 +194,7 @@ if(ASTERION_BUILD_TESTS)
     tests/unit/test_telemetry_inference.cpp
     tests/unit/test_inference_backend.cpp
     tests/unit/test_allocation_tracking.cpp
+    tests/unit/test_pooled_order_book.cpp
     tests/unit/test_hot_path.cpp
     tests/golden/test_golden_traces.cpp
     tests/property/test_book_properties.cpp)

@@ -1,4 +1,5 @@
 #include "asterion/book/order_book.hpp"
+#include "asterion/book/pooled_order_book.hpp"
 #include "asterion/core/allocation_tracker.hpp"
 #include "asterion/core/checksum.hpp"
 #include "asterion/inference/backend.hpp"
@@ -281,7 +282,8 @@ BenchmarkResult run_sampled_benchmark(std::string name, std::size_t iterations, 
   return result;
 }
 
-bool apply_hot_path_event(const MarketDataEvent& event, OrderBook& book,
+template <typename Book>
+bool apply_hot_path_event(const MarketDataEvent& event, Book& book,
                           std::uint64_t& activity_checksum) {
   switch (event.event_type) {
   case MarketEventType::Add:
@@ -329,6 +331,7 @@ PriceTicks reference_price_from_view(const L2View& view, const MarketDataEvent& 
   return event.price_ticks > 0 ? event.price_ticks : 1000;
 }
 
+template <typename Book>
 struct HotPathContext {
   explicit HotPathContext(SymbolId symbol_id, std::size_t depth,
                           std::size_t expected_orders, std::size_t expected_risk_checks)
@@ -341,7 +344,7 @@ struct HotPathContext {
     risk.on_market_data(symbol_id, 1000, 0);
   }
 
-  OrderBook book;
+  Book book;
   L2View l2;
   ImbalanceStrategy strategy;
   RiskGateway risk;
@@ -350,7 +353,8 @@ struct HotPathContext {
   std::size_t risk_checks{0};
 };
 
-void replay_hot_path_once(std::span<const MarketDataEvent> events, HotPathContext& context,
+template <typename Book>
+void replay_hot_path_once(std::span<const MarketDataEvent> events, HotPathContext<Book>& context,
                           std::size_t depth, std::vector<std::uint64_t>* samples) {
   context.book.clear();
   context.book.reserve_order_capacity(events.size());
@@ -395,7 +399,8 @@ void replay_hot_path_once(std::span<const MarketDataEvent> events, HotPathContex
   context.guard = checksum_append(context.guard, context.book.checksum());
 }
 
-BenchmarkResult benchmark_hot_path_pipeline(const Options& options) {
+template <typename Book>
+BenchmarkResult benchmark_hot_path_pipeline(const Options& options, std::string name) {
   constexpr std::size_t kDepth = 5;
   EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
   if (!log.error.empty()) {
@@ -408,8 +413,8 @@ BenchmarkResult benchmark_hot_path_pipeline(const Options& options) {
   const std::size_t event_count = log.events.size() * options.hot_path_iterations;
   const std::size_t reserve_risk_checks =
       log.events.size() * (options.hot_path_iterations + options.warmup_iterations + 1U);
-  HotPathContext context(log.events.front().symbol_id, kDepth, log.events.size(),
-                         reserve_risk_checks);
+  HotPathContext<Book> context(log.events.front().symbol_id, kDepth, log.events.size(),
+                               reserve_risk_checks);
   for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
     replay_hot_path_once(log.events, context, kDepth, nullptr);
   }
@@ -430,7 +435,7 @@ BenchmarkResult benchmark_hot_path_pipeline(const Options& options) {
   const auto total_ns = static_cast<std::uint64_t>(
       std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
   BenchmarkResult result;
-  result.name = "hot_path_binary_replay_l3_l2_strategy_risk";
+  result.name = std::move(name);
   result.iterations = options.hot_path_iterations;
   result.event_count = event_count;
   result.risk_check_count = context.risk_checks - risk_checks_before;
@@ -1042,7 +1047,10 @@ int main(int argc, char** argv) {
   // Core replay/book/matching/risk benchmarks. These timings are kept separate
   // from the inference timings below.
   std::vector<BenchmarkResult> core_results;
-  core_results.push_back(benchmark_hot_path_pipeline(options));
+  core_results.push_back(benchmark_hot_path_pipeline<OrderBook>(
+      options, "hot_path_binary_replay_l3_l2_strategy_risk"));
+  core_results.push_back(benchmark_hot_path_pipeline<PooledOrderBook>(
+      options, "hot_path_binary_replay_pooled_l3_l2_strategy_risk"));
   core_results.push_back(benchmark_add_order());
   core_results.push_back(benchmark_cancel_order());
   core_results.push_back(benchmark_replace_order());
