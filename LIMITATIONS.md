@@ -11,9 +11,12 @@ Explicit limitations:
 - simplified market impact model;
 - no kernel bypass;
 - no FPGA path;
-- no custom allocator or allocation-avoidance claim;
+- no custom allocator and no broad allocation-avoidance claim; only the documented reusable L2,
+  fixed strategy callback and reserved risk sub-paths are allocation-free after warm-up;
 - no concurrency model in the first implementation;
-- benchmark results are hardware-dependent and not checked in;
+- benchmark results are hardware-dependent; generic dumps are not checked in;
+- the checked-in benchmark report is representative local evidence for one laptop and one optimized
+  path, not a portable latency claim;
 - benchmark regression comparison results are machine-dependent and are only meaningful when both
   JSON files come from the same controlled hardware; the checked-in `sample_benchmark_*.json` files
   are synthetic tooling fixtures, not measurements;

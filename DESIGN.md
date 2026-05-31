@@ -84,12 +84,24 @@ replay the default without exhaustive validation.
 ### L3 Internally, L2 Externally
 
 The book stores L3 state internally because matching and replay correctness depend on individual order IDs and FIFO priority. L2 views are generated from that state for strategy workloads, feature extraction and external inspection.
+The value-returning `l2_view(...)` API remains for convenience, while `fill_l2_view(...)` lets
+callers reuse preallocated bid/ask vectors in measured paths.
+
+### Measured Hot Path
+
+The benchmark target includes a scoped end-to-end path over `sample_hot_path_replay.bin`: binary
+events are replayed into the L3 book, a reusable L2 view is filled, `ImbalanceStrategy` emits a
+fixed-size decision batch and the risk gateway checks the resulting orders. The path deliberately
+keeps logging and string formatting outside the measured event loop. It is representative
+instrumentation for this codebase, not a production HFT architecture claim.
 
 ### Risk Gateway
 
 The risk gateway exists before matching because serious trading systems reject invalid or dangerous
 orders before they consume matching resources. The current checks are intentionally simple but real:
 quantity, notional, position, gross exposure, price band, duplicate ID, stale data and kill switch.
+Accepted client-order IDs are tracked with a small flat set so callers can reserve capacity and avoid
+per-order node allocations in warmed risk-only paths.
 Additional controls are opt-in and disabled by default so the existing hot path is unchanged:
 open-order (working) exposure per symbol, per-client fixed or sliding-window message-rate limiting
 and self-trade prevention against a client's own resting orders. Accepted resting orders can be

@@ -69,7 +69,8 @@ portable/committed benchmark numbers (see [What This Does Not Claim](#what-this-
 
 - No live exchange, broker or market-data connectivity.
 - No production HFT performance, kernel-bypass, FPGA, colocated networking or profitability claim.
-- No portable benchmark or latency numbers; generated timing JSON is local machine evidence only.
+- No portable benchmark or latency numbers; generated timing JSON and curated reports are local
+  machine evidence only.
 - No managed audit retention, custody, compliance guarantee or tamper-proof storage.
 - No full portfolio management, market-risk feed or cross-symbol matching engine.
 
@@ -113,7 +114,8 @@ CSV / binary / synthetic events
 - Python bindings and a small `python/asterion` package for event logs, replay diagnostics,
   checksums, aggregate summaries and benchmark JSON summaries.
 - Catch2 tests for unit, golden and randomized property-style coverage.
-- Chrono benchmark executable with stable JSON output and allocation counters.
+- Chrono benchmark executable with stable JSON output, allocation counters and a measured hot-path
+  benchmark for binary replay -> L3 update -> reusable L2 view -> strategy callback -> risk check.
 - Optional Google Benchmark target behind an explicit CMake flag.
 - Strategy interface with market-maker and imbalance examples.
 - Deterministic linear inference backend, measured inference latency accounting and a
@@ -125,6 +127,8 @@ CSV / binary / synthetic events
   checksum. It is not a cross-symbol matching engine and grouped replay remains the default.
 - Structured grouped-vs-shared replay parity reports for the opt-in shared replay path.
 - Local historical benchmark store and cross-run trend reporting that reuse the regression schema.
+- A checked-in representative benchmark report for one optimized local hot path, clearly labelled as
+  non-portable local evidence: [reports/benchmark_report_2026_05_31.md](reports/benchmark_report_2026_05_31.md).
 - Configurable per-stage latency-budget accounting (replay, book update, matching, risk,
   strategy, inference and total) with budget-used/exceeded reporting, worst-offender
   detection and stable JSON output.
@@ -261,16 +265,19 @@ print(result.final_book_checksum, summary.symbol_count)
 
 ## Benchmark
 
-Benchmarks are generated locally. No benchmark numbers are checked into this repository.
+Benchmarks are generated locally. Generic machine-specific benchmark dumps stay out of git; the
+curated report under `reports/` is explicitly labelled as local, non-portable evidence.
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target asterion_benchmarks
 ./build/asterion_benchmarks
+./build/asterion_benchmarks --dataset data/samples/sample_hot_path_replay.bin --hot-path-iterations 10000
 ./build/asterion_benchmarks --json build/asterion_benchmark.json --no-text
 ```
 
-The runner measures add, cancel, replace, market crossing, L2 snapshot, replay, risk-check,
+The runner measures the binary replay -> L3 update -> reusable L2 view -> strategy callback -> risk
+check path plus add, cancel, replace, market crossing, L2 snapshot, replay, risk-check,
 linear-inference and measured-linear-inference paths using `std::chrono`. Google Benchmark
 integration is optional:
 
@@ -280,8 +287,8 @@ cmake --build build-gbench --target asterion_google_benchmarks
 ./build-gbench/asterion_google_benchmarks --benchmark_format=json
 ```
 
-No benchmark results are checked into this repository because they are hardware-dependent.
-See [BENCHMARKS.md](BENCHMARKS.md) and [docs/profiling.md](docs/profiling.md) for commands.
+See [BENCHMARKS.md](BENCHMARKS.md), [docs/profiling.md](docs/profiling.md) and
+[reports/benchmark_report_2026_05_31.md](reports/benchmark_report_2026_05_31.md) for methodology.
 
 ## Latency Budget
 

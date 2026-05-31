@@ -15,6 +15,7 @@ cmake --build build --target asterion_benchmarks
 ./build/asterion_benchmarks
 ./build/asterion_benchmarks --dataset data/samples/sample_replay.csv
 ./build/asterion_benchmarks --dataset data/samples/sample_replay.bin
+./build/asterion_benchmarks --dataset data/samples/sample_hot_path_replay.bin --hot-path-iterations 10000
 ./build/asterion_benchmarks --json build/asterion_benchmark.json --no-text
 PYTHONPATH=build/python python python/examples/load_benchmark_json.py build/asterion_benchmark.json
 ```
@@ -23,10 +24,13 @@ The JSON schema is stable and includes:
 
 - `schema_version`;
 - `environment`: CPU, OS, compiler, build type, compiler flags, commit hash, dataset and logging mode;
-- `benchmarks`: name, iterations, total/average nanoseconds, guard checksum and allocation counters.
+- `benchmarks`: name, iterations, event count, optional p50/p95/p99/p99.9/max latency fields,
+  throughput, guard checksum and allocation counters.
 
 The runner currently covers:
 
+- binary replay -> L3 book update -> reusable L2 view -> fixed-size imbalance strategy callback ->
+  risk check (`hot_path_binary_replay_l3_l2_strategy_risk`);
 - add order;
 - cancel order;
 - replace order;
@@ -38,6 +42,18 @@ The runner currently covers:
 - linear inference only;
 - measured linear inference only, which records model scoring latency separately from replay and
   matching overhead.
+
+The hot-path benchmark defaults to `data/samples/sample_hot_path_replay.bin`, a small checked-in
+binary fixture with both sides of book so the strategy callback emits decisions and the risk gateway
+is exercised. The benchmark warms the path before resetting timing and allocation counters. The
+current optimized path avoids heap allocation in reusable L2 generation, fixed strategy decisions and
+reserved risk client-ID tracking after warm-up. Add/Replace events still allocate in the L3 book
+because the current book uses standard `std::map` and `std::list` nodes; those remaining allocations
+are reported rather than hidden.
+
+A curated local report is checked in at
+`reports/benchmark_report_2026_05_31.md`. It is representative local evidence from one laptop, not a
+portable performance claim.
 
 The benchmark runner is not extended with performance claims for shared replay, persistent audit
 logging/rotation/manifests, sliding-window rate limiting, replace-risk checks, simulated
@@ -75,8 +91,9 @@ performance variance.
 **Benchmark regression results are machine-dependent.** Comparing two JSON files is only meaningful
 when both were produced on the same controlled hardware under comparable conditions (same compiler,
 build type, CPU governor and an otherwise quiet machine). Cross-machine comparison numbers are not
-meaningful. No benchmark numbers are checked into this repository; `data/samples/sample_benchmark_*.json`
-are synthetic tooling fixtures used only to exercise the comparison logic, not measurements.
+meaningful. Generic benchmark dumps are not checked into this repository; the curated report under
+`reports/` is explicitly labelled as representative local evidence. `data/samples/sample_benchmark_*.json`
+files are synthetic tooling fixtures used only to exercise the comparison logic, not measurements.
 
 ## Historical Store And Trends
 
@@ -165,3 +182,5 @@ contains no benchmark numbers.
 - Record compiler, CPU, OS, governor/power settings and commit hash.
 - Run multiple samples and compare distributions, not isolated best cases.
 - Keep generated result files out of git unless they are clearly sample-format fixtures.
+- Keep curated reports explicit about warm-up, logging mode, dataset size, allocation count and
+  remaining allocation sources.

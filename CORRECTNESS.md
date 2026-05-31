@@ -95,6 +95,14 @@ configuration checksum that depends only on the configured budgets (never on obs
 Observed nanoseconds from `asterion_latency_budget` are treated as local timing observations, not
 portable facts.
 
+## Hot-Path Allocation And Checksums
+
+The optimized benchmark path has deterministic tests for the non-timing properties that should not
+depend on hardware: reusable L2 views match the value-returning view, the fixed-size imbalance
+callback matches the vector-returning strategy API, a warmed non-creating target path has zero heap
+allocations, reserved accepted risk checks do not allocate after warm-up and the hot-path checksum is
+stable. Wall-clock latency values remain benchmark observations, not correctness assertions.
+
 ## Risk Audit Trail
 
 When auditing is enabled, the risk gateway records every accepted and rejected decision in a
@@ -223,5 +231,7 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - simulated broker/session lifecycle;
 - simulated portfolio-risk accounting checks;
 - deterministic matching report order.
+- reusable L2 view correctness, fixed strategy callback equivalence and warmed hot-path allocation
+  behavior.
 
 Large fuzzing campaigns and exchange-specific malformed binary feeds remain out of scope for the current test suite.

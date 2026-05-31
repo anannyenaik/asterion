@@ -4,6 +4,12 @@ Profiling results are hardware, kernel, compiler and power-policy dependent. Kee
 
 ## Linux perf
 
+For the measured hot-path benchmark, use the helper script:
+
+```bash
+BUILD_DIR=build-perf HOT_PATH_ITERATIONS=10000 ./scripts/profile_hot_path_perf.sh
+```
+
 Build Release first:
 
 ```bash
