@@ -252,8 +252,9 @@ replay/diagnostics pipeline.
 
 **This is a recorded public market-data engineering demo. It is not live trading, not authenticated exchange connectivity, and not evidence of equities-market realism.** No API keys, no order placement, no broker connectivity, no profitability claim.
 
-A tiny hand-curated fixture is checked in for deterministic CI; local capture is
-opt-in and manual (never run in CI). Reviewer path:
+A tiny hand-curated fixture is checked in for deterministic CI and guarded by
+`data/samples/binance_depth_sample.expected.json`; local capture is opt-in and
+manual (never run in CI). Reviewer path:
 
 ```bash
 # Normalise the checked-in fixture into Asterion CSV + binary event logs.
@@ -280,6 +281,9 @@ python tools/capture_binance_depth.py --symbol BTCUSDT --duration 20 \
 Binance depth is L2 price-level data; Asterion's schema is L3/order-oriented. The
 normaliser is an honest adapter that uses level-replacement semantics with
 deterministic synthetic order IDs and does not fabricate real exchange order IDs.
+The fixture-based tests re-run normalisation, compare regenerated CSV output,
+check binary semantic properties and replay checksums, and assert CSV/binary
+event tuple equivalence without network access.
 See [docs/market_data.md](docs/market_data.md) and the case-study report
 [reports/binance_replay_case_study_2026_05_31.md](reports/binance_replay_case_study_2026_05_31.md).
 

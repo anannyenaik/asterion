@@ -1,0 +1,47 @@
+{
+  "binary_event_checksum": 9673906315134520083,
+  "binary_header_size": 16,
+  "binary_magic": "ASTITCH1",
+  "binary_record_count": 11,
+  "binary_record_size": 58,
+  "binary_version": 1,
+  "committed_binary_event_checksum": 9673906315134520083,
+  "committed_csv_event_checksum": 9673906315134520083,
+  "csv_event_checksum": 9673906315134520083,
+  "diagnostics_count": 0,
+  "event_type_counts": {
+    "add": 2,
+    "cancel": 2,
+    "replace": 1,
+    "snapshot": 6
+  },
+  "metadata_line_count": 1,
+  "normalised_binary": "data/samples/binance_depth_sample.normalised.bin",
+  "normalised_csv": "data/samples/binance_depth_sample.normalised.csv",
+  "normalised_event_count": 11,
+  "normaliser": "tools/normalise_binance_depth_to_asterion.py",
+  "normaliser_diagnostics_checksum": 14695981039346656037,
+  "normaliser_events_checksum": 9673906315134520083,
+  "raw_line_count": 5,
+  "raw_message_count": 5,
+  "replay": {
+    "diagnostic_error_count": 0,
+    "diagnostic_warning_count": 0,
+    "diagnostics_checksum": 14695981039346656037,
+    "event_log_checksum": 9673906315134520083,
+    "events_processed": 11,
+    "execution_report_checksum": 14695981039346656037,
+    "final_book_checksum": 2539005926052284398,
+    "sequence_valid": true,
+    "symbol_id": 1
+  },
+  "schema_version": 1,
+  "source": "data/samples/binance_depth_sample.raw.jsonl",
+  "symbol_ids": {
+    "BTCUSDT": 1
+  },
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "tool_version": "1.0.0"
+}

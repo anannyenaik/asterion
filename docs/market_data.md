@@ -11,6 +11,7 @@ Binance public order-book depth is normalised into Asterion's event schema.
 | --- | --- | --- | --- |
 | Capture | [`tools/capture_binance_depth.py`](../tools/capture_binance_depth.py) | yes (opt-in, manual) | Public REST `GET /api/v3/depth` only; no keys. Never runs in CI. |
 | Fixture | [`data/samples/binance_depth_sample.raw.jsonl`](../data/samples/binance_depth_sample.raw.jsonl) | no | Tiny hand-curated sample for deterministic CI. |
+| Fixture guard | [`data/samples/binance_depth_sample.expected.json`](../data/samples/binance_depth_sample.expected.json) | no | Checked-in manifest for regeneration, schema and replay checksum drift tests. |
 | Normalise | [`tools/normalise_binance_depth_to_asterion.py`](../tools/normalise_binance_depth_to_asterion.py) | no | Pure-Python core; writes CSV/binary via the `asterion` event-log writer. |
 | Replay | `build/asterion_replay`, `scripts/asterion_inspect.py` | no | Existing deterministic replay/diagnostics pipeline. |
 
@@ -35,6 +36,13 @@ PYTHONPATH=build/python python scripts/asterion_inspect.py \
 The checked-in `data/samples/binance_depth_sample.normalised.{csv,bin}` are the
 committed golden outputs of step (1) on the fixture; tests assert they are
 reproduced deterministically.
+
+The checked-in fixture is intentionally tiny: one metadata banner, one snapshot
+envelope and four diff updates. `python/tests/test_binance_normalise.py` re-runs
+normalisation from the raw JSONL, compares regenerated CSV lines with the
+committed CSV, checks binary event-log properties semantically, validates replay
+checksums, and verifies CSV/binary event tuple equivalence against
+`data/samples/binance_depth_sample.expected.json`.
 
 ## Capturing your own public sample (manual, optional)
 
@@ -167,3 +175,7 @@ so it is stable across runs and machines.
 * CSV/binary logs are written by the project's existing deterministic
   `asterion` event-log writer. Binary output is byte-identical across platforms;
   CSV equivalence is checked by reloading events (line endings aside).
+* The fixture guard checks the normaliser event checksum, diagnostics checksum,
+  replay final-book checksum, symbol mapping, event-type counts and CSV/binary
+  semantic equivalence without wall-clock time, network access or benchmark
+  values.

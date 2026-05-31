@@ -17,6 +17,7 @@ replays it deterministically through the existing replay/diagnostics pipeline.
 | Fixture metadata sidecar | `data/samples/binance_depth_sample.meta.json` |
 | Committed normalised CSV (golden) | `data/samples/binance_depth_sample.normalised.csv` |
 | Committed normalised binary (golden) | `data/samples/binance_depth_sample.normalised.bin` |
+| Fixture regeneration/checksum guard | `data/samples/binance_depth_sample.expected.json` |
 | Deterministic tests | `python/tests/test_binance_normalise.py` |
 | Mapping / methodology doc | `docs/market_data.md` |
 
@@ -84,6 +85,12 @@ correctness checksums, not performance numbers.
 
 The 11 events are: a snapshot block (begin marker + 4 levels + end marker = 6),
 then two diff `Add`s, one `Replace` and two `Cancel`s.
+
+The fixture guard re-runs normalisation from the raw JSONL, compares regenerated
+CSV lines with the committed CSV, checks binary event-log properties by loading
+events, validates replay checksums against the expected manifest, and asserts
+CSV/binary semantic event tuple equivalence. It uses only the tiny checked-in
+fixture and does not touch the network.
 
 ### Replay (identical for CSV and binary inputs)
 
