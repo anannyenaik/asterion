@@ -4,11 +4,14 @@
 #include "asterion/core/checksum.hpp"
 #include "asterion/market_data/event_log.hpp"
 #include "asterion/market_data/replay.hpp"
+#include "asterion/market_data/synthetic_generator.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
 #include <filesystem>
+#include <map>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -105,18 +108,34 @@ bool apply_event_to_book(const MarketDataEvent& event, Book& book,
   return false;
 }
 
-template <typename Book>
 struct BookReplaySummary {
   bool ok{true};
+  std::size_t events_processed{0};
+  std::uint64_t event_log_checksum{kFnvOffsetBasis};
   std::uint64_t final_book_checksum{0};
-  std::uint64_t activity_checksum{kFnvOffsetBasis};
+  std::uint64_t execution_report_checksum{kFnvOffsetBasis};
+  std::uint64_t diagnostics_checksum{kFnvOffsetBasis};
+  std::uint64_t guard_checksum{kFnvOffsetBasis};
+  std::optional<PriceTicks> best_bid;
+  std::optional<PriceTicks> best_ask;
+  Quantity bid_depth{0};
+  Quantity ask_depth{0};
   L2View final_l2;
 };
 
+Quantity total_depth(std::span<const L2Level> levels) {
+  Quantity total = 0;
+  for (const L2Level& level : levels) {
+    total += level.quantity;
+  }
+  return total;
+}
+
 template <typename Book>
-BookReplaySummary<Book> replay_events_with_book(std::span<const MarketDataEvent> events,
-                                                std::size_t depth = 5) {
-  BookReplaySummary<Book> summary;
+BookReplaySummary replay_events_with_book(std::span<const MarketDataEvent> events,
+                                          std::size_t depth = 5) {
+  BookReplaySummary summary;
+  summary.event_log_checksum = checksum_events(events);
   if (events.empty()) {
     Book empty_book(1);
     summary.final_book_checksum = empty_book.checksum();
@@ -128,14 +147,141 @@ BookReplaySummary<Book> replay_events_with_book(std::span<const MarketDataEvent>
   summary.final_l2.reserve(depth);
 
   for (const MarketDataEvent& event : events) {
-    if (!apply_event_to_book(event, book, summary.activity_checksum)) {
+    const bool applied = apply_event_to_book(event, book, summary.execution_report_checksum);
+    book.fill_l2_view(depth, summary.final_l2);
+    summary.guard_checksum = checksum_append(summary.guard_checksum, applied ? 1U : 0U);
+    summary.guard_checksum =
+        checksum_append(summary.guard_checksum, static_cast<std::uint64_t>(summary.final_l2.bids.size()));
+    summary.guard_checksum =
+        checksum_append(summary.guard_checksum, static_cast<std::uint64_t>(summary.final_l2.asks.size()));
+    if (!applied) {
       summary.ok = false;
       break;
     }
-    book.fill_l2_view(depth, summary.final_l2);
+    ++summary.events_processed;
   }
   summary.final_book_checksum = book.checksum();
+  summary.best_bid = book.best_bid();
+  summary.best_ask = book.best_ask();
+  summary.bid_depth = total_depth(summary.final_l2.bids);
+  summary.ask_depth = total_depth(summary.final_l2.asks);
+  summary.guard_checksum = checksum_append(summary.guard_checksum, summary.event_log_checksum);
+  summary.guard_checksum = checksum_append(summary.guard_checksum, summary.execution_report_checksum);
+  summary.guard_checksum = checksum_append(summary.guard_checksum, summary.final_book_checksum);
+
+  const auto invariant_report = book.check_invariants();
+  if (!invariant_report.ok) {
+    summary.ok = false;
+  }
   return summary;
+}
+
+void require_same_replay_summary(const BookReplaySummary& stable,
+                                 const BookReplaySummary& pooled) {
+  REQUIRE(pooled.ok == stable.ok);
+  REQUIRE(pooled.events_processed == stable.events_processed);
+  REQUIRE(pooled.event_log_checksum == stable.event_log_checksum);
+  REQUIRE(pooled.final_book_checksum == stable.final_book_checksum);
+  REQUIRE(pooled.execution_report_checksum == stable.execution_report_checksum);
+  REQUIRE(pooled.diagnostics_checksum == stable.diagnostics_checksum);
+  REQUIRE(pooled.guard_checksum == stable.guard_checksum);
+  REQUIRE(pooled.best_bid == stable.best_bid);
+  REQUIRE(pooled.best_ask == stable.best_ask);
+  REQUIRE(pooled.bid_depth == stable.bid_depth);
+  REQUIRE(pooled.ask_depth == stable.ask_depth);
+  require_same_l2(stable.final_l2, pooled.final_l2);
+}
+
+std::map<SymbolId, std::vector<MarketDataEvent>>
+group_events_by_symbol(std::span<const MarketDataEvent> events) {
+  std::map<SymbolId, std::vector<MarketDataEvent>> grouped;
+  for (const MarketDataEvent& event : events) {
+    grouped[event.symbol_id].push_back(event);
+  }
+  return grouped;
+}
+
+void require_book_replay_parity(std::span<const MarketDataEvent> events,
+                                bool validate_sequence_numbers = true) {
+  const std::size_t depth = events.size() + 1U;
+  const auto grouped = group_events_by_symbol(events);
+  REQUIRE_FALSE(grouped.empty());
+
+  std::uint64_t stable_combined_guard = kFnvOffsetBasis;
+  std::uint64_t pooled_combined_guard = kFnvOffsetBasis;
+
+  for (const auto& [symbol_id, symbol_events] : grouped) {
+    CAPTURE(symbol_id);
+    const auto stable = replay_events_with_book<OrderBook>(symbol_events, depth);
+    const auto pooled = replay_events_with_book<PooledOrderBook>(symbol_events, depth);
+    REQUIRE(stable.ok);
+    REQUIRE(pooled.ok);
+    REQUIRE(stable.events_processed == symbol_events.size());
+    require_same_replay_summary(stable, pooled);
+
+    const auto stable_repeat = replay_events_with_book<OrderBook>(symbol_events, depth);
+    const auto pooled_repeat = replay_events_with_book<PooledOrderBook>(symbol_events, depth);
+    require_same_replay_summary(stable, stable_repeat);
+    require_same_replay_summary(pooled, pooled_repeat);
+
+    ReplayConfig replay_config;
+    replay_config.validate_sequence_numbers = validate_sequence_numbers;
+    ReplayEngine replay(symbol_id, replay_config);
+    const ReplayResult replay_result = replay.replay_events(symbol_events);
+    INFO(replay_result.error);
+    REQUIRE(replay_result.error.empty());
+    REQUIRE(replay_result.events_processed == symbol_events.size());
+    REQUIRE(replay_result.event_log_checksum == stable.event_log_checksum);
+    REQUIRE(replay_result.final_book_checksum == stable.final_book_checksum);
+    REQUIRE(replay_result.execution_report_checksum == stable.execution_report_checksum);
+    REQUIRE(replay_result.diagnostics_checksum == stable.diagnostics_checksum);
+
+    stable_combined_guard = checksum_append(stable_combined_guard, symbol_id);
+    stable_combined_guard = checksum_append(stable_combined_guard, stable.guard_checksum);
+    pooled_combined_guard = checksum_append(pooled_combined_guard, symbol_id);
+    pooled_combined_guard = checksum_append(pooled_combined_guard, pooled.guard_checksum);
+  }
+
+  REQUIRE(pooled_combined_guard == stable_combined_guard);
+}
+
+struct CorpusSpec {
+  std::string name;
+  SyntheticFlowMode mode{SyntheticFlowMode::Balanced};
+  std::size_t event_count{0};
+  std::uint32_t seed{7};
+  PriceTicks price_range_ticks{5};
+  std::size_t burst_size{8};
+  std::size_t symbol_count{1};
+};
+
+std::vector<CorpusSpec> pooled_validation_corpora() {
+  return {
+      CorpusSpec{"baseline balanced flow", SyntheticFlowMode::Balanced, 240, 20260531U},
+      CorpusSpec{"high cancellation rate", SyntheticFlowMode::HighCancellationRate, 260,
+                 20260532U},
+      CorpusSpec{"replace-heavy flow", SyntheticFlowMode::ReplaceHeavy, 260, 20260533U},
+      CorpusSpec{"deep book", SyntheticFlowMode::DeepBook, 320, 20260534U, 12},
+      CorpusSpec{"wide price range", SyntheticFlowMode::WidePriceRange, 320, 20260535U, 20},
+      CorpusSpec{"bursty flow", SyntheticFlowMode::BurstyFlow, 240, 20260536U, 5, 4},
+      CorpusSpec{"long-running same-symbol replay", SyntheticFlowMode::LongRunningSameSymbol,
+                 640, 20260537U},
+      CorpusSpec{"multi-symbol-style generated input", SyntheticFlowMode::MultiSymbol, 420,
+                 20260538U, 5, 8, 4},
+      CorpusSpec{"adversarial valid lifecycle sequences", SyntheticFlowMode::AdversarialLifecycle,
+                 192, 20260539U},
+  };
+}
+
+std::vector<MarketDataEvent> make_corpus(const CorpusSpec& spec) {
+  SyntheticGeneratorConfig config;
+  config.event_count = spec.event_count;
+  config.seed = spec.seed;
+  config.mode = spec.mode;
+  config.price_range_ticks = spec.price_range_ticks;
+  config.burst_size = spec.burst_size;
+  config.symbol_count = spec.symbol_count;
+  return generate_synthetic_events(config);
 }
 
 template <typename Book>
@@ -228,6 +374,51 @@ TEST_CASE("Pooled order book matches stable book for L3 operations",
   REQUIRE(pooled.best_order(Side::Buy)->order_id == 1);
 }
 
+TEST_CASE("Pooled order book matches stable book for adversarial valid lifecycles",
+          "[book][pooled][adversarial]") {
+  OrderBook stable(1);
+  PooledOrderBook pooled(1);
+  stable.reserve_order_capacity(16);
+  pooled.reserve_order_capacity(16);
+
+  require_same_result(stable, pooled, [](auto& book) {
+    return book.add_order(make_order(10, Side::Buy, 995, 100, 1));
+  });
+  require_same_result(stable, pooled, [](auto& book) { return book.cancel_order(10); });
+  require_same_result(stable, pooled, [](auto& book) {
+    return book.add_order(make_order(10, Side::Buy, 994, 80, 2));
+  });
+  require_same_result(stable, pooled, [](auto& book) {
+    return book.replace_order(10, 994, 120, 3, 3);
+  });
+  require_same_result(stable, pooled, [](auto& book) {
+    return book.replace_order(10, 994, 60, 4, 4);
+  });
+  require_same_result(stable, pooled, [](auto& book) {
+    return book.replace_order(10, 993, 70, 5, 5);
+  });
+  require_same_result(stable, pooled, [](auto& book) { return book.cancel_order(10); });
+
+  require_same_result(stable, pooled, [](auto& book) {
+    return book.add_order(make_order(20, Side::Sell, 1005, 90, 6));
+  });
+  require_same_result(stable, pooled, [](auto& book) { return book.reduce_order(20, 30); });
+  require_same_result(stable, pooled, [](auto& book) {
+    return book.replace_order(20, 1006, 50, 7, 7);
+  });
+  require_same_result(stable, pooled, [](auto& book) { return book.reduce_order(20, 50); });
+  REQUIRE(stable.find_order(20) == nullptr);
+  REQUIRE(pooled.find_order(20) == nullptr);
+
+  require_same_result(stable, pooled, [](auto& book) {
+    return book.add_order(make_order(20, Side::Sell, 1004, 40, 8));
+  });
+  require_same_result(stable, pooled, [](auto& book) { return book.reduce_order(20, 20); });
+  require_same_result(stable, pooled, [](auto& book) { return book.cancel_order(20); });
+  REQUIRE(stable.empty());
+  REQUIRE(pooled.empty());
+}
+
 TEST_CASE("Pooled order book rejects the same malformed operations",
           "[book][pooled][adversarial]") {
   OrderBook stable(1);
@@ -251,12 +442,14 @@ TEST_CASE("Pooled order book rejects the same malformed operations",
   require_same_result(stable, pooled, [](auto& book) {
     return book.replace_order(99, 1000, 10, 10, 10);
   });
+  require_same_result(stable, pooled, [](auto& book) { return book.reduce_order(99, 1); });
   require_same_result(stable, pooled, [](auto& book) {
     return book.replace_order(3, 0, 10, 11, 11);
   });
   require_same_result(stable, pooled, [](auto& book) {
     return book.replace_order(3, 1000, 0, 12, 12);
   });
+  require_same_result(stable, pooled, [](auto& book) { return book.reduce_order(3, 0); });
 }
 
 TEST_CASE("Pooled order book replay checksums match existing sample logs",
@@ -279,7 +472,7 @@ TEST_CASE("Pooled order book replay checksums match existing sample logs",
     REQUIRE(stable.ok);
     REQUIRE(pooled.ok);
     REQUIRE(pooled.final_book_checksum == stable.final_book_checksum);
-    REQUIRE(pooled.activity_checksum == stable.activity_checksum);
+    REQUIRE(pooled.execution_report_checksum == stable.execution_report_checksum);
     require_same_l2(stable.final_l2, pooled.final_l2);
 
     ReplayEngine replay(events.front().symbol_id);
@@ -287,7 +480,18 @@ TEST_CASE("Pooled order book replay checksums match existing sample logs",
     INFO(replay_result.error);
     REQUIRE(replay_result.error.empty());
     REQUIRE(replay_result.final_book_checksum == pooled.final_book_checksum);
-    REQUIRE(replay_result.execution_report_checksum == pooled.activity_checksum);
+    REQUIRE(replay_result.execution_report_checksum == pooled.execution_report_checksum);
+  }
+}
+
+TEST_CASE("Pooled order book matches stable book across generated stress corpora",
+          "[book][pooled][replay][generated]") {
+  for (const CorpusSpec& spec : pooled_validation_corpora()) {
+    CAPTURE(spec.name);
+    const std::vector<MarketDataEvent> events = make_corpus(spec);
+    REQUIRE(events.size() == spec.event_count);
+    const bool validate_sequence_numbers = spec.mode != SyntheticFlowMode::MultiSymbol;
+    require_book_replay_parity(events, validate_sequence_numbers);
   }
 }
 
@@ -310,6 +514,34 @@ TEST_CASE("Pooled order book is allocation-free after explicit warm-up",
   const AllocationSnapshot snapshot = allocation_snapshot();
 
   REQUIRE(snapshot.allocations == 0);
+}
+
+TEST_CASE("Pooled generated corpora are allocation-free after warm-up",
+          "[book][pooled][alloc][generated]") {
+  for (const CorpusSpec& spec : pooled_validation_corpora()) {
+    CAPTURE(spec.name);
+    const std::vector<MarketDataEvent> events = make_corpus(spec);
+    const auto grouped = group_events_by_symbol(events);
+    REQUIRE_FALSE(grouped.empty());
+
+    for (const auto& [symbol_id, symbol_events] : grouped) {
+      CAPTURE(symbol_id);
+      std::uint64_t standard_guard = 0;
+      std::uint64_t pooled_guard = 0;
+
+      const AllocationSnapshot standard =
+          measure_replay_allocations<OrderBook>(symbol_events, standard_guard);
+      const AllocationSnapshot pooled =
+          measure_replay_allocations<PooledOrderBook>(symbol_events, pooled_guard);
+
+      REQUIRE(standard_guard == pooled_guard);
+      REQUIRE(pooled.allocations == 0);
+      REQUIRE(pooled.bytes_allocated == 0);
+      if (standard.allocations == 0) {
+        INFO("standard path had no measured allocations for this tiny grouped fixture");
+      }
+    }
+  }
 }
 
 TEST_CASE("Pooled order book reduces warmed replay allocations versus stable book",

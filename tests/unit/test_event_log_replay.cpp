@@ -524,8 +524,9 @@ TEST_CASE("Generated streams replay identically from CSV and binary logs",
           "[property][event-log][replay]") {
   const std::vector<SyntheticFlowMode> modes{
       SyntheticFlowMode::Balanced, SyntheticFlowMode::HighCancellationRate,
-      SyntheticFlowMode::DeepBook, SyntheticFlowMode::BurstyFlow,
-      SyntheticFlowMode::WidePriceRange};
+      SyntheticFlowMode::ReplaceHeavy, SyntheticFlowMode::DeepBook,
+      SyntheticFlowMode::BurstyFlow, SyntheticFlowMode::LongRunningSameSymbol,
+      SyntheticFlowMode::WidePriceRange, SyntheticFlowMode::AdversarialLifecycle};
 
   for (const SyntheticFlowMode mode : modes) {
     SyntheticGeneratorConfig config;

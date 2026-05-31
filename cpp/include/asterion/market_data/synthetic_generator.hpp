@@ -11,10 +11,13 @@ namespace asterion {
 enum class SyntheticFlowMode {
   Balanced,
   HighCancellationRate,
+  ReplaceHeavy,
   DeepBook,
   BurstyFlow,
+  LongRunningSameSymbol,
   MultiSymbol,
-  WidePriceRange
+  WidePriceRange,
+  AdversarialLifecycle
 };
 
 struct SyntheticGeneratorConfig {

@@ -63,11 +63,16 @@ struct ActiveOrder {
   switch (config.mode) {
   case SyntheticFlowMode::HighCancellationRate:
     return roll < 35;
+  case SyntheticFlowMode::ReplaceHeavy:
+    return roll < 35;
   case SyntheticFlowMode::DeepBook:
     return roll < 75;
+  case SyntheticFlowMode::LongRunningSameSymbol:
+    return roll < 50;
   case SyntheticFlowMode::BurstyFlow:
   case SyntheticFlowMode::MultiSymbol:
   case SyntheticFlowMode::WidePriceRange:
+  case SyntheticFlowMode::AdversarialLifecycle:
   case SyntheticFlowMode::Balanced:
     return roll < 55;
   }
@@ -82,15 +87,88 @@ struct ActiveOrder {
     }
     return roll < 95 ? MarketEventType::Replace : MarketEventType::Execute;
   }
+  if (config.mode == SyntheticFlowMode::ReplaceHeavy) {
+    if (roll < 85) {
+      return MarketEventType::Replace;
+    }
+    return roll < 95 ? MarketEventType::Cancel : MarketEventType::Execute;
+  }
   if (roll < 75) {
     return MarketEventType::Cancel;
   }
   return roll < 90 ? MarketEventType::Replace : MarketEventType::Execute;
 }
 
+[[nodiscard]] std::vector<MarketDataEvent>
+generate_adversarial_lifecycle_events(const SyntheticGeneratorConfig& config) {
+  std::vector<MarketDataEvent> events;
+  events.reserve(config.event_count);
+
+  TradeId next_trade_id = 1;
+  OrderId next_order_id = 1;
+  std::size_t cycle = 0;
+
+  const auto push = [&](MarketEventType type, Side side, PriceTicks price_ticks,
+                        Quantity quantity, OrderId order_id, TradeId trade_id,
+                        std::uint32_t flags = 0U) {
+    if (events.size() >= config.event_count) {
+      return;
+    }
+    const std::size_t index = events.size();
+    events.push_back(MarketDataEvent{
+        config.first_timestamp_ns + static_cast<TimestampNs>(index),
+        config.first_sequence_number + static_cast<SequenceNumber>(index),
+        config.symbol_id,
+        type,
+        side,
+        price_ticks,
+        quantity,
+        order_id,
+        trade_id,
+        flags});
+  };
+
+  while (events.size() < config.event_count) {
+    const OrderId buy_id = next_order_id++;
+    const OrderId sell_id = next_order_id++;
+    const PriceTicks bid =
+        std::max<PriceTicks>(1, config.mid_price_ticks - 5 - static_cast<PriceTicks>(cycle % 17U));
+    const PriceTicks ask =
+        config.mid_price_ticks + 5 + static_cast<PriceTicks>(cycle % 17U);
+    const PriceTicks bid_reuse = std::max<PriceTicks>(1, bid - 1);
+    const PriceTicks bid_reprice = std::max<PriceTicks>(1, bid - 2);
+
+    push(MarketEventType::Add, Side::Buy, bid, 100, buy_id, 0);
+    push(MarketEventType::Cancel, Side::Buy, bid, 0, buy_id, 0);
+    push(MarketEventType::Add, Side::Buy, bid_reuse, 80, buy_id, 0);
+    push(MarketEventType::Replace, Side::Buy, bid_reuse, 120, buy_id, 0);
+    push(MarketEventType::Replace, Side::Buy, bid_reuse, 60, buy_id, 0);
+    push(MarketEventType::Replace, Side::Buy, bid_reprice, 70, buy_id, 0);
+    push(MarketEventType::Cancel, Side::Buy, bid_reprice, 0, buy_id, 0);
+
+    push(MarketEventType::Add, Side::Sell, ask, 90, sell_id, 0);
+    push(MarketEventType::Execute, Side::Sell, ask, 30, sell_id, next_trade_id++);
+    push(MarketEventType::Replace, Side::Sell, ask + 1, 50, sell_id, 0);
+    push(MarketEventType::Execute, Side::Sell, ask + 1, 50, sell_id, next_trade_id++);
+    push(MarketEventType::Add, Side::Sell, ask, 40, sell_id, 0);
+    push(MarketEventType::Cancel, Side::Sell, ask, 20, sell_id, 0);
+    push(MarketEventType::Cancel, Side::Sell, ask, 0, sell_id, 0);
+
+    push(MarketEventType::Trade, Side::Buy, bid, 1, kInvalidOrderId, next_trade_id++);
+    push(MarketEventType::Heartbeat, Side::None, 0, 0, kInvalidOrderId, 0);
+    ++cycle;
+  }
+
+  return events;
+}
+
 } // namespace
 
 std::vector<MarketDataEvent> generate_synthetic_events(const SyntheticGeneratorConfig& config) {
+  if (config.mode == SyntheticFlowMode::AdversarialLifecycle) {
+    return generate_adversarial_lifecycle_events(config);
+  }
+
   std::mt19937 rng(config.seed);
   std::uniform_int_distribution<int> operation_distribution(0, 99);
   std::uniform_int_distribution<int> quantity_distribution(1, 250);

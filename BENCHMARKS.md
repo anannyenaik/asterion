@@ -25,8 +25,8 @@ The JSON schema is stable and includes:
 - `schema_version`;
 - `environment`: CPU, OS, compiler, build type, compiler flags, commit hash, dataset and logging mode;
 - `benchmarks`: name, `category` (`core` or `inference`), `backend`, `model_name`, `input_shape`,
-  iterations, event count, optional p50/p95/p99/p99.9/max latency fields, throughput, guard checksum
-  and allocation counters.
+  iterations, warm-up iterations, measured iterations, event count, optional p50/p95/p99/p99.9/max
+  latency fields, throughput, guard checksum and allocation counters.
 
 Benchmarks are split into two categories so inference timings are never folded into the trading hot
 path. The text output prints a `# core` group and a `# inference` group; the JSON tags every row with
@@ -184,12 +184,31 @@ Generate local corpora under `data/generated/`, which is ignored by git:
 python scripts/generate_synthetic_events.py --mode balanced --events 1000 --output data/generated/balanced.csv
 python scripts/generate_synthetic_events.py --mode balanced --events 1000 --output data/generated/balanced.bin
 python scripts/generate_synthetic_events.py --mode high-cancel --events 1000 --output data/generated/high_cancel.csv
+python scripts/generate_synthetic_events.py --mode replace-heavy --events 1000 --output data/generated/replace_heavy.csv
 python scripts/generate_synthetic_events.py --mode deep-book --events 1000 --output data/generated/deep_book.csv
 python scripts/generate_synthetic_events.py --mode bursty --events 1000 --output data/generated/bursty.csv
+python scripts/generate_synthetic_events.py --mode long-same-symbol --events 1000 --output data/generated/long_same_symbol.csv
 python scripts/generate_synthetic_events.py --mode multi-symbol --symbols 4 --events 1000 --output data/generated/multi_symbol.csv
 python scripts/generate_synthetic_events.py --mode wide-price-range --events 1000 --output data/generated/wide_range.csv
+python scripts/generate_synthetic_events.py --mode adversarial-lifecycle --events 1000 --output data/generated/adversarial_lifecycle.csv
 python scripts/convert_event_log.py --input data/generated/balanced.csv --output data/generated/balanced_converted.bin
 ```
+
+For the opt-in pooled L3 path, the helper below generates larger ignored corpora and runs the
+standard and pooled hot-path benchmarks against each single-symbol dataset:
+
+```bash
+python scripts/run_pooled_stress_benchmarks.py \
+  --build-dir build \
+  --hot-path-iterations 100 \
+  --warmup-iterations 5
+```
+
+It writes generated logs under `data/generated/pooled_order_book_stress/`, per-dataset benchmark
+JSON under `benchmarks/results/pooled_order_book_stress/`, and a compact
+`pooled_order_book_stress_summary.json`. The generated multi-symbol-style corpus is recorded but not
+fed to the single-symbol hot-path benchmark; pooled multi-symbol replay is outside the current
+benchmark architecture.
 
 The replay benchmark uses recorded/simulated event logs only. It does not imply live exchange
 connectivity or portable hardware performance.

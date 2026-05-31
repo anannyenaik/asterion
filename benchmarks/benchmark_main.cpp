@@ -74,6 +74,8 @@ struct LatencyDistribution {
 struct BenchmarkResult {
   std::string name;
   std::size_t iterations{0};
+  std::size_t warmup_iterations{0};
+  std::size_t measured_iterations{0};
   std::size_t event_count{0};
   std::size_t risk_check_count{0};
   std::string dataset_name;
@@ -213,6 +215,7 @@ BenchmarkResult run_benchmark(std::string name, std::size_t iterations, Fn&& fn)
   BenchmarkResult result;
   result.name = std::move(name);
   result.iterations = iterations;
+  result.measured_iterations = iterations;
   result.event_count = iterations;
   result.total_ns = total_ns;
   result.avg_ns = iterations == 0 ? 0 : total_ns / iterations;
@@ -271,6 +274,7 @@ BenchmarkResult run_sampled_benchmark(std::string name, std::size_t iterations, 
   BenchmarkResult result;
   result.name = std::move(name);
   result.iterations = iterations;
+  result.measured_iterations = iterations;
   result.event_count = iterations;
   result.timing_mode = "per-call";
   result.total_ns = total_ns;
@@ -437,6 +441,8 @@ BenchmarkResult benchmark_hot_path_pipeline(const Options& options, std::string 
   BenchmarkResult result;
   result.name = std::move(name);
   result.iterations = options.hot_path_iterations;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = options.hot_path_iterations;
   result.event_count = event_count;
   result.risk_check_count = context.risk_checks - risk_checks_before;
   result.dataset_name = options.dataset_path.filename().string();
@@ -873,6 +879,8 @@ void print_result(const BenchmarkResult& result) {
             << ",model=" << (result.model_name.empty() ? "n/a" : result.model_name)
             << ",input_shape=" << (result.input_shape.empty() ? "n/a" : result.input_shape)
             << ",iterations=" << result.iterations
+            << ",warmup_iterations=" << result.warmup_iterations
+            << ",measured_iterations=" << result.measured_iterations
             << ",event_count=" << result.event_count
             << ",risk_check_count=" << result.risk_check_count
             << ",dataset=" << (result.dataset_name.empty() ? "n/a" : result.dataset_name)
@@ -1013,6 +1021,8 @@ void write_json(const std::filesystem::path& path, const Options& options,
     output << "      \"model_name\": \"" << json_escape(result.model_name) << "\",\n";
     output << "      \"input_shape\": \"" << json_escape(result.input_shape) << "\",\n";
     output << "      \"iterations\": " << result.iterations << ",\n";
+    output << "      \"warmup_iterations\": " << result.warmup_iterations << ",\n";
+    output << "      \"measured_iterations\": " << result.measured_iterations << ",\n";
     output << "      \"event_count\": " << result.event_count << ",\n";
     output << "      \"risk_check_count\": " << result.risk_check_count << ",\n";
     output << "      \"dataset_name\": \"" << json_escape(result.dataset_name) << "\",\n";

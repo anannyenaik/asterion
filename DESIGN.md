@@ -115,7 +115,12 @@ keeps price levels and order nodes in reusable vectors and uses a flat open-addr
 instead of rebuilding `std::map`, `std::list` and node-based lookup entries every replay pass. It
 implements the same Add, Cancel, Replace, Execute-as-reduce, Snapshot and L2 projection semantics
 needed by the recorded-data benchmarks, and parity tests compare checksums and L2 views against the
-default `OrderBook`. It is deliberately opt-in and does not replace the auditable default book.
+default `OrderBook`. Generated validation corpora now cover balanced flow, high cancellations,
+replace-heavy flow, deep books, wide price ranges, bursty timestamps, long-running same-symbol
+streams, adversarial valid order lifecycles and grouped multi-symbol-style inputs. The pooled book
+remains a single-symbol book; multi-symbol validation groups the generated stream per symbol rather
+than making the hot-path benchmark a multi-symbol router. It is deliberately opt-in and does not
+replace the auditable default book.
 
 ### Measured Hot Path
 

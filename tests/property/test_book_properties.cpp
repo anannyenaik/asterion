@@ -197,8 +197,9 @@ TEST_CASE("Synthetic replay generator modes are deterministic and replayable",
           "[property][replay]") {
   const std::vector<SyntheticFlowMode> single_symbol_modes{
       SyntheticFlowMode::Balanced, SyntheticFlowMode::HighCancellationRate,
-      SyntheticFlowMode::DeepBook, SyntheticFlowMode::BurstyFlow,
-      SyntheticFlowMode::WidePriceRange};
+      SyntheticFlowMode::ReplaceHeavy, SyntheticFlowMode::DeepBook,
+      SyntheticFlowMode::BurstyFlow, SyntheticFlowMode::LongRunningSameSymbol,
+      SyntheticFlowMode::WidePriceRange, SyntheticFlowMode::AdversarialLifecycle};
 
   for (const SyntheticFlowMode mode : single_symbol_modes) {
     SyntheticGeneratorConfig config;

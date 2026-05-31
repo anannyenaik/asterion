@@ -59,7 +59,9 @@ Explicit limitations:
 - `PooledOrderBook` is an opt-in allocation experiment for measured L3 replay. It is not production
   HFT infrastructure, not a general allocator framework, and not a replacement for the
   correctness-first `OrderBook`; its zero-allocation result applies only after explicit warm-up and
-  reservation in the disclosed benchmark/test paths;
+  reservation in the disclosed benchmark/test paths. Current pooled validation is single-symbol at
+  the book/benchmark layer; generated multi-symbol-style streams are grouped per symbol for parity
+  checks and are not run through the single-symbol hot-path benchmark;
 - historical benchmark trends are only meaningful on the same controlled hardware and are kept out of
   CI performance gates;
 - event-log schema v1 is stable for the checked-in fixtures and guarded by manifest/tests, but

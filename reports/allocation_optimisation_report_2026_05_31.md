@@ -95,6 +95,29 @@ continues to use the stable node-based `OrderBook`. Warm-up allocations for `Poo
 reservation are intentionally outside the measured loop. Other benchmarks may still allocate, for
 example feature extraction intentionally returns a vector.
 
+## Stress-Corpus Follow-Up
+
+A second pass extended the same opt-in pooled path across larger generated corpora and adversarial
+valid lifecycle streams. See
+`reports/pooled_order_book_stress_report_2026_05_31.md` for the full dataset table.
+
+Summary of the local stress run:
+
+| dataset | events | standard allocations | pooled allocations | pooled bytes | guard match |
+|---|---:|---:|---:|---:|---|
+| baseline_balanced | 4,000 | 140,625 | 0 | 0 | yes |
+| high_cancellation_rate | 4,000 | 146,950 | 0 | 0 | yes |
+| replace_heavy | 4,000 | 171,300 | 0 | 0 | yes |
+| deep_book | 5,000 | 231,025 | 0 | 0 | yes |
+| wide_price_range | 5,000 | 215,625 | 0 | 0 | yes |
+| bursty_flow | 4,000 | 141,375 | 0 | 0 | yes |
+| long_running_same_symbol | 8,000 | 259,475 | 0 | 0 | yes |
+| adversarial_lifecycle | 4,000 | 150,000 | 0 | 0 | yes |
+
+The multi-symbol-style generated corpus is produced under the ignored stress directory, but the
+single-symbol hot-path benchmark intentionally skips it. CI parity tests group that stream by symbol
+for pooled-vs-standard book comparison.
+
 ## Reproduce
 
 ```powershell

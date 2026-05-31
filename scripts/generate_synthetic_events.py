@@ -12,10 +12,13 @@ from dataclasses import dataclass
 MODES = (
     "balanced",
     "high-cancel",
+    "replace-heavy",
     "deep-book",
     "bursty",
+    "long-same-symbol",
     "multi-symbol",
     "wide-price-range",
+    "adversarial-lifecycle",
 )
 
 CSV_HEADER = [
@@ -92,8 +95,12 @@ def should_add(mode: str, roll: int, active_empty: bool) -> bool:
         return True
     if mode == "high-cancel":
         return roll < 35
+    if mode == "replace-heavy":
+        return roll < 35
     if mode == "deep-book":
         return roll < 75
+    if mode == "long-same-symbol":
+        return roll < 50
     return roll < 55
 
 
@@ -102,6 +109,10 @@ def choose_existing_event(mode: str, roll: int) -> str:
         if roll < 85:
             return "Cancel"
         return "Replace" if roll < 95 else "Execute"
+    if mode == "replace-heavy":
+        if roll < 85:
+            return "Replace"
+        return "Cancel" if roll < 95 else "Execute"
     if roll < 75:
         return "Cancel"
     return "Replace" if roll < 90 else "Execute"
@@ -129,6 +140,66 @@ def pack_binary_event(row: list[object]) -> bytes:
     )
 
 
+def adversarial_lifecycle_rows(args: argparse.Namespace) -> list[list[object]]:
+    rows: list[list[object]] = []
+    next_order_id = 1
+    next_trade_id = 1
+    cycle = 0
+
+    def push(event_type: str, side: str, price: int, quantity: int, order_id: int, trade_id: int = 0) -> None:
+        if len(rows) >= args.events:
+            return
+        index = len(rows)
+        rows.append(
+            [
+                args.first_timestamp_ns + index,
+                args.first_sequence + index,
+                args.symbol,
+                event_type,
+                side,
+                price,
+                quantity,
+                order_id,
+                trade_id,
+                0,
+            ]
+        )
+
+    while len(rows) < args.events:
+        buy_id = next_order_id
+        sell_id = next_order_id + 1
+        next_order_id += 2
+        bid = max(1, args.mid_price - 5 - (cycle % 17))
+        ask = args.mid_price + 5 + (cycle % 17)
+        bid_reuse = max(1, bid - 1)
+        bid_reprice = max(1, bid - 2)
+
+        push("Add", "Buy", bid, 100, buy_id)
+        push("Cancel", "Buy", bid, 0, buy_id)
+        push("Add", "Buy", bid_reuse, 80, buy_id)
+        push("Replace", "Buy", bid_reuse, 120, buy_id)
+        push("Replace", "Buy", bid_reuse, 60, buy_id)
+        push("Replace", "Buy", bid_reprice, 70, buy_id)
+        push("Cancel", "Buy", bid_reprice, 0, buy_id)
+
+        push("Add", "Sell", ask, 90, sell_id)
+        push("Execute", "Sell", ask, 30, sell_id, next_trade_id)
+        next_trade_id += 1
+        push("Replace", "Sell", ask + 1, 50, sell_id)
+        push("Execute", "Sell", ask + 1, 50, sell_id, next_trade_id)
+        next_trade_id += 1
+        push("Add", "Sell", ask, 40, sell_id)
+        push("Cancel", "Sell", ask, 20, sell_id)
+        push("Cancel", "Sell", ask, 0, sell_id)
+
+        push("Trade", "Buy", bid, 1, 0, next_trade_id)
+        next_trade_id += 1
+        push("Heartbeat", "None", 0, 0, 0)
+        cycle += 1
+
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate deterministic Asterion event logs.")
     parser.add_argument("--events", type=int, default=100)
@@ -144,11 +215,6 @@ def main() -> None:
     parser.add_argument("--output", default="data/generated/generated_replay.csv")
     parser.add_argument("--format", choices=("auto", "csv", "binary"), default="auto")
     args = parser.parse_args()
-
-    rng = random.Random(args.seed)
-    active: list[ActiveOrder] = []
-    next_order_id = 1
-    next_trade_id = 1
 
     output_dir = os.path.dirname(args.output)
     if output_dir:
@@ -171,6 +237,16 @@ def main() -> None:
             handle.write(pack_binary_event(row))
 
     with handle:
+        if args.mode == "adversarial-lifecycle":
+            for row in adversarial_lifecycle_rows(args):
+                write_event(row)
+            return
+
+        rng = random.Random(args.seed)
+        active: list[ActiveOrder] = []
+        next_order_id = 1
+        next_trade_id = 1
+
         for index in range(args.events):
             timestamp_ns = choose_timestamp(index, args.first_timestamp_ns, args.burst_size, args.mode)
             sequence_number = args.first_sequence + index
