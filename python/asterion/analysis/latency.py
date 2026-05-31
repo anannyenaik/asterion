@@ -17,8 +17,12 @@ def parse_benchmark_line(line: str) -> BenchmarkRow:
     values: dict[str, int] = {}
     for field in fields[1:]:
         key, value = field.split("=", 1)
-        if key != "guard":
+        if key == "guard":
+            continue
+        try:
             values[key] = int(value)
+        except ValueError:
+            continue
     return BenchmarkRow(
         name=name,
         iterations=values["iterations"],

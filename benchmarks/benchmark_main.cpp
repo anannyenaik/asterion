@@ -1,19 +1,25 @@
 #include "asterion/book/order_book.hpp"
 #include "asterion/core/allocation_tracker.hpp"
+#include "asterion/core/checksum.hpp"
 #include "asterion/inference/inference.hpp"
 #include "asterion/inference/linear_model.hpp"
+#include "asterion/market_data/event_log.hpp"
 #include "asterion/market_data/replay.hpp"
 #include "asterion/matching/matching_engine.hpp"
 #include "asterion/risk/risk_gateway.hpp"
+#include "asterion/strategy/imbalance_strategy.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -42,19 +48,36 @@ namespace {
 
 struct Options {
   std::filesystem::path dataset_path{std::filesystem::path(ASTERION_SOURCE_DIR) / "data" /
-                                     "samples" / "sample_replay.csv"};
+                                     "samples" / "sample_hot_path_replay.bin"};
   std::optional<std::filesystem::path> json_path;
+  std::size_t hot_path_iterations{5'000};
+  std::size_t warmup_iterations{5};
   bool text_output{true};
   std::string logging_mode;
+};
+
+struct LatencyDistribution {
+  bool available{false};
+  std::uint64_t p50_ns{0};
+  std::uint64_t p95_ns{0};
+  std::uint64_t p99_ns{0};
+  std::uint64_t p999_ns{0};
+  std::uint64_t max_ns{0};
 };
 
 struct BenchmarkResult {
   std::string name;
   std::size_t iterations{0};
+  std::size_t event_count{0};
+  std::size_t risk_check_count{0};
+  std::string dataset_name;
+  std::string timing_mode{"aggregate"};
   std::uint64_t total_ns{0};
   std::uint64_t avg_ns{0};
+  double throughput_events_per_second{0.0};
   std::uint64_t guard{0};
   AllocationSnapshot allocations;
+  LatencyDistribution latency;
 };
 
 Order make_order(OrderId order_id, Side side, PriceTicks price, Quantity quantity) {
@@ -64,7 +87,24 @@ Order make_order(OrderId order_id, Side side, PriceTicks price, Quantity quantit
 
 void print_usage(std::ostream& output) {
   output << "Usage: asterion_benchmarks [dataset.csv] [--dataset path] [--json path]"
-         << " [--no-text] [--logging-mode name]\n";
+         << " [--no-text] [--logging-mode name] [--hot-path-iterations n]"
+         << " [--warmup-iterations n]\n";
+}
+
+bool parse_size_option(std::string_view name, std::string_view value, std::size_t& output) {
+  const std::string token(value);
+  if (token.empty() || token.front() == '-') {
+    std::cerr << name << " requires a non-negative integer\n";
+    return false;
+  }
+  char* end = nullptr;
+  const unsigned long long parsed = std::strtoull(token.c_str(), &end, 10);
+  if (end == nullptr || *end != '\0') {
+    std::cerr << name << " requires a non-negative integer\n";
+    return false;
+  }
+  output = static_cast<std::size_t>(parsed);
+  return true;
 }
 
 bool parse_options(int argc, char** argv, Options& options) {
@@ -104,6 +144,26 @@ bool parse_options(int argc, char** argv, Options& options) {
       logging_mode_overridden = true;
       continue;
     }
+    if (arg == "--hot-path-iterations") {
+      if (i + 1 >= argc) {
+        std::cerr << "--hot-path-iterations requires a value\n";
+        return false;
+      }
+      if (!parse_size_option(arg, argv[++i], options.hot_path_iterations)) {
+        return false;
+      }
+      continue;
+    }
+    if (arg == "--warmup-iterations") {
+      if (i + 1 >= argc) {
+        std::cerr << "--warmup-iterations requires a value\n";
+        return false;
+      }
+      if (!parse_size_option(arg, argv[++i], options.warmup_iterations)) {
+        return false;
+      }
+      continue;
+    }
     if (!arg.empty() && arg.front() == '-') {
       std::cerr << "unknown option: " << arg << '\n';
       return false;
@@ -132,12 +192,211 @@ BenchmarkResult run_benchmark(std::string name, std::size_t iterations, Fn&& fn)
   const AllocationSnapshot allocations = allocation_snapshot();
   const auto total_ns = static_cast<std::uint64_t>(
       std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
-  return BenchmarkResult{std::move(name),
-                         iterations,
-                         total_ns,
-                         iterations == 0 ? 0 : total_ns / iterations,
-                         guard,
-                         allocations};
+  const double throughput = total_ns == 0
+                                ? 0.0
+                                : static_cast<double>(iterations) * 1'000'000'000.0 /
+                                      static_cast<double>(total_ns);
+  BenchmarkResult result;
+  result.name = std::move(name);
+  result.iterations = iterations;
+  result.event_count = iterations;
+  result.total_ns = total_ns;
+  result.avg_ns = iterations == 0 ? 0 : total_ns / iterations;
+  result.throughput_events_per_second = throughput;
+  result.guard = guard;
+  result.allocations = allocations;
+  return result;
+}
+
+std::size_t nearest_rank_index(std::size_t sample_count, std::uint32_t permille) {
+  if (sample_count == 0) {
+    return 0;
+  }
+  const std::size_t rank =
+      (static_cast<std::size_t>(permille) * sample_count + 999U) / 1000U;
+  return rank == 0 ? 0 : rank - 1U;
+}
+
+LatencyDistribution latency_distribution(std::vector<std::uint64_t> samples) {
+  LatencyDistribution distribution;
+  if (samples.empty()) {
+    return distribution;
+  }
+  std::sort(samples.begin(), samples.end());
+  distribution.available = true;
+  distribution.p50_ns = samples[nearest_rank_index(samples.size(), 500)];
+  distribution.p95_ns = samples[nearest_rank_index(samples.size(), 950)];
+  distribution.p99_ns = samples[nearest_rank_index(samples.size(), 990)];
+  distribution.p999_ns = samples[nearest_rank_index(samples.size(), 999)];
+  distribution.max_ns = samples.back();
+  return distribution;
+}
+
+bool apply_hot_path_event(const MarketDataEvent& event, OrderBook& book,
+                          std::uint64_t& activity_checksum) {
+  switch (event.event_type) {
+  case MarketEventType::Add:
+    return book.add_order(Order{event.order_id, kInvalidClientOrderId, event.symbol_id,
+                                event.side, event.price_ticks, event.quantity,
+                                event.timestamp_ns, event.sequence_number});
+  case MarketEventType::Cancel:
+    return event.quantity > 0 ? book.reduce_order(event.order_id, event.quantity)
+                              : book.cancel_order(event.order_id);
+  case MarketEventType::Replace:
+    return book.replace_order(event.order_id, event.price_ticks, event.quantity,
+                              event.timestamp_ns, event.sequence_number);
+  case MarketEventType::Execute:
+    activity_checksum = append_to_checksum(activity_checksum, event);
+    return book.reduce_order(event.order_id, event.quantity);
+  case MarketEventType::Trade:
+    activity_checksum = append_to_checksum(activity_checksum, event);
+    return true;
+  case MarketEventType::Snapshot:
+    if ((event.flags & kSnapshotBeginFlag) != 0U) {
+      book.clear();
+    }
+    if (event.order_id == kInvalidOrderId) {
+      return true;
+    }
+    return book.add_order(Order{event.order_id, kInvalidClientOrderId, event.symbol_id,
+                                event.side, event.price_ticks, event.quantity,
+                                event.timestamp_ns, event.sequence_number});
+  case MarketEventType::Heartbeat:
+    return true;
+  }
+  return false;
+}
+
+PriceTicks reference_price_from_view(const L2View& view, const MarketDataEvent& event) noexcept {
+  if (!view.bids.empty() && !view.asks.empty()) {
+    return (view.bids.front().price_ticks + view.asks.front().price_ticks) / 2;
+  }
+  if (!view.bids.empty()) {
+    return view.bids.front().price_ticks;
+  }
+  if (!view.asks.empty()) {
+    return view.asks.front().price_ticks;
+  }
+  return event.price_ticks > 0 ? event.price_ticks : 1000;
+}
+
+struct HotPathContext {
+  explicit HotPathContext(SymbolId symbol_id, std::size_t depth,
+                          std::size_t expected_orders, std::size_t expected_risk_checks)
+      : book(symbol_id), strategy(0.50, 1),
+        risk(RiskLimits{1'000'000, 1'000'000'000, 1'000'000, 1'000'000'000'000,
+                        1'000'000, 1'000'000'000}) {
+    l2.reserve(depth);
+    book.reserve_order_capacity(expected_orders);
+    risk.reserve_hot_path_capacity(expected_risk_checks + 1U, 1U, 0U);
+    risk.on_market_data(symbol_id, 1000, 0);
+  }
+
+  OrderBook book;
+  L2View l2;
+  ImbalanceStrategy strategy;
+  RiskGateway risk;
+  ClientOrderId next_client_order_id{1};
+  std::uint64_t guard{kFnvOffsetBasis};
+  std::size_t risk_checks{0};
+};
+
+void replay_hot_path_once(std::span<const MarketDataEvent> events, HotPathContext& context,
+                          std::size_t depth, std::vector<std::uint64_t>* samples) {
+  context.book.clear();
+  context.book.reserve_order_capacity(events.size());
+  std::uint64_t activity_checksum = kFnvOffsetBasis;
+
+  for (const MarketDataEvent& event : events) {
+    const auto sample_start = std::chrono::steady_clock::now();
+    const bool applied = apply_hot_path_event(event, context.book, activity_checksum);
+    context.book.fill_l2_view(depth, context.l2);
+
+    const PriceTicks reference_price = reference_price_from_view(context.l2, event);
+    context.risk.on_market_data(event.symbol_id, reference_price, event.timestamp_ns);
+    const StrategyDecisionBatch decisions = context.strategy.on_l2_update_fixed(context.l2);
+    for (const StrategyDecision& decision : decisions) {
+      const RiskResult risk_result = context.risk.check_new_order(
+          NewOrderRequest{context.next_client_order_id,
+                          event.symbol_id,
+                          decision.side,
+                          decision.order_type,
+                          decision.price_ticks,
+                          decision.quantity,
+                          event.timestamp_ns,
+                          1},
+          event.timestamp_ns);
+      context.guard = checksum_append(context.guard, context.next_client_order_id);
+      context.guard = checksum_append(context.guard, risk_result.accepted ? 1U : 0U);
+      context.guard = checksum_append(context.guard, risk_result.reject_reason);
+      ++context.next_client_order_id;
+      ++context.risk_checks;
+    }
+    context.guard = checksum_append(context.guard, applied ? 1U : 0U);
+    context.guard = checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.bids.size()));
+    context.guard = checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.asks.size()));
+    context.guard = checksum_append(context.guard, activity_checksum);
+    const auto sample_end = std::chrono::steady_clock::now();
+    if (samples != nullptr) {
+      samples->push_back(static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(sample_end - sample_start).count()));
+    }
+  }
+
+  context.guard = checksum_append(context.guard, context.book.checksum());
+}
+
+BenchmarkResult benchmark_hot_path_pipeline(const Options& options) {
+  constexpr std::size_t kDepth = 5;
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load hot-path dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("hot-path dataset is empty: " + options.dataset_path.string());
+  }
+
+  const std::size_t event_count = log.events.size() * options.hot_path_iterations;
+  const std::size_t reserve_risk_checks =
+      log.events.size() * (options.hot_path_iterations + options.warmup_iterations + 1U);
+  HotPathContext context(log.events.front().symbol_id, kDepth, log.events.size(),
+                         reserve_risk_checks);
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    replay_hot_path_once(log.events, context, kDepth, nullptr);
+  }
+
+  std::vector<std::uint64_t> samples;
+  samples.reserve(event_count);
+  const std::size_t risk_checks_before = context.risk_checks;
+  context.guard = kFnvOffsetBasis;
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  for (std::size_t i = 0; i < options.hot_path_iterations; ++i) {
+    replay_hot_path_once(log.events, context, kDepth, &samples);
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = "hot_path_binary_replay_l3_l2_strategy_risk";
+  result.iterations = options.hot_path_iterations;
+  result.event_count = event_count;
+  result.risk_check_count = context.risk_checks - risk_checks_before;
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "per-event";
+  result.total_ns = total_ns;
+  result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
+  result.guard = context.guard ^ log.event_checksum;
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  return result;
 }
 
 BenchmarkResult benchmark_add_order() {
@@ -245,11 +504,13 @@ BenchmarkResult benchmark_l2_snapshot() {
     (void)book.add_order(make_order(bid_id, Side::Buy, 1000 - offset, 10));
     (void)book.add_order(make_order(ask_id, Side::Sell, 1001 + offset, 10));
   }
+  L2View view;
+  view.reserve(25);
 
   return run_benchmark("l2_snapshot_generation", kIterations, [&] {
     std::uint64_t guard = 0;
     for (std::size_t i = 0; i < kIterations; ++i) {
-      const L2View view = book.l2_view(25);
+      book.fill_l2_view(25, view);
       guard ^= static_cast<std::uint64_t>(view.bids.size() + view.asks.size());
       guard ^= static_cast<std::uint64_t>(view.bids.front().price_ticks);
       guard ^= static_cast<std::uint64_t>(view.asks.front().price_ticks);
@@ -322,7 +583,22 @@ BenchmarkResult benchmark_measured_linear_inference_only() {
 
 void print_result(const BenchmarkResult& result) {
   std::cout << result.name << ",iterations=" << result.iterations
+            << ",event_count=" << result.event_count
+            << ",risk_check_count=" << result.risk_check_count
+            << ",dataset=" << (result.dataset_name.empty() ? "n/a" : result.dataset_name)
+            << ",timing_mode=" << result.timing_mode
             << ",total_ns=" << result.total_ns << ",avg_ns=" << result.avg_ns
+            << ",p50_ns=";
+  if (result.latency.available) {
+    std::cout << result.latency.p50_ns << ",p95_ns=" << result.latency.p95_ns
+              << ",p99_ns=" << result.latency.p99_ns
+              << ",p999_ns=" << result.latency.p999_ns
+              << ",max_ns=" << result.latency.max_ns;
+  } else {
+    std::cout << "n/a,p95_ns=n/a,p99_ns=n/a,p999_ns=n/a,max_ns=n/a";
+  }
+  std::cout << ",throughput_events_per_second=" << std::fixed << std::setprecision(2)
+            << result.throughput_events_per_second << std::defaultfloat
             << ",allocations=" << result.allocations.allocations
             << ",deallocations=" << result.allocations.deallocations
             << ",bytes_allocated=" << result.allocations.bytes_allocated
@@ -406,6 +682,18 @@ std::string compiler_name() {
 #endif
 }
 
+void write_optional_latency(std::ostream& output, const char* key,
+                            const LatencyDistribution& latency,
+                            std::uint64_t LatencyDistribution::*field) {
+  output << "      \"" << key << "\": ";
+  if (latency.available) {
+    output << latency.*field;
+  } else {
+    output << "null";
+  }
+  output << ",\n";
+}
+
 void write_json(const std::filesystem::path& path, const Options& options,
                 const std::vector<BenchmarkResult>& results) {
   std::ofstream output(path);
@@ -431,8 +719,19 @@ void write_json(const std::filesystem::path& path, const Options& options,
     output << "    {\n";
     output << "      \"name\": \"" << json_escape(result.name) << "\",\n";
     output << "      \"iterations\": " << result.iterations << ",\n";
+    output << "      \"event_count\": " << result.event_count << ",\n";
+    output << "      \"risk_check_count\": " << result.risk_check_count << ",\n";
+    output << "      \"dataset_name\": \"" << json_escape(result.dataset_name) << "\",\n";
+    output << "      \"timing_mode\": \"" << json_escape(result.timing_mode) << "\",\n";
     output << "      \"total_ns\": " << result.total_ns << ",\n";
     output << "      \"avg_ns\": " << result.avg_ns << ",\n";
+    write_optional_latency(output, "p50_ns", result.latency, &LatencyDistribution::p50_ns);
+    write_optional_latency(output, "p95_ns", result.latency, &LatencyDistribution::p95_ns);
+    write_optional_latency(output, "p99_ns", result.latency, &LatencyDistribution::p99_ns);
+    write_optional_latency(output, "p999_ns", result.latency, &LatencyDistribution::p999_ns);
+    write_optional_latency(output, "max_ns", result.latency, &LatencyDistribution::max_ns);
+    output << "      \"throughput_events_per_second\": " << std::fixed << std::setprecision(2)
+           << result.throughput_events_per_second << std::defaultfloat << ",\n";
     output << "      \"guard\": " << result.guard << ",\n";
     output << "      \"allocations\": " << result.allocations.allocations << ",\n";
     output << "      \"deallocations\": " << result.allocations.deallocations << ",\n";
@@ -452,7 +751,8 @@ int main(int argc, char** argv) {
   }
 
   std::vector<BenchmarkResult> results;
-  results.reserve(10);
+  results.reserve(11);
+  results.push_back(benchmark_hot_path_pipeline(options));
   results.push_back(benchmark_add_order());
   results.push_back(benchmark_cancel_order());
   results.push_back(benchmark_replace_order());

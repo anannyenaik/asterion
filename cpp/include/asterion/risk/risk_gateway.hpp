@@ -14,7 +14,6 @@
 #include <span>
 #include <string_view>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace asterion {
@@ -55,6 +54,9 @@ public:
 
   void on_market_data(SymbolId symbol_id, PriceTicks reference_price_ticks,
                       TimestampNs timestamp_ns);
+  void reserve_hot_path_capacity(std::size_t accepted_client_order_ids,
+                                 std::size_t symbols = 1,
+                                 std::size_t rate_states = 0);
   void set_position(SymbolId symbol_id, Quantity signed_position);
   [[nodiscard]] Quantity position(SymbolId symbol_id) const noexcept;
 
@@ -121,6 +123,23 @@ private:
     std::deque<TimestampNs> sliding_timestamps;
   };
 
+  class ClientOrderIdSet {
+  public:
+    void reserve(std::size_t expected_size);
+    [[nodiscard]] bool contains(ClientOrderId client_order_id) const noexcept;
+    void insert(ClientOrderId client_order_id);
+    [[nodiscard]] std::size_t size() const noexcept { return size_; }
+
+  private:
+    [[nodiscard]] static std::size_t bucket_count_for(std::size_t expected_size) noexcept;
+    void rehash(std::size_t bucket_count);
+    [[nodiscard]] std::size_t bucket_index(ClientOrderId client_order_id) const noexcept;
+
+    std::vector<ClientOrderId> buckets_;
+    std::size_t size_{0};
+    bool contains_zero_{false};
+  };
+
   [[nodiscard]] bool tracks_working_orders() const noexcept {
     return limits_.max_open_order_quantity > 0 || limits_.enable_self_trade_prevention;
   }
@@ -158,7 +177,7 @@ private:
 
   RiskLimits limits_;
   KillSwitch kill_switch_;
-  std::unordered_set<ClientOrderId> accepted_client_order_ids_;
+  ClientOrderIdSet accepted_client_order_ids_;
   std::unordered_map<SymbolId, MarketState> market_state_;
   std::unordered_map<SymbolId, Quantity> positions_;
   std::unordered_map<SymbolId, Quantity> working_quantity_;

@@ -46,6 +46,8 @@ public:
   [[nodiscard]] std::optional<PriceTicks> best_ask() const;
   [[nodiscard]] Quantity total_quantity_at(Side side, PriceTicks price_ticks) const;
   [[nodiscard]] L2View l2_view(std::size_t depth) const;
+  void fill_l2_view(std::size_t depth, L2View& view) const;
+  void reserve_order_capacity(std::size_t order_count);
   [[nodiscard]] BookInvariantReport check_invariants() const;
   [[nodiscard]] std::uint64_t checksum() const;
 

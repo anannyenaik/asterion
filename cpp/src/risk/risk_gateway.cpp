@@ -19,6 +19,101 @@ namespace {
 
 RiskGateway::RiskGateway(RiskLimits limits) : limits_(limits) {}
 
+std::size_t RiskGateway::ClientOrderIdSet::bucket_count_for(
+    std::size_t expected_size) noexcept {
+  std::size_t bucket_count = 16;
+  const std::size_t target = expected_size < 8 ? 16 : expected_size * 2U;
+  while (bucket_count < target) {
+    bucket_count *= 2U;
+  }
+  return bucket_count;
+}
+
+std::size_t RiskGateway::ClientOrderIdSet::bucket_index(
+    ClientOrderId client_order_id) const noexcept {
+  std::uint64_t value = static_cast<std::uint64_t>(client_order_id);
+  value ^= value >> 33U;
+  value *= 0xff51afd7ed558ccdULL;
+  value ^= value >> 33U;
+  value *= 0xc4ceb9fe1a85ec53ULL;
+  value ^= value >> 33U;
+  return static_cast<std::size_t>(value) & (buckets_.size() - 1U);
+}
+
+void RiskGateway::ClientOrderIdSet::rehash(std::size_t bucket_count) {
+  std::vector<ClientOrderId> previous = std::move(buckets_);
+  buckets_.assign(bucket_count, kInvalidClientOrderId);
+  const bool had_zero = contains_zero_;
+  size_ = had_zero ? 1U : 0U;
+
+  for (const ClientOrderId client_order_id : previous) {
+    if (client_order_id == kInvalidClientOrderId) {
+      continue;
+    }
+    std::size_t index = bucket_index(client_order_id);
+    while (buckets_[index] != kInvalidClientOrderId) {
+      index = (index + 1U) & (buckets_.size() - 1U);
+    }
+    buckets_[index] = client_order_id;
+    ++size_;
+  }
+}
+
+void RiskGateway::ClientOrderIdSet::reserve(std::size_t expected_size) {
+  const std::size_t bucket_count = bucket_count_for(expected_size);
+  if (bucket_count > buckets_.size()) {
+    rehash(bucket_count);
+  }
+}
+
+bool RiskGateway::ClientOrderIdSet::contains(ClientOrderId client_order_id) const noexcept {
+  if (client_order_id == kInvalidClientOrderId) {
+    return contains_zero_;
+  }
+  if (buckets_.empty()) {
+    return false;
+  }
+
+  std::size_t index = bucket_index(client_order_id);
+  while (true) {
+    const ClientOrderId stored = buckets_[index];
+    if (stored == client_order_id) {
+      return true;
+    }
+    if (stored == kInvalidClientOrderId) {
+      return false;
+    }
+    index = (index + 1U) & (buckets_.size() - 1U);
+  }
+}
+
+void RiskGateway::ClientOrderIdSet::insert(ClientOrderId client_order_id) {
+  if (client_order_id == kInvalidClientOrderId) {
+    if (!contains_zero_) {
+      contains_zero_ = true;
+      ++size_;
+    }
+    return;
+  }
+  if (buckets_.empty() || (size_ + 1U) * 2U >= buckets_.size()) {
+    rehash(bucket_count_for(size_ + 1U));
+  }
+
+  std::size_t index = bucket_index(client_order_id);
+  while (true) {
+    ClientOrderId& stored = buckets_[index];
+    if (stored == client_order_id) {
+      return;
+    }
+    if (stored == kInvalidClientOrderId) {
+      stored = client_order_id;
+      ++size_;
+      return;
+    }
+    index = (index + 1U) & (buckets_.size() - 1U);
+  }
+}
+
 void RiskGateway::enable_kill_switch() { enable_kill_switch(0); }
 
 void RiskGateway::enable_kill_switch(TimestampNs timestamp_ns) {
@@ -42,6 +137,19 @@ void RiskGateway::on_reconnect(TimestampNs /*timestamp_ns*/) noexcept { connecte
 void RiskGateway::on_market_data(SymbolId symbol_id, PriceTicks reference_price_ticks,
                                  TimestampNs timestamp_ns) {
   market_state_[symbol_id] = MarketState{reference_price_ticks, timestamp_ns};
+}
+
+void RiskGateway::reserve_hot_path_capacity(std::size_t accepted_client_order_ids,
+                                            std::size_t symbols,
+                                            std::size_t rate_states) {
+  accepted_client_order_ids_.reserve(accepted_client_order_ids);
+  market_state_.reserve(symbols);
+  positions_.reserve(symbols);
+  working_quantity_.reserve(symbols);
+  working_orders_.reserve(accepted_client_order_ids);
+  exchange_to_client_order_ids_.reserve(accepted_client_order_ids);
+  client_books_.reserve(accepted_client_order_ids);
+  rate_states_.reserve(rate_states);
 }
 
 void RiskGateway::set_position(SymbolId symbol_id, Quantity signed_position) {
@@ -388,8 +496,7 @@ RiskResult RiskGateway::check_new_order(const NewOrderRequest& request, Timestam
     return decide(request, now_ns, "invalid_price", false, RejectReason::InvalidPrice, 0,
                   request.price_ticks);
   }
-  if (accepted_client_order_ids_.find(request.client_order_id) !=
-      accepted_client_order_ids_.end()) {
+  if (accepted_client_order_ids_.contains(request.client_order_id)) {
     return decide(request, now_ns, "duplicate_client_order_id", false,
                   RejectReason::DuplicateClientOrderId, 0,
                   static_cast<std::int64_t>(request.client_order_id));
@@ -481,8 +588,7 @@ RiskResult RiskGateway::check_replace_order(const ReplaceOrderRequest& request,
                   "replace_invalid_price", false, RejectReason::InvalidPrice, 0,
                   request.new_price_ticks);
   }
-  if (accepted_client_order_ids_.find(request.client_order_id) !=
-      accepted_client_order_ids_.end()) {
+  if (accepted_client_order_ids_.contains(request.client_order_id)) {
     return decide(now_ns, request.client_order_id, kInvalidSymbolId, Side::None,
                   "replace_duplicate_client_order_id", false,
                   RejectReason::DuplicateClientOrderId, 0,

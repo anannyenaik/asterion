@@ -1,6 +1,7 @@
 #include "asterion/book/order_book.hpp"
 #include "asterion/core/allocation_tracker.hpp"
 #include "asterion/inference/linear_model.hpp"
+#include "asterion/strategy/imbalance_strategy.hpp"
 #include "asterion/risk/risk_gateway.hpp"
 
 #include <catch2/catch_approx.hpp>
@@ -51,7 +52,7 @@ TEST_CASE("Warmed cancel path does not allocate", "[alloc][book]") {
   REQUIRE(snapshot.allocations == 0);
 }
 
-TEST_CASE("L2 snapshot currently allocates caller-owned vectors", "[alloc][book]") {
+TEST_CASE("Reusable L2 snapshot storage does not allocate after reserve", "[alloc][book]") {
   OrderBook book(1);
   for (OrderId order_id = 1; order_id <= 4; ++order_id) {
     REQUIRE(book.add_order(make_order(order_id, Side::Buy,
@@ -60,13 +61,37 @@ TEST_CASE("L2 snapshot currently allocates caller-owned vectors", "[alloc][book]
                                       1001 + static_cast<PriceTicks>(order_id), 10)));
   }
 
+  L2View view;
+  view.reserve(4);
+  book.fill_l2_view(4, view);
+
   reset_allocation_counters();
-  const L2View view = book.l2_view(4);
+  book.fill_l2_view(4, view);
   const AllocationSnapshot snapshot = allocation_snapshot();
 
   REQUIRE(view.bids.size() == 4);
   REQUIRE(view.asks.size() == 4);
-  REQUIRE(snapshot.allocations > 0);
+  REQUIRE(snapshot.allocations == 0);
+}
+
+TEST_CASE("Fixed-size strategy callback does not allocate after L2 warm-up",
+          "[alloc][strategy]") {
+  OrderBook book(1);
+  REQUIRE(book.add_order(make_order(1, Side::Buy, 1000, 100)));
+  REQUIRE(book.add_order(make_order(2, Side::Sell, 1001, 20)));
+
+  L2View view;
+  view.reserve(1);
+  book.fill_l2_view(1, view);
+  ImbalanceStrategy strategy(0.50, 1);
+
+  reset_allocation_counters();
+  const StrategyDecisionBatch decisions = strategy.on_l2_update_fixed(view);
+  const AllocationSnapshot snapshot = allocation_snapshot();
+
+  REQUIRE(decisions.size == 1);
+  REQUIRE(decisions.decisions.front().side == Side::Buy);
+  REQUIRE(snapshot.allocations == 0);
 }
 
 TEST_CASE("Duplicate risk check reject path does not allocate after warm-up", "[alloc][risk]") {
@@ -81,6 +106,57 @@ TEST_CASE("Duplicate risk check reject path does not allocate after warm-up", "[
 
   REQUIRE_FALSE(duplicate.accepted);
   REQUIRE(duplicate.reject_reason == RejectReason::DuplicateClientOrderId);
+  REQUIRE(snapshot.allocations == 0);
+}
+
+TEST_CASE("Reserved accepted risk check path does not allocate after warm-up", "[alloc][risk]") {
+  RiskGateway risk;
+  risk.reserve_hot_path_capacity(4, 1, 0);
+  risk.on_market_data(1, 1000, 10);
+  REQUIRE(risk.check_new_order(
+              NewOrderRequest{100, 1, Side::Buy, OrderType::Limit, 1000, 1, 11}, 11)
+              .accepted);
+
+  reset_allocation_counters();
+  const RiskResult accepted = risk.check_new_order(
+      NewOrderRequest{101, 1, Side::Buy, OrderType::Limit, 1000, 1, 12}, 12);
+  const AllocationSnapshot snapshot = allocation_snapshot();
+
+  REQUIRE(accepted.accepted);
+  REQUIRE(snapshot.allocations == 0);
+}
+
+TEST_CASE("Warmed non-creating target path does not allocate", "[alloc][hot-path]") {
+  OrderBook book(1);
+  book.reserve_order_capacity(2);
+  REQUIRE(book.add_order(make_order(1, Side::Buy, 1000, 100)));
+  REQUIRE(book.add_order(make_order(2, Side::Sell, 1001, 90)));
+
+  L2View view;
+  view.reserve(1);
+  ImbalanceStrategy strategy(0.50, 1);
+  RiskGateway risk;
+  risk.reserve_hot_path_capacity(4, 1, 0);
+  risk.on_market_data(1, 1000, 10);
+  REQUIRE(risk.check_new_order(
+              NewOrderRequest{100, 1, Side::Buy, OrderType::Limit, 1000, 1, 11}, 11)
+              .accepted);
+  book.fill_l2_view(1, view);
+  REQUIRE(strategy.on_l2_update_fixed(view).size == 1);
+
+  reset_allocation_counters();
+  REQUIRE(book.reduce_order(2, 1));
+  book.fill_l2_view(1, view);
+  const StrategyDecisionBatch decisions = strategy.on_l2_update_fixed(view);
+  REQUIRE(decisions.size == 1);
+  risk.on_market_data(1, 1000, 12);
+  const RiskResult result = risk.check_new_order(
+      NewOrderRequest{101, 1, decisions.decisions.front().side, OrderType::Limit,
+                      decisions.decisions.front().price_ticks, 1, 12},
+      12);
+  const AllocationSnapshot snapshot = allocation_snapshot();
+
+  REQUIRE(result.accepted);
   REQUIRE(snapshot.allocations == 0);
 }
 

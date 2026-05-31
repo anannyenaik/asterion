@@ -193,6 +193,7 @@ if(ASTERION_BUILD_TESTS)
     tests/unit/test_telemetry_inference.cpp
     tests/unit/test_inference_backend.cpp
     tests/unit/test_allocation_tracking.cpp
+    tests/unit/test_hot_path.cpp
     tests/golden/test_golden_traces.cpp
     tests/property/test_book_properties.cpp)
   target_link_libraries(asterion_tests PRIVATE asterion asterion_allocation_tracker

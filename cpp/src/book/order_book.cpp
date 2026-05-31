@@ -197,7 +197,18 @@ Quantity OrderBook::total_quantity_at(Side side, PriceTicks price_ticks) const {
 
 L2View OrderBook::l2_view(std::size_t depth) const {
   L2View view;
+  fill_l2_view(depth, view);
+  return view;
+}
+
+void OrderBook::fill_l2_view(std::size_t depth, L2View& view) const {
   view.symbol_id = symbol_id_;
+  view.bids.clear();
+  view.asks.clear();
+
+  if (depth == 0) {
+    return;
+  }
 
   for (const auto& [price, price_level] : bids_) {
     if (view.bids.size() >= depth) {
@@ -212,8 +223,10 @@ L2View OrderBook::l2_view(std::size_t depth) const {
     }
     view.asks.push_back(L2Level{price, price_level.total_quantity});
   }
+}
 
-  return view;
+void OrderBook::reserve_order_capacity(std::size_t order_count) {
+  order_index_.reserve(order_count);
 }
 
 BookInvariantReport OrderBook::check_invariants() const {
