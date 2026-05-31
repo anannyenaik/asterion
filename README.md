@@ -276,10 +276,14 @@ cmake --build build --target asterion_benchmarks
 ./build/asterion_benchmarks --json build/asterion_benchmark.json --no-text
 ```
 
-The runner measures the binary replay -> L3 update -> reusable L2 view -> strategy callback -> risk
-check path plus add, cancel, replace, market crossing, L2 snapshot, replay, risk-check,
-linear-inference and measured-linear-inference paths using `std::chrono`. Google Benchmark
-integration is optional:
+The runner reports two categories. The `core` category measures the binary replay -> L3 update ->
+reusable L2 view -> strategy callback -> risk check path plus add, cancel, replace, market crossing,
+L2 snapshot, replay and risk-check paths. The `inference` category is measured separately and covers
+feature extraction only, LinearModel inference only, feature extraction + LinearModel, the
+measured-engine path, event-loop policy-gate overhead, and — only when built with ONNX Runtime — ONNX
+inference only and feature extraction + ONNX. Inference rows use per-call timing so they report a real
+p50/p95/p99/p99.9/max distribution along with backend, model name, input shape and allocation count.
+Google Benchmark integration is optional:
 
 ```bash
 cmake -S . -B build-gbench -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_USE_GOOGLE_BENCHMARK=ON
@@ -392,11 +396,23 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_USE_ONNXRUNTI
 
 The ONNX backend is optional and is not exercised by default CI; it requires ONNX Runtime to be
 installed for a real ONNX backend to load. Default CI remains dependency-free. A tiny checked-in
-identity-model fixture is decoded only by tests compiled with `ASTERION_HAVE_ONNXRUNTIME`; otherwise
-the fallback path is tested. The `ci` workflow has a manual `onnx_backend` input. When enabled, it
-runs an opt-in fallback lane with `-DASTERION_USE_ONNXRUNTIME=ON` and an opt-in ONNX Runtime lane
-that downloads the dependency, builds the real backend and runs the tiny identity fixture. Neither
-lane runs in default CI.
+identity-model fixture (`data/fixtures/identity_1x4.onnx.b64`, 141 bytes, input/output shape `1x4`)
+is decoded only by tests compiled with `ASTERION_HAVE_ONNXRUNTIME`; otherwise the fallback path is
+tested. The fixture is a hand-described identity graph (license-safe, not a trained or third-party
+model); `scripts/generate_onnx_fixture.py` documents exactly how it was produced and can regenerate
+or `--verify` it byte-for-byte (requires the optional `onnx` package). The `ci` workflow has a
+manual `onnx_backend` input. When enabled, it runs an opt-in fallback lane with
+`-DASTERION_USE_ONNXRUNTIME=ON` and an opt-in ONNX Runtime lane that downloads the dependency, builds
+the real backend and runs the tiny identity fixture. Neither lane runs in default CI.
+
+When built with ONNX Runtime, the inference benchmark runner additionally emits `onnx_inference_only`
+and `feature_extraction_plus_onnx_inference` rows; ONNX inference allocations are measured and
+reported honestly (model-load is measured separately from steady-state) and are not claimed to be
+allocation-free. See [reports/inference_report_2026_05_31.md](reports/inference_report_2026_05_31.md).
+
+The timeout/late-signal policy can also disable the model after repeated late signals when configured
+(`InferencePolicyGate` with `disable_on_repeated_late_signals` and `max_consecutive_late_signals`);
+that behaviour is unit-tested deterministically with injected timings.
 
 ## Risk Audit Trail
 

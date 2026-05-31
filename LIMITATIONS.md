@@ -26,8 +26,16 @@ Explicit limitations:
 - inference defaults to a deterministic linear backend with measured latency accounting and policy
   hooks; an optional ONNX Runtime backend exists behind the `ASTERION_USE_ONNXRUNTIME` CMake flag but
   is only exercised by a manual CI toggle, and ONNX requests fall back to `LinearModel` when the
-  dependency is absent; the checked-in ONNX fixture is tiny and only used when a real ONNX Runtime
-  build is available;
+  dependency is absent; the checked-in ONNX fixture is a tiny hand-described identity model used only
+  when a real ONNX Runtime build is available;
+- inference benchmarks measure plumbing cost only (feature extraction, model scoring, policy
+  accounting) and make no predictive-quality, signal-value or profitability claim; per-call latency
+  percentiles for sub-microsecond operations are dominated by the timer resolution and are
+  representative-local, not portable; feature extraction allocates one vector per call and ONNX
+  inference is not claimed to be allocation-free;
+- the timeout/late-signal policy can disable the model after repeated late signals only when
+  explicitly configured; by default the model is never disabled and the gate merely abstains on
+  individual late or timed-out signals;
 - snapshot loading reconstructs the L3 book from framed single-order Snapshot records; it cannot
   represent an aggregated L2-only image whose levels lack per-order detail;
 - the new risk controls (open-order exposure, message-rate limiting, self-trade prevention,

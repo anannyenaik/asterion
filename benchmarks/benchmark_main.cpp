@@ -1,6 +1,8 @@
 #include "asterion/book/order_book.hpp"
 #include "asterion/core/allocation_tracker.hpp"
 #include "asterion/core/checksum.hpp"
+#include "asterion/inference/backend.hpp"
+#include "asterion/inference/feature_extractor.hpp"
 #include "asterion/inference/inference.hpp"
 #include "asterion/inference/linear_model.hpp"
 #include "asterion/market_data/event_log.hpp"
@@ -11,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -18,12 +21,14 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <optional>
 #include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #if defined(__linux__) || defined(__APPLE__)
@@ -72,6 +77,14 @@ struct BenchmarkResult {
   std::size_t risk_check_count{0};
   std::string dataset_name;
   std::string timing_mode{"aggregate"};
+  // "core" benchmarks measure replay/book/matching/risk paths. "inference"
+  // benchmarks measure feature extraction and model scoring; they are reported
+  // separately so inference timings are never conflated with the trading hot path.
+  std::string category{"core"};
+  // Inference-only metadata. Empty for core benchmarks.
+  std::string backend;
+  std::string model_name;
+  std::string input_shape;
   std::uint64_t total_ns{0};
   std::uint64_t avg_ns{0};
   double throughput_events_per_second{0.0};
@@ -230,6 +243,42 @@ LatencyDistribution latency_distribution(std::vector<std::uint64_t> samples) {
   distribution.p999_ns = samples[nearest_rank_index(samples.size(), 999)];
   distribution.max_ns = samples.back();
   return distribution;
+}
+
+// Per-call sampled runner used by the inference benchmarks so they report a real
+// p50/p95/p99/p99.9/max distribution rather than only an aggregate average. The
+// sample buffer is reserved before the allocation counters are reset, so push_back
+// does not perturb the steady-state allocation count. fn receives the pre-sized
+// buffer and must record exactly one latency sample per iteration.
+template <typename Fn>
+BenchmarkResult run_sampled_benchmark(std::string name, std::size_t iterations, Fn&& fn) {
+  std::vector<std::uint64_t> samples;
+  samples.reserve(iterations);
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  const std::uint64_t guard = fn(samples);
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  const double throughput = total_ns == 0
+                                ? 0.0
+                                : static_cast<double>(iterations) * 1'000'000'000.0 /
+                                      static_cast<double>(total_ns);
+  BenchmarkResult result;
+  result.name = std::move(name);
+  result.iterations = iterations;
+  result.event_count = iterations;
+  result.timing_mode = "per-call";
+  result.total_ns = total_ns;
+  result.avg_ns = iterations == 0 ? 0 : total_ns / iterations;
+  result.throughput_events_per_second = throughput;
+  result.guard = guard;
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  return result;
 }
 
 bool apply_hot_path_event(const MarketDataEvent& event, OrderBook& book,
@@ -549,18 +598,97 @@ BenchmarkResult benchmark_risk_check_only() {
   });
 }
 
+// Representative L2 view with both sides populated, shared by the feature
+// extraction benchmarks. Built once so the benchmark measures extraction cost
+// rather than book mutation.
+L2View make_inference_l2_view() {
+  L2View view;
+  view.symbol_id = 1;
+  view.bids.push_back(L2Level{999, 300});
+  view.asks.push_back(L2Level{1001, 100});
+  return view;
+}
+
+void tag_inference(BenchmarkResult& result, std::string backend, std::string model_name,
+                   std::string input_shape) {
+  result.category = "inference";
+  result.backend = std::move(backend);
+  result.model_name = std::move(model_name);
+  result.input_shape = std::move(input_shape);
+}
+
+// Latency of a single timed iteration, recorded into the sample buffer.
+inline void record_sample(std::vector<std::uint64_t>& samples,
+                          std::chrono::steady_clock::time_point start,
+                          std::chrono::steady_clock::time_point end) {
+  samples.push_back(static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()));
+}
+
+BenchmarkResult benchmark_feature_extraction_only() {
+  constexpr std::size_t kIterations = 200'000;
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+
+  BenchmarkResult result =
+      run_sampled_benchmark("feature_extraction_only", kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              std::uint64_t guard = 0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto start = std::chrono::steady_clock::now();
+                                const std::vector<double> features = extractor.extract(view);
+                                const auto end = std::chrono::steady_clock::now();
+                                guard ^= static_cast<std::uint64_t>(features[0] * 1000.0);
+                                record_sample(samples, start, end);
+                              }
+                              return guard;
+                            });
+  tag_inference(result, "n/a", "feature_extractor_v1", "1x4");
+  return result;
+}
+
 BenchmarkResult benchmark_linear_inference_only() {
   constexpr std::size_t kIterations = 200'000;
   LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
   const std::array<double, 4> features{2.0, 1000.0, 0.35, 400.0};
 
-  return run_benchmark("linear_inference_only", kIterations, [&] {
-    double accumulator = 0.0;
-    for (std::size_t i = 0; i < kIterations; ++i) {
-      accumulator += model.score(features);
-    }
-    return static_cast<std::uint64_t>(accumulator * 1000.0);
-  });
+  BenchmarkResult result =
+      run_sampled_benchmark("linear_inference_only", kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              double accumulator = 0.0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto start = std::chrono::steady_clock::now();
+                                accumulator += model.score(features);
+                                const auto end = std::chrono::steady_clock::now();
+                                record_sample(samples, start, end);
+                              }
+                              return static_cast<std::uint64_t>(accumulator * 1000.0);
+                            });
+  tag_inference(result, "linear", "linear_w4", "1x4");
+  return result;
+}
+
+BenchmarkResult benchmark_feature_extraction_plus_linear() {
+  constexpr std::size_t kIterations = 100'000;
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+  LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
+
+  BenchmarkResult result = run_sampled_benchmark(
+      "feature_extraction_plus_linear_inference", kIterations,
+      [&](std::vector<std::uint64_t>& samples) {
+        double accumulator = 0.0;
+        for (std::size_t i = 0; i < kIterations; ++i) {
+          const auto start = std::chrono::steady_clock::now();
+          const std::vector<double> features = extractor.extract(view);
+          accumulator += model.score(features);
+          const auto end = std::chrono::steady_clock::now();
+          record_sample(samples, start, end);
+        }
+        return static_cast<std::uint64_t>(accumulator * 1000.0);
+      });
+  tag_inference(result, "linear", "linear_w4", "1x4");
+  return result;
 }
 
 BenchmarkResult benchmark_measured_linear_inference_only() {
@@ -569,20 +697,177 @@ BenchmarkResult benchmark_measured_linear_inference_only() {
   const std::array<double, 4> features{2.0, 1000.0, 0.35, 400.0};
   MeasuredInferenceEngine inference(model, InferencePolicy{1'000'000, 0, true, true});
 
-  return run_benchmark("measured_linear_inference_only", kIterations, [&] {
-    std::uint64_t guard = 0;
-    for (std::size_t i = 0; i < kIterations; ++i) {
-      const InferenceResult result = inference.score(features);
-      guard ^= static_cast<std::uint64_t>(result.score * 1000.0);
-      guard ^= result.inference_latency_ns;
-      guard ^= result.accepted ? 0x9e3779b97f4a7c15ULL : 0ULL;
-    }
-    return guard;
-  });
+  // The MeasuredInferenceEngine already times the model internally; we additionally
+  // sample the end-to-end call (model score + policy accounting) per iteration.
+  BenchmarkResult result =
+      run_sampled_benchmark("measured_linear_inference_only", kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              std::uint64_t guard = 0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto start = std::chrono::steady_clock::now();
+                                const InferenceResult r = inference.score(features);
+                                const auto end = std::chrono::steady_clock::now();
+                                guard ^= static_cast<std::uint64_t>(r.score * 1000.0);
+                                guard ^= r.accepted ? 0x9e3779b97f4a7c15ULL : 0ULL;
+                                record_sample(samples, start, end);
+                              }
+                              return guard;
+                            });
+  tag_inference(result, "linear", "linear_w4", "1x4");
+  return result;
 }
 
+// Event-loop policy overhead only: drives the stateful late-signal gate with
+// injected timings (no wall-clock reads inside the gate, no model scoring) so the
+// measurement isolates the timeout/late-signal accounting cost from the model.
+BenchmarkResult benchmark_inference_policy_overhead() {
+  constexpr std::size_t kIterations = 200'000;
+  InferencePolicy policy;
+  policy.timeout_ns = 1'000'000;
+  policy.max_signal_age_ns = 1'000'000;
+  InferencePolicyGate gate(policy);
+
+  BenchmarkResult result =
+      run_sampled_benchmark("inference_policy_overhead", kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              std::uint64_t guard = 0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto stamp = static_cast<TimestampNs>(i);
+                                const auto start = std::chrono::steady_clock::now();
+                                // Injected latency under budget, age 0: always accepted.
+                                const InferencePolicyResult pr = gate.observe(500, stamp, stamp);
+                                const auto end = std::chrono::steady_clock::now();
+                                guard ^= pr.accepted ? 0x9e3779b97f4a7c15ULL : 0ULL;
+                                record_sample(samples, start, end);
+                              }
+                              return guard;
+                            });
+  tag_inference(result, "n/a", "policy_gate", "n/a");
+  return result;
+}
+
+#if defined(ASTERION_HAVE_ONNXRUNTIME)
+std::vector<unsigned char> decode_base64_bytes(const std::filesystem::path& path) {
+  std::ifstream input(path);
+  if (!input) {
+    throw std::runtime_error("unable to read ONNX fixture: " + path.string());
+  }
+  std::string encoded((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  std::vector<unsigned char> output;
+  int value = 0;
+  int bits = -8;
+  for (const unsigned char ch : encoded) {
+    if (std::isspace(ch)) {
+      continue;
+    }
+    if (ch == '=') {
+      break;
+    }
+    int digit = -1;
+    if (ch >= 'A' && ch <= 'Z') {
+      digit = ch - 'A';
+    } else if (ch >= 'a' && ch <= 'z') {
+      digit = ch - 'a' + 26;
+    } else if (ch >= '0' && ch <= '9') {
+      digit = ch - '0' + 52;
+    } else if (ch == '+') {
+      digit = 62;
+    } else if (ch == '/') {
+      digit = 63;
+    } else {
+      continue;
+    }
+    value = (value << 6) + digit;
+    bits += 6;
+    if (bits >= 0) {
+      output.push_back(static_cast<unsigned char>((value >> bits) & 0xff));
+      bits -= 8;
+    }
+  }
+  return output;
+}
+
+std::filesystem::path materialise_onnx_fixture() {
+  const auto bytes = decode_base64_bytes(std::filesystem::path(ASTERION_SOURCE_DIR) / "data" /
+                                         "fixtures" / "identity_1x4.onnx.b64");
+  const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+  const std::filesystem::path path = std::filesystem::temp_directory_path() /
+                                     ("asterion_bench_identity_" + std::to_string(stamp) + ".onnx");
+  std::ofstream output(path, std::ios::binary);
+  output.write(reinterpret_cast<const char*>(bytes.data()),
+               static_cast<std::streamsize>(bytes.size()));
+  return path;
+}
+
+BenchmarkResult benchmark_onnx_inference_only(const std::filesystem::path& model_path) {
+  constexpr std::size_t kIterations = 50'000;
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = model_path;
+  config.linear_weights = {0.5, -0.001, 2.0, 0.0001};
+  config.linear_bias = 1.0;
+  InferenceBackendSelection selection = make_inference_backend(std::move(config));
+  const std::array<double, 4> features{3.5, 1000.0, 0.35, 400.0};
+
+  // Warm up so model-load/session-setup allocations are excluded from the
+  // steady-state allocation count captured below.
+  volatile double warm = selection.model->score(features);
+  (void)warm;
+
+  BenchmarkResult result =
+      run_sampled_benchmark("onnx_inference_only", kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              double accumulator = 0.0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto start = std::chrono::steady_clock::now();
+                                accumulator += selection.model->score(features);
+                                const auto end = std::chrono::steady_clock::now();
+                                record_sample(samples, start, end);
+                              }
+                              return static_cast<std::uint64_t>(accumulator * 1000.0);
+                            });
+  tag_inference(result, std::string(to_string(selection.active)), "identity_1x4.onnx", "1x4");
+  return result;
+}
+
+BenchmarkResult benchmark_feature_extraction_plus_onnx(const std::filesystem::path& model_path) {
+  constexpr std::size_t kIterations = 50'000;
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = model_path;
+  config.linear_weights = {0.5, -0.001, 2.0, 0.0001};
+  config.linear_bias = 1.0;
+  InferenceBackendSelection selection = make_inference_backend(std::move(config));
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+
+  volatile double warm = selection.model->score(extractor.extract(view));
+  (void)warm;
+
+  BenchmarkResult result = run_sampled_benchmark(
+      "feature_extraction_plus_onnx_inference", kIterations,
+      [&](std::vector<std::uint64_t>& samples) {
+        double accumulator = 0.0;
+        for (std::size_t i = 0; i < kIterations; ++i) {
+          const auto start = std::chrono::steady_clock::now();
+          const std::vector<double> features = extractor.extract(view);
+          accumulator += selection.model->score(features);
+          const auto end = std::chrono::steady_clock::now();
+          record_sample(samples, start, end);
+        }
+        return static_cast<std::uint64_t>(accumulator * 1000.0);
+      });
+  tag_inference(result, std::string(to_string(selection.active)), "identity_1x4.onnx", "1x4");
+  return result;
+}
+#endif // ASTERION_HAVE_ONNXRUNTIME
+
 void print_result(const BenchmarkResult& result) {
-  std::cout << result.name << ",iterations=" << result.iterations
+  std::cout << result.name << ",category=" << result.category
+            << ",backend=" << (result.backend.empty() ? "n/a" : result.backend)
+            << ",model=" << (result.model_name.empty() ? "n/a" : result.model_name)
+            << ",input_shape=" << (result.input_shape.empty() ? "n/a" : result.input_shape)
+            << ",iterations=" << result.iterations
             << ",event_count=" << result.event_count
             << ",risk_check_count=" << result.risk_check_count
             << ",dataset=" << (result.dataset_name.empty() ? "n/a" : result.dataset_name)
@@ -718,6 +1003,10 @@ void write_json(const std::filesystem::path& path, const Options& options,
     const BenchmarkResult& result = results[i];
     output << "    {\n";
     output << "      \"name\": \"" << json_escape(result.name) << "\",\n";
+    output << "      \"category\": \"" << json_escape(result.category) << "\",\n";
+    output << "      \"backend\": \"" << json_escape(result.backend) << "\",\n";
+    output << "      \"model_name\": \"" << json_escape(result.model_name) << "\",\n";
+    output << "      \"input_shape\": \"" << json_escape(result.input_shape) << "\",\n";
     output << "      \"iterations\": " << result.iterations << ",\n";
     output << "      \"event_count\": " << result.event_count << ",\n";
     output << "      \"risk_check_count\": " << result.risk_check_count << ",\n";
@@ -750,22 +1039,56 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  // Core replay/book/matching/risk benchmarks. These timings are kept separate
+  // from the inference timings below.
+  std::vector<BenchmarkResult> core_results;
+  core_results.push_back(benchmark_hot_path_pipeline(options));
+  core_results.push_back(benchmark_add_order());
+  core_results.push_back(benchmark_cancel_order());
+  core_results.push_back(benchmark_replace_order());
+  core_results.push_back(benchmark_market_cross_one_level());
+  core_results.push_back(benchmark_market_cross_multiple_levels());
+  core_results.push_back(benchmark_l2_snapshot());
+  core_results.push_back(benchmark_replay_sample_events(options.dataset_path));
+  core_results.push_back(benchmark_risk_check_only());
+
+  // Inference benchmarks. Feature extraction and model scoring are measured on
+  // their own so inference cost is never folded into the trading hot path.
+  std::vector<BenchmarkResult> inference_results;
+  inference_results.push_back(benchmark_feature_extraction_only());
+  inference_results.push_back(benchmark_linear_inference_only());
+  inference_results.push_back(benchmark_feature_extraction_plus_linear());
+  inference_results.push_back(benchmark_measured_linear_inference_only());
+  inference_results.push_back(benchmark_inference_policy_overhead());
+#if defined(ASTERION_HAVE_ONNXRUNTIME)
+  // The ONNX benchmarks only build/run when the opt-in dependency is present.
+  // The tiny identity fixture is decoded to a temp file and removed afterwards.
+  std::filesystem::path onnx_model_path;
+  try {
+    onnx_model_path = materialise_onnx_fixture();
+    inference_results.push_back(benchmark_onnx_inference_only(onnx_model_path));
+    inference_results.push_back(benchmark_feature_extraction_plus_onnx(onnx_model_path));
+  } catch (const std::exception& ex) {
+    std::cerr << "onnx benchmark skipped: " << ex.what() << '\n';
+  }
+  if (!onnx_model_path.empty()) {
+    std::error_code remove_ec;
+    std::filesystem::remove(onnx_model_path, remove_ec);
+  }
+#endif
+
   std::vector<BenchmarkResult> results;
-  results.reserve(11);
-  results.push_back(benchmark_hot_path_pipeline(options));
-  results.push_back(benchmark_add_order());
-  results.push_back(benchmark_cancel_order());
-  results.push_back(benchmark_replace_order());
-  results.push_back(benchmark_market_cross_one_level());
-  results.push_back(benchmark_market_cross_multiple_levels());
-  results.push_back(benchmark_l2_snapshot());
-  results.push_back(benchmark_replay_sample_events(options.dataset_path));
-  results.push_back(benchmark_risk_check_only());
-  results.push_back(benchmark_linear_inference_only());
-  results.push_back(benchmark_measured_linear_inference_only());
+  results.reserve(core_results.size() + inference_results.size());
+  results.insert(results.end(), core_results.begin(), core_results.end());
+  results.insert(results.end(), inference_results.begin(), inference_results.end());
 
   if (options.text_output) {
-    for (const BenchmarkResult& result : results) {
+    std::cout << "# core (replay / book / matching / risk)\n";
+    for (const BenchmarkResult& result : core_results) {
+      print_result(result);
+    }
+    std::cout << "# inference (feature extraction / model scoring, measured separately)\n";
+    for (const BenchmarkResult& result : inference_results) {
       print_result(result);
     }
   }

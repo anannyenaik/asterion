@@ -72,6 +72,40 @@ InferenceResult measure_inference(const Model& model, std::span<const double> fe
                          std::string(model.backend_name())};
 }
 
+InferencePolicyGate::InferencePolicyGate(InferencePolicy policy) noexcept : policy_(policy) {}
+
+InferencePolicyResult InferencePolicyGate::observe(std::uint64_t observed_latency_ns,
+                                                   TimestampNs signal_timestamp_ns,
+                                                   TimestampNs now_timestamp_ns) noexcept {
+  InferencePolicyResult result = evaluate_inference_policy(
+      policy_, observed_latency_ns, signal_timestamp_ns, now_timestamp_ns);
+
+  if (result.late_signal) {
+    if (consecutive_late_signals_ < UINT32_MAX) {
+      ++consecutive_late_signals_;
+    }
+  } else {
+    consecutive_late_signals_ = 0;
+  }
+
+  if (policy_.disable_on_repeated_late_signals && policy_.max_consecutive_late_signals > 0 &&
+      consecutive_late_signals_ >= policy_.max_consecutive_late_signals) {
+    disabled_ = true;
+  }
+
+  if (disabled_) {
+    result.model_disabled = true;
+    result.accepted = false;
+  }
+
+  return result;
+}
+
+void InferencePolicyGate::reset() noexcept {
+  consecutive_late_signals_ = 0;
+  disabled_ = false;
+}
+
 MeasuredInferenceEngine::MeasuredInferenceEngine(const Model& model, InferencePolicy policy)
     : model_(model), policy_(policy) {}
 

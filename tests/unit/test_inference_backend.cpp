@@ -1,4 +1,5 @@
 #include "asterion/book/order_book.hpp"
+#include "asterion/core/allocation_tracker.hpp"
 #include "asterion/inference/backend.hpp"
 #include "asterion/inference/feature_extractor.hpp"
 #include "asterion/inference/inference.hpp"
@@ -145,6 +146,53 @@ TEST_CASE("ONNX Runtime fixture backend scores deterministically when opt-in dep
   REQUIRE(result.accepted);
   REQUIRE(result.decision == InferenceDecision::Accept);
   REQUIRE(result.score == Catch::Approx(3.5));
+
+  std::filesystem::remove(model_path);
+}
+
+TEST_CASE("ONNX inference allocations are measured honestly and separated from load",
+          "[inference][backend][onnx][alloc]") {
+  const std::filesystem::path model_path = write_temp_onnx_fixture();
+
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = model_path;
+  config.linear_weights = {1.0, 0.0, 0.0, 0.0};
+  config.linear_bias = 0.0;
+
+  // Model-load allocations (session/graph setup) are expected and are measured
+  // separately from steady-state inference; we do not require them to be zero.
+  reset_allocation_counters();
+  const InferenceBackendSelection selection = make_inference_backend(config);
+  const AllocationSnapshot load_snapshot = allocation_snapshot();
+  REQUIRE(selection.model != nullptr);
+  REQUIRE(selection.active == InferenceBackend::Onnx);
+
+  const std::array<double, 4> features{3.5, 2.0, 1.0, -1.0};
+
+  // Warm up once so any lazy first-call allocations are not counted as steady state.
+  const double warm = selection.model->score(features);
+  REQUIRE(warm == Catch::Approx(3.5));
+
+  // Steady-state inference allocations: measured and reported, not asserted to be
+  // zero. ONNX Runtime is free to allocate per-run buffers; honesty over claims.
+  reset_allocation_counters();
+  double last = 0.0;
+  for (int i = 0; i < 16; ++i) {
+    last = selection.model->score(features);
+  }
+  const AllocationSnapshot steady_snapshot = allocation_snapshot();
+
+  INFO("onnx load allocations=" << load_snapshot.allocations
+                                << " bytes=" << load_snapshot.bytes_allocated
+                                << "; steady-state allocations=" << steady_snapshot.allocations
+                                << " over 16 scores");
+  REQUIRE(last == Catch::Approx(3.5)); // deterministic scoring
+  // The allocation counts above are informational and reported via INFO; we do
+  // not assert ONNX inference is allocation-free because that is not proven.
+  // Determinism is the real invariant being tested here.
+  (void)steady_snapshot;
+  (void)load_snapshot;
 
   std::filesystem::remove(model_path);
 }

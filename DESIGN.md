@@ -133,6 +133,23 @@ hooks. A TorchScript-style class documents the external-model boundary, but it i
 LibTorch or another runtime is deliberately linked. This infrastructure measures plumbing cost; it
 does not imply a profitable model.
 
+The timeout/late-signal policy has two layers. `evaluate_inference_policy` is a pure function of
+injected `(observed_latency_ns, signal_timestamp_ns, now_timestamp_ns)` values: a signal is accepted
+within budget, abstained when the model is over its timeout, and abstained when the signal is older
+than `max_signal_age_ns`. `InferencePolicyGate` wraps that pure function with the only state the
+policy needs — a consecutive late-signal counter and a latched `disabled` flag. When
+`disable_on_repeated_late_signals` is configured, the gate disables the model after
+`max_consecutive_late_signals` consecutive late signals and abstains on every subsequent call until
+`reset()`. Because the gate is driven by injected timings rather than the wall clock, its disable
+behaviour is unit-tested deterministically.
+
+The benchmark runner reports inference timings under a separate `inference` category so model and
+feature-extraction cost is never folded into the trading hot path. It covers feature extraction only,
+LinearModel inference only, feature extraction + LinearModel, the measured-engine path, the
+event-loop policy-gate overhead, and — only when built with ONNX Runtime — ONNX inference only and
+feature extraction + ONNX. Each inference benchmark records its backend, model name and input shape
+alongside the latency distribution and allocation count.
+
 Backend selection is explicit: `make_inference_backend` returns a `Model` for the requested backend
 and records whether it fell back. The deterministic `LinearModel` is the default and the fallback. An
 optional ONNX Runtime backend (`OnnxModel`) is compiled only behind the `ASTERION_USE_ONNXRUNTIME`

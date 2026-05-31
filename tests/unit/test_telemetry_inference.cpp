@@ -97,6 +97,106 @@ TEST_CASE("Measured inference separates model latency from policy decisions", "[
   REQUIRE_FALSE(result.late_signal);
 }
 
+TEST_CASE("Late-signal policy accepts within budget and abstains over budget",
+          "[inference][policy]") {
+  // Injected timings only: signal age = now - signal_ts; latency is supplied directly.
+  InferencePolicy policy;
+  policy.max_signal_age_ns = 100;
+  policy.drop_late_signals = true;
+
+  // Age 80 <= budget 100: accepted.
+  const InferencePolicyResult in_budget = evaluate_inference_policy(policy, 0, 1'000, 1'080);
+  REQUIRE_FALSE(in_budget.late_signal);
+  REQUIRE(in_budget.accepted);
+
+  // Age 150 > budget 100: late, abstain.
+  const InferencePolicyResult over_budget = evaluate_inference_policy(policy, 0, 1'000, 1'150);
+  REQUIRE(over_budget.late_signal);
+  REQUIRE_FALSE(over_budget.accepted);
+  REQUIRE(over_budget.decision == InferenceDecision::LateSignal);
+}
+
+TEST_CASE("Policy gate disables the model after repeated late signals when configured",
+          "[inference][policy][gate]") {
+  InferencePolicy policy;
+  policy.max_signal_age_ns = 100;
+  policy.drop_late_signals = true;
+  policy.disable_on_repeated_late_signals = true;
+  policy.max_consecutive_late_signals = 3;
+
+  InferencePolicyGate gate(policy);
+  REQUIRE_FALSE(gate.model_disabled());
+
+  // Two late signals: late and abstaining, but not yet disabled.
+  for (int i = 0; i < 2; ++i) {
+    const InferencePolicyResult r = gate.observe(0, 1'000, 1'500);
+    REQUIRE(r.late_signal);
+    REQUIRE_FALSE(r.accepted);
+    REQUIRE_FALSE(r.model_disabled);
+  }
+  REQUIRE(gate.consecutive_late_signals() == 2);
+
+  // Third consecutive late signal crosses the threshold and latches disabled.
+  const InferencePolicyResult third = gate.observe(0, 1'000, 1'500);
+  REQUIRE(third.late_signal);
+  REQUIRE(third.model_disabled);
+  REQUIRE_FALSE(third.accepted);
+  REQUIRE(gate.model_disabled());
+
+  // Once disabled it stays disabled and abstains even for an on-time signal.
+  const InferencePolicyResult on_time = gate.observe(0, 1'000, 1'050);
+  REQUIRE_FALSE(on_time.late_signal);
+  REQUIRE(on_time.model_disabled);
+  REQUIRE_FALSE(on_time.accepted);
+
+  // Reset clears the latch and the counter.
+  gate.reset();
+  REQUIRE_FALSE(gate.model_disabled());
+  REQUIRE(gate.consecutive_late_signals() == 0);
+  const InferencePolicyResult after_reset = gate.observe(0, 1'000, 1'050);
+  REQUIRE(after_reset.accepted);
+  REQUIRE_FALSE(after_reset.model_disabled);
+}
+
+TEST_CASE("Policy gate resets the late counter on an on-time signal", "[inference][policy][gate]") {
+  InferencePolicy policy;
+  policy.max_signal_age_ns = 100;
+  policy.drop_late_signals = true;
+  policy.disable_on_repeated_late_signals = true;
+  policy.max_consecutive_late_signals = 3;
+
+  InferencePolicyGate gate(policy);
+  (void)gate.observe(0, 1'000, 1'500); // late -> 1
+  (void)gate.observe(0, 1'000, 1'500); // late -> 2
+  REQUIRE(gate.consecutive_late_signals() == 2);
+
+  (void)gate.observe(0, 1'000, 1'050); // on-time resets to 0
+  REQUIRE(gate.consecutive_late_signals() == 0);
+  REQUIRE_FALSE(gate.model_disabled());
+
+  // Two more late signals are not enough to disable now that the run was broken.
+  (void)gate.observe(0, 1'000, 1'500);
+  const InferencePolicyResult r = gate.observe(0, 1'000, 1'500);
+  REQUIRE_FALSE(r.model_disabled);
+  REQUIRE(gate.consecutive_late_signals() == 2);
+}
+
+TEST_CASE("Policy gate never disables when the feature is not configured",
+          "[inference][policy][gate]") {
+  InferencePolicy policy;
+  policy.max_signal_age_ns = 100;
+  policy.drop_late_signals = true;
+  // disable_on_repeated_late_signals stays false (default).
+
+  InferencePolicyGate gate(policy);
+  for (int i = 0; i < 10; ++i) {
+    const InferencePolicyResult r = gate.observe(0, 1'000, 1'500);
+    REQUIRE(r.late_signal);
+    REQUIRE_FALSE(r.model_disabled);
+  }
+  REQUIRE_FALSE(gate.model_disabled());
+}
+
 TEST_CASE("TorchScript backend is an honest placeholder until LibTorch is linked",
           "[inference]") {
   TorchScriptModel model("model.ts");
