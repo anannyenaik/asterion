@@ -7,15 +7,23 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 using namespace asterion;
 
 namespace {
+
+constexpr std::string_view kEventLogSchemaGuardHint =
+    "If this event-log schema drift is intentional, update "
+    "data/schema/event_log_schema_v1.json and docs/event_log_schema.md with the migration note, "
+    "then regenerate affected fixtures.";
 
 std::filesystem::path temp_path(std::string_view suffix) {
   const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -77,7 +85,93 @@ void write_text(const std::filesystem::path& path, std::string_view content) {
   output << content;
 }
 
+std::vector<std::uint8_t> read_binary_bytes(const std::filesystem::path& path) {
+  std::ifstream input(path, std::ios::binary);
+  return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+template <typename T>
+[[nodiscard]] T read_little_endian_from(std::span<const std::uint8_t> bytes, std::size_t offset) {
+  static_assert(std::is_integral_v<T>);
+  std::uint64_t value = 0;
+  for (std::size_t i = 0; i < sizeof(T); ++i) {
+    value |= static_cast<std::uint64_t>(bytes[offset + i]) << (i * 8U);
+  }
+  return static_cast<T>(value);
+}
+
 } // namespace
+
+TEST_CASE("Event-log schema constants match the documented v1 wire contract",
+          "[event-log][schema]") {
+  INFO(kEventLogSchemaGuardHint);
+  REQUIRE(kMarketDataCsvHeader ==
+          "timestamp_ns,sequence_number,symbol_id,event_type,side,price_ticks,quantity,"
+          "order_id,trade_id,flags");
+  REQUIRE(kBinaryEventLogMagic == "ASTITCH1");
+  REQUIRE(kBinaryEventLogVersion == 1);
+  REQUIRE(kBinaryEventLogHeaderSize == 16);
+  REQUIRE(kBinaryEventRecordSize == 58);
+
+  REQUIRE(static_cast<std::uint8_t>(MarketEventType::Add) == 1);
+  REQUIRE(static_cast<std::uint8_t>(MarketEventType::Cancel) == 2);
+  REQUIRE(static_cast<std::uint8_t>(MarketEventType::Replace) == 3);
+  REQUIRE(static_cast<std::uint8_t>(MarketEventType::Execute) == 4);
+  REQUIRE(static_cast<std::uint8_t>(MarketEventType::Trade) == 5);
+  REQUIRE(static_cast<std::uint8_t>(MarketEventType::Snapshot) == 6);
+  REQUIRE(static_cast<std::uint8_t>(MarketEventType::Heartbeat) == 7);
+
+  REQUIRE(static_cast<std::uint8_t>(Side::None) == 0);
+  REQUIRE(static_cast<std::uint8_t>(Side::Buy) == 1);
+  REQUIRE(static_cast<std::uint8_t>(Side::Sell) == 2);
+
+  REQUIRE(kSnapshotBeginFlag == 0x1U);
+  REQUIRE(kSnapshotEndFlag == 0x2U);
+}
+
+TEST_CASE("Binary event-log writer preserves v1 header and record field layout",
+          "[event-log][schema][binary]") {
+  INFO(kEventLogSchemaGuardHint);
+  const MarketDataEvent event{0x0102030405060708LL,
+                              0x1112131415161718ULL,
+                              0x21222324U,
+                              MarketEventType::Trade,
+                              Side::Sell,
+                              0x0414243444546474LL,
+                              0x0515253545556575LL,
+                              0x6162636465666768ULL,
+                              0x7172737475767778ULL,
+                              0x31323334U};
+  const auto path = temp_path(".bin");
+  REQUIRE(write_event_log(path, std::span<const MarketDataEvent>(&event, 1), EventLogFormat::Binary)
+              .error.empty());
+
+  const std::vector<std::uint8_t> bytes = read_binary_bytes(path);
+  REQUIRE(bytes.size() == kBinaryEventLogHeaderSize + kBinaryEventRecordSize);
+  REQUIRE(std::string_view(reinterpret_cast<const char*>(bytes.data()), kBinaryEventLogMagic.size()) ==
+          kBinaryEventLogMagic);
+  REQUIRE(read_little_endian_from<std::uint16_t>(bytes, 8) == kBinaryEventLogVersion);
+  REQUIRE(read_little_endian_from<std::uint16_t>(bytes, 10) == kBinaryEventLogHeaderSize);
+  REQUIRE(read_little_endian_from<std::uint16_t>(bytes, 12) == kBinaryEventRecordSize);
+  REQUIRE(read_little_endian_from<std::uint16_t>(bytes, 14) == 0U);
+
+  const std::span<const std::uint8_t> record(bytes.data() + kBinaryEventLogHeaderSize,
+                                             kBinaryEventRecordSize);
+  REQUIRE(read_little_endian_from<TimestampNs>(record, 0) == event.timestamp_ns);
+  REQUIRE(read_little_endian_from<SequenceNumber>(record, 8) == event.sequence_number);
+  REQUIRE(read_little_endian_from<SymbolId>(record, 16) == event.symbol_id);
+  REQUIRE(read_little_endian_from<std::uint8_t>(record, 20) ==
+          static_cast<std::uint8_t>(event.event_type));
+  REQUIRE(read_little_endian_from<std::uint8_t>(record, 21) ==
+          static_cast<std::uint8_t>(event.side));
+  REQUIRE(read_little_endian_from<std::uint32_t>(record, 22) == event.flags);
+  REQUIRE(read_little_endian_from<PriceTicks>(record, 26) == event.price_ticks);
+  REQUIRE(read_little_endian_from<Quantity>(record, 34) == event.quantity);
+  REQUIRE(read_little_endian_from<OrderId>(record, 42) == event.order_id);
+  REQUIRE(read_little_endian_from<TradeId>(record, 50) == event.trade_id);
+
+  std::filesystem::remove(path);
+}
 
 TEST_CASE("Binary event log round-trips every event kind", "[event-log][binary]") {
   const std::vector<MarketDataEvent> events = representative_events();
@@ -103,6 +197,15 @@ TEST_CASE("CSV and binary event logs preserve ordering and replay checksums",
 }
 
 TEST_CASE("Malformed binary event logs are rejected safely", "[event-log][binary][adversarial]") {
+  const auto truncated_header_path = temp_path(".bin");
+  write_text(truncated_header_path, "AST");
+  const EventLogReadResult truncated_header =
+      read_event_log(truncated_header_path, EventLogFormat::Binary);
+  REQUIRE_FALSE(truncated_header.error.empty());
+  REQUIRE(truncated_header.error.find("truncated binary event-log header") != std::string::npos);
+  REQUIRE(truncated_header.events.empty());
+  std::filesystem::remove(truncated_header_path);
+
   const auto invalid_magic_path = temp_path(".bin");
   write_text(invalid_magic_path, "BADITCH1XXXXXXXX");
   const EventLogReadResult invalid_magic =
@@ -143,6 +246,37 @@ TEST_CASE("Malformed binary event logs are rejected safely", "[event-log][binary
   REQUIRE(record_size.events.empty());
   std::filesystem::remove(invalid_record_size_path);
 
+  const auto invalid_header_size_path = temp_path(".bin");
+  REQUIRE(write_event_log(invalid_header_size_path, representative_events(), EventLogFormat::Binary)
+              .error.empty());
+  std::fstream invalid_header_size(invalid_header_size_path,
+                                   std::ios::binary | std::ios::in | std::ios::out);
+  invalid_header_size.seekp(10);
+  const char bad_header_size[] = {static_cast<char>(1), 0};
+  invalid_header_size.write(bad_header_size, 2);
+  invalid_header_size.close();
+  const EventLogReadResult header_size =
+      read_event_log(invalid_header_size_path, EventLogFormat::Binary);
+  REQUIRE_FALSE(header_size.error.empty());
+  REQUIRE(header_size.error.find("header size") != std::string::npos);
+  REQUIRE(header_size.events.empty());
+  std::filesystem::remove(invalid_header_size_path);
+
+  const auto invalid_reserved_path = temp_path(".bin");
+  REQUIRE(write_event_log(invalid_reserved_path, representative_events(), EventLogFormat::Binary)
+              .error.empty());
+  std::fstream invalid_reserved(invalid_reserved_path,
+                                std::ios::binary | std::ios::in | std::ios::out);
+  invalid_reserved.seekp(14);
+  const char bad_reserved[] = {static_cast<char>(1), 0};
+  invalid_reserved.write(bad_reserved, 2);
+  invalid_reserved.close();
+  const EventLogReadResult reserved = read_event_log(invalid_reserved_path, EventLogFormat::Binary);
+  REQUIRE_FALSE(reserved.error.empty());
+  REQUIRE(reserved.error.find("reserved header field") != std::string::npos);
+  REQUIRE(reserved.events.empty());
+  std::filesystem::remove(invalid_reserved_path);
+
   const auto truncated_path = temp_path(".bin");
   REQUIRE(write_event_log(truncated_path, representative_events(), EventLogFormat::Binary)
               .error.empty());
@@ -165,7 +299,8 @@ TEST_CASE("Malformed binary event logs are rejected safely", "[event-log][binary
 
   const EventLogReadResult invalid = read_event_log(invalid_type_path, EventLogFormat::Binary);
   REQUIRE_FALSE(invalid.error.empty());
-  REQUIRE(invalid.error.find("invalid event type") != std::string::npos);
+  REQUIRE(invalid.error.find("enum drift") != std::string::npos);
+  REQUIRE(invalid.error.find("MarketEventType") != std::string::npos);
   REQUIRE(invalid.events.empty());
   std::filesystem::remove(invalid_type_path);
 
@@ -180,7 +315,8 @@ TEST_CASE("Malformed binary event logs are rejected safely", "[event-log][binary
 
   const EventLogReadResult side = read_event_log(invalid_side_path, EventLogFormat::Binary);
   REQUIRE_FALSE(side.error.empty());
-  REQUIRE(side.error.find("invalid side") != std::string::npos);
+  REQUIRE(side.error.find("enum drift") != std::string::npos);
+  REQUIRE(side.error.find("Side") != std::string::npos);
   REQUIRE(side.events.empty());
   std::filesystem::remove(invalid_side_path);
 }
@@ -191,9 +327,20 @@ TEST_CASE("Malformed CSV event logs are rejected safely", "[event-log][csv][adve
   const EventLogReadResult invalid_header =
       read_event_log(invalid_header_path, EventLogFormat::Csv);
   REQUIRE_FALSE(invalid_header.error.empty());
-  REQUIRE(invalid_header.error.find("expected 10 CSV fields") != std::string::npos);
+  REQUIRE(invalid_header.error.find("CSV column drift") != std::string::npos);
   REQUIRE(invalid_header.events.empty());
   std::filesystem::remove(invalid_header_path);
+
+  const auto reordered_header_path = temp_path(".csv");
+  write_text(reordered_header_path,
+             "event_type,timestamp_ns,sequence_number,symbol_id,side,price_ticks,quantity,"
+             "order_id,trade_id,flags\n");
+  const EventLogReadResult reordered_header =
+      read_event_log(reordered_header_path, EventLogFormat::Csv);
+  REQUIRE_FALSE(reordered_header.error.empty());
+  REQUIRE(reordered_header.error.find("CSV column drift") != std::string::npos);
+  REQUIRE(reordered_header.events.empty());
+  std::filesystem::remove(reordered_header_path);
 
   const auto invalid_enum_path = temp_path(".csv");
   write_text(invalid_enum_path,
@@ -213,6 +360,7 @@ TEST_CASE("Malformed CSV event logs are rejected safely", "[event-log][csv][adve
   const EventLogReadResult oversized = read_event_log(oversized_path, EventLogFormat::Csv);
   REQUIRE_FALSE(oversized.error.empty());
   REQUIRE(oversized.error.find("failed to parse") != std::string::npos);
+  REQUIRE(oversized.error.find("timestamp_ns") != std::string::npos);
   REQUIRE(oversized.events.empty());
   std::filesystem::remove(oversized_path);
 }

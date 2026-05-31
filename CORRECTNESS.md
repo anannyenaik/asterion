@@ -175,6 +175,16 @@ Replay checksums are asserted to be stable across repeated runs over the same in
 between CSV and binary encodings of the same events. These tests run against small checked-in sample
 logs and skip automatically when the compiled Python bindings are not available.
 
+## Event-Log Schema Drift Guards
+
+The event-log schema v1 boundary is guarded by a small manifest at
+`data/schema/event_log_schema_v1.json`, C++ binary layout tests and Python manifest tests. They
+assert the binary magic/header, schema version, record size, field offsets, enum wire values, CSV
+column order, canonical event type spelling, numeric parsing diagnostics, fixture checksums and
+CSV/binary semantic round-trips. Failure messages classify enum drift, CSV column drift, binary
+layout/header drift, fixture checksum drift and writer/reader semantic drift, then point to
+`docs/event_log_schema.md` for the migration checklist.
+
 ## Benchmark Comparison Logic
 
 The offline benchmark regression comparison is tested on synthetic in-memory and checked-in fixtures

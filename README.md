@@ -207,6 +207,11 @@ uint64 order_id
 uint64 trade_id
 ```
 
+The schema boundary is recorded in
+[`data/schema/event_log_schema_v1.json`](data/schema/event_log_schema_v1.json) and documented in
+[`docs/event_log_schema.md`](docs/event_log_schema.md). Binary layout, CSV column order, enum wire
+values and fixture checksum drift tests point there when an intentional migration is required.
+
 Replay auto-detects binary logs by magic bytes, or accepts an explicit format:
 
 ```bash

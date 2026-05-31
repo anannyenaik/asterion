@@ -11,6 +11,9 @@ namespace asterion {
 
 namespace {
 
+inline constexpr std::string_view kCsvSchemaMigrationHint =
+    "See docs/event_log_schema.md for the event-log schema migration/versioning checklist.";
+
 [[nodiscard]] std::string trim_copy(std::string_view value) {
   const auto begin = value.find_first_not_of(" \t\r\n");
   if (begin == std::string_view::npos) {
@@ -44,6 +47,14 @@ template <typename T> [[nodiscard]] std::optional<T> parse_integral(const std::s
     return std::nullopt;
   }
   return output;
+}
+
+void set_csv_parse_error(std::string* error, std::string_view field_name,
+                         std::string_view detail) {
+  if (error != nullptr) {
+    *error = "failed to parse CSV " + std::string(detail) + " field " +
+             std::string(field_name) + ". " + std::string(kCsvSchemaMigrationHint);
+  }
 }
 
 } // namespace
@@ -113,7 +124,11 @@ std::optional<MarketDataEvent> parse_market_data_event_csv(std::string_view line
   const auto fields = split_csv(line);
   if (fields.size() != 10U) {
     if (error != nullptr) {
-      *error = "expected 10 CSV fields";
+      *error =
+          "CSV column drift: expected 10 fields in v1 order "
+          "(timestamp_ns,sequence_number,symbol_id,event_type,side,price_ticks,quantity,"
+          "order_id,trade_id,flags), got " +
+          std::to_string(fields.size()) + ". " + std::string(kCsvSchemaMigrationHint);
     }
     return std::nullopt;
   }
@@ -129,11 +144,44 @@ std::optional<MarketDataEvent> parse_market_data_event_csv(std::string_view line
   auto trade_id = parse_integral<TradeId>(fields[8]);
   auto flags = parse_integral<std::uint32_t>(fields[9]);
 
-  if (!timestamp || !sequence || !symbol || !event_type || !side || !price || !quantity ||
-      !order_id || !trade_id || !flags) {
-    if (error != nullptr) {
-      *error = "failed to parse one or more CSV fields";
-    }
+  if (!timestamp) {
+    set_csv_parse_error(error, "timestamp_ns", "numeric");
+    return std::nullopt;
+  }
+  if (!sequence) {
+    set_csv_parse_error(error, "sequence_number", "numeric");
+    return std::nullopt;
+  }
+  if (!symbol) {
+    set_csv_parse_error(error, "symbol_id", "numeric");
+    return std::nullopt;
+  }
+  if (!event_type) {
+    set_csv_parse_error(error, "event_type", "event_type spelling");
+    return std::nullopt;
+  }
+  if (!side) {
+    set_csv_parse_error(error, "side", "side spelling");
+    return std::nullopt;
+  }
+  if (!price) {
+    set_csv_parse_error(error, "price_ticks", "numeric");
+    return std::nullopt;
+  }
+  if (!quantity) {
+    set_csv_parse_error(error, "quantity", "numeric");
+    return std::nullopt;
+  }
+  if (!order_id) {
+    set_csv_parse_error(error, "order_id", "numeric");
+    return std::nullopt;
+  }
+  if (!trade_id) {
+    set_csv_parse_error(error, "trade_id", "numeric");
+    return std::nullopt;
+  }
+  if (!flags) {
+    set_csv_parse_error(error, "flags", "numeric");
     return std::nullopt;
   }
 

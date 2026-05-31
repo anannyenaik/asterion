@@ -64,6 +64,10 @@ CSV and binary logs share the same canonical event fields and produce the same e
 checksum when they contain equivalent events. The binary format is intentionally small and
 explicit: a fixed `ASTITCH1` header followed by 58-byte little-endian records. The parser validates
 magic bytes, schema version, record size, event type, side and truncated records before replay.
+The v1 schema boundary is captured in `data/schema/event_log_schema_v1.json` and explained in
+`docs/event_log_schema.md`; breaking changes to CSV columns, binary layout, enum wire values,
+snapshot flag semantics or fixture formats require an explicit migration note and fixture
+regeneration.
 
 ### Recorded Binance Public Depth Normalisation
 

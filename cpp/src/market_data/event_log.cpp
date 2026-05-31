@@ -18,15 +18,57 @@ namespace {
 using HeaderBytes = std::array<std::uint8_t, kBinaryEventLogHeaderSize>;
 using RecordBytes = std::array<std::uint8_t, kBinaryEventRecordSize>;
 
-[[nodiscard]] bool is_ignored_csv_line(const std::string& line) {
-  const auto first = line.find_first_not_of(" \t\r\n");
-  if (first == std::string::npos) {
+inline constexpr std::string_view kEventLogSchemaMigrationHint =
+    "See docs/event_log_schema.md for the event-log schema migration/versioning checklist.";
+
+[[nodiscard]] std::string schema_error(std::string_view category, std::string_view detail) {
+  return std::string(category) + ": " + std::string(detail) + ". " +
+         std::string(kEventLogSchemaMigrationHint);
+}
+
+[[nodiscard]] std::string trim_ascii_copy(std::string_view value) {
+  const auto begin = value.find_first_not_of(" \t\r\n");
+  if (begin == std::string_view::npos) {
+    return {};
+  }
+  const auto end = value.find_last_not_of(" \t\r\n");
+  return std::string(value.substr(begin, end - begin + 1U));
+}
+
+[[nodiscard]] bool is_blank_or_comment_csv_line(std::string_view trimmed) {
+  return trimmed.empty() || trimmed.front() == '#';
+}
+
+[[nodiscard]] bool looks_like_csv_header(std::string_view line) {
+  constexpr std::array<std::string_view, 10> columns{
+      "timestamp_ns", "sequence_number", "symbol_id", "event_type", "side",
+      "price_ticks",  "quantity",        "order_id",  "trade_id",   "flags"};
+  std::size_t matches = 0;
+  for (const std::string_view column : columns) {
+    if (line.find(column) != std::string_view::npos) {
+      ++matches;
+    }
+  }
+  return matches >= 2U;
+}
+
+[[nodiscard]] bool is_ignored_csv_line(const std::string& line, std::string* error) {
+  const std::string trimmed = trim_ascii_copy(line);
+  if (is_blank_or_comment_csv_line(trimmed)) {
     return true;
   }
-  if (line[first] == '#') {
+  if (trimmed == kMarketDataCsvHeader) {
     return true;
   }
-  return line.find("timestamp_ns") != std::string::npos;
+  if (looks_like_csv_header(trimmed)) {
+    if (error != nullptr) {
+      *error = schema_error("CSV column drift",
+                            "expected v1 header \"" + std::string(kMarketDataCsvHeader) +
+                                "\", got \"" + trimmed + "\"");
+    }
+    return true;
+  }
+  return false;
 }
 
 [[nodiscard]] std::string lower_copy(std::string_view value) {
@@ -131,7 +173,10 @@ template <typename T>
   const auto event_type = event_type_from_wire(bytes[20]);
   if (!event_type) {
     if (error != nullptr) {
-      *error = "record " + std::to_string(record_index) + ": invalid event type";
+      *error = schema_error("enum drift",
+                            "record " + std::to_string(record_index) +
+                                ": invalid MarketEventType wire value " +
+                                std::to_string(bytes[20]));
     }
     return std::nullopt;
   }
@@ -139,7 +184,9 @@ template <typename T>
   const auto side = side_from_wire(bytes[21]);
   if (!side) {
     if (error != nullptr) {
-      *error = "record " + std::to_string(record_index) + ": invalid side";
+      *error = schema_error("enum drift",
+                            "record " + std::to_string(record_index) +
+                                ": invalid Side wire value " + std::to_string(bytes[21]));
     }
     return std::nullopt;
   }
@@ -171,7 +218,14 @@ template <typename T>
   std::size_t line_number = 0;
   while (std::getline(input, line)) {
     ++line_number;
-    if (is_ignored_csv_line(line)) {
+    std::string header_error;
+    if (is_ignored_csv_line(line, &header_error)) {
+      if (!header_error.empty()) {
+        result.error = "line " + std::to_string(line_number) + ": " + header_error;
+        result.events.clear();
+        result.event_checksum = kFnvOffsetBasis;
+        return result;
+      }
       continue;
     }
     std::string error;
@@ -202,30 +256,49 @@ template <typename T>
   HeaderBytes header{};
   input.read(reinterpret_cast<char*>(header.data()), static_cast<std::streamsize>(header.size()));
   if (input.gcount() != static_cast<std::streamsize>(header.size())) {
-    result.error = "truncated binary event-log header";
+    result.error = schema_error("malformed binary event log", "truncated binary event-log header");
     return result;
   }
 
   const std::string_view magic(reinterpret_cast<const char*>(header.data()),
                                kBinaryEventLogMagic.size());
   if (magic != kBinaryEventLogMagic) {
-    result.error = "invalid binary event-log magic";
+    result.error = schema_error("binary header drift",
+                                "invalid binary event-log magic, expected \"" +
+                                    std::string(kBinaryEventLogMagic) + "\"");
     return result;
   }
 
   const std::uint16_t version = read_header_u16(header, 8);
   const std::uint16_t header_size = read_header_u16(header, 10);
   const std::uint16_t record_size = read_header_u16(header, 12);
+  const std::uint16_t reserved = read_header_u16(header, 14);
   if (version != kBinaryEventLogVersion) {
-    result.error = "unsupported binary event-log version: " + std::to_string(version);
+    result.error = schema_error("binary schema version drift",
+                                "unsupported binary event-log version " +
+                                    std::to_string(version) + ", expected " +
+                                    std::to_string(kBinaryEventLogVersion));
     return result;
   }
   if (header_size != kBinaryEventLogHeaderSize) {
-    result.error = "unsupported binary event-log header size: " + std::to_string(header_size);
+    result.error = schema_error("binary layout drift",
+                                "unsupported binary event-log header size " +
+                                    std::to_string(header_size) + ", expected " +
+                                    std::to_string(kBinaryEventLogHeaderSize));
     return result;
   }
   if (record_size != kBinaryEventRecordSize) {
-    result.error = "unsupported binary event record size: " + std::to_string(record_size);
+    result.error = schema_error("binary layout drift",
+                                "unsupported binary event record size " +
+                                    std::to_string(record_size) + ", expected " +
+                                    std::to_string(kBinaryEventRecordSize));
+    return result;
+  }
+  if (reserved != 0U) {
+    result.error =
+        schema_error("binary header drift",
+                     "reserved header field must be zero in schema v1, got " +
+                         std::to_string(reserved));
     return result;
   }
 
@@ -238,7 +311,9 @@ template <typename T>
       break;
     }
     if (bytes_read != static_cast<std::streamsize>(record.size())) {
-      result.error = "truncated binary event record at index " + std::to_string(record_index);
+      result.error = schema_error("malformed binary event log",
+                                  "truncated binary event record at index " +
+                                      std::to_string(record_index));
       result.events.clear();
       result.event_checksum = kFnvOffsetBasis;
       return result;

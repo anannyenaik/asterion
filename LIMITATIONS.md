@@ -57,6 +57,10 @@ Explicit limitations:
   the default unless shared replay parity is exhaustively validated and documented;
 - historical benchmark trends are only meaningful on the same controlled hardware and are kept out of
   CI performance gates;
+- event-log schema v1 is stable for the checked-in fixtures and guarded by manifest/tests, but
+  Asterion does not yet ship a general multi-version migration framework. Breaking schema changes
+  must bump the version, update `docs/event_log_schema.md`, regenerate affected fixtures and
+  document how old logs should be converted;
 - the recorded Binance public depth case study is a recorded public market-data engineering demo: it
   is not live trading, not authenticated exchange connectivity, and not evidence of equities-market
   realism. Capture uses only the public REST `/api/v3/depth` endpoint with no API keys, performs no
