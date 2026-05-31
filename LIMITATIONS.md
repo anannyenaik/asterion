@@ -56,6 +56,15 @@ Explicit limitations:
   engine and does not replace the default grouped single-symbol replay path; grouped replay remains
   the default unless shared replay parity is exhaustively validated and documented;
 - historical benchmark trends are only meaningful on the same controlled hardware and are kept out of
-  CI performance gates.
+  CI performance gates;
+- the recorded Binance public depth case study is a recorded public market-data engineering demo: it
+  is not live trading, not authenticated exchange connectivity, and not evidence of equities-market
+  realism. Capture uses only the public REST `/api/v3/depth` endpoint with no API keys, performs no
+  order placement and is opt-in/manual (never run in CI). Binance depth is L2 price-level data, so the
+  normaliser models each price level as a single synthetic-order with deterministic synthetic order
+  IDs and level-replacement semantics; it does not provide real L3 order identity, per-level FIFO
+  depth, individual order sizes or true order lifetimes, and makes no profitability claim. The
+  checked-in fixture is tiny and hand-curated for deterministic CI; large local captures are
+  git-ignored.
 
 These constraints are deliberate. The first version is designed to make correctness, determinism and benchmarking boundaries solid before adding performance-specific complexity.

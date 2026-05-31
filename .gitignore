@@ -26,3 +26,8 @@ __pycache__/
 benchmarks/results/
 benchmarks/history/
 data/generated/
+# Local Binance public-depth captures can be large; keep them out of git.
+# The small checked-in fixture under data/samples/ is the deterministic path.
+data/captures/
+# Agent scratch directory (temporary orchestration scripts/logs).
+.claude/

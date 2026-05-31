@@ -244,6 +244,45 @@ shared-replay fuzz summaries are exposed through Python and the inspection CLI. 
 fixtures for the opt-in shared path; grouped replay remains the default unless shared replay parity
 is exhaustively validated and documented.
 
+## Recorded Binance Public Depth Case Study
+
+A recorded **public** Binance order-book depth stream, normalised into Asterion's
+event schema and replayed deterministically through the existing
+replay/diagnostics pipeline.
+
+**This is a recorded public market-data engineering demo. It is not live trading, not authenticated exchange connectivity, and not evidence of equities-market realism.** No API keys, no order placement, no broker connectivity, no profitability claim.
+
+A tiny hand-curated fixture is checked in for deterministic CI; local capture is
+opt-in and manual (never run in CI). Reviewer path:
+
+```bash
+# Normalise the checked-in fixture into Asterion CSV + binary event logs.
+python tools/normalise_binance_depth_to_asterion.py \
+  --input data/samples/binance_depth_sample.raw.jsonl \
+  --csv-output build/binance_sample.csv \
+  --binary-output build/binance_sample.bin --json
+
+# Replay the normalised binary through the existing replay engine.
+./build/asterion_replay --input build/binance_sample.bin --format binary
+
+# Replay summary / checksums via the existing inspection CLI.
+PYTHONPATH=build/python python scripts/asterion_inspect.py \
+  replay-checksums --input build/binance_sample.bin --format binary --json
+```
+
+Optional manual capture (public REST `/api/v3/depth`, no keys):
+
+```bash
+python tools/capture_binance_depth.py --symbol BTCUSDT --duration 20 \
+  --max-events 40 --output data/captures/btcusdt_depth.raw.jsonl
+```
+
+Binance depth is L2 price-level data; Asterion's schema is L3/order-oriented. The
+normaliser is an honest adapter that uses level-replacement semantics with
+deterministic synthetic order IDs and does not fabricate real exchange order IDs.
+See [docs/market_data.md](docs/market_data.md) and the case-study report
+[reports/binance_replay_case_study_2026_05_31.md](reports/binance_replay_case_study_2026_05_31.md).
+
 ## Python Usage
 
 ```bash

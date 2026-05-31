@@ -65,6 +65,24 @@ checksum when they contain equivalent events. The binary format is intentionally
 explicit: a fixed `ASTITCH1` header followed by 58-byte little-endian records. The parser validates
 magic bytes, schema version, record size, event type, side and truncated records before replay.
 
+### Recorded Binance Public Depth Normalisation
+
+`tools/normalise_binance_depth_to_asterion.py` is an honest adapter from recorded
+**public** Binance order-book depth into the same canonical event schema used by
+every other ingestion path. Binance publishes L2-style price-level data with no
+per-order identity, while Asterion's book is L3/order-oriented. The adapter uses
+**level-replacement semantics with deterministic synthetic order IDs**: each
+resting price level is one synthetic order whose id is a monotonic counter value
+assigned on first appearance, reused for `Replace` while resting and freed on
+`Cancel`. It deliberately does **not** fabricate real exchange order IDs, and the
+limitation is documented in `docs/market_data.md` and `LIMITATIONS.md`. The
+parsing/diagnostics core is pure-Python (no network, no compiled extension); only
+writing CSV/binary logs reuses the existing `asterion` event-log writer. Capture
+(`tools/capture_binance_depth.py`) uses only the public REST depth endpoint, has
+no keys and is opt-in/manual — it never runs in CI. A tiny hand-curated fixture
+drives deterministic tests. This is a recorded market-data engineering demo, not
+live trading, authenticated connectivity or an equities-realism claim.
+
 ### Replay Diagnostics
 
 Replay emits structured diagnostics with event index, sequence number, symbol, severity and reason.
