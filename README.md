@@ -29,10 +29,22 @@ python -m pytest python/tests
 .\scripts\run_demo.ps1 -SkipBuild
 ```
 
-For a quick reviewer pass, read `README.md`, `DESIGN.md`, `CORRECTNESS.md`,
-`RISK.md`, `BENCHMARKS.md`, `ROADMAP.md` and `LIMITATIONS.md`, then run the demo.
+Windows PowerShell helpers fall back to an existing MSYS2/MinGW-w64 toolchain
+(`C:\msys64\ucrt64\bin`) when `cmake` is not already on `PATH`.
+
+For a quick reviewer pass, read this README, then skim the supporting docs:
+[DESIGN.md](DESIGN.md), [CORRECTNESS.md](CORRECTNESS.md), [RISK.md](RISK.md),
+[BENCHMARKS.md](BENCHMARKS.md), [LIMITATIONS.md](LIMITATIONS.md),
+[ROADMAP.md](ROADMAP.md) and [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md). The current
+release candidate is described in [RELEASE_NOTES.md](RELEASE_NOTES.md). Then run the demo.
 The demo uses checked-in sample data and writes generated audit/latency/benchmark
 artifacts under `build/demo/`, which is ignored by git.
+
+**What this 10-minute path proves:** the project builds clean in Release, the C++ and
+Python test suites pass, and the demo reproduces deterministic checksums (book, execution
+report, diagnostics, audit chain, latency config) on checked-in data — while machine-dependent
+timings vary. **What it does not claim:** any live connectivity, production HFT performance or
+portable/committed benchmark numbers (see [What This Does Not Claim](#what-this-does-not-claim)).
 
 ## What This Proves
 
