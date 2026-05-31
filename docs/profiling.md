@@ -63,6 +63,33 @@ flamegraph.pl build/perf_profile/out.folded > build/perf_profile/asterion.svg
 GitHub-hosted runners often do not expose hardware performance counters. The manual
 `linux-performance` workflow records that blocker honestly and does not gate on benchmark numbers.
 
+## WSL2 blocker record
+
+On 2026-05-31, WSL2/Ubuntu was tested from Windows PowerShell on the Windows 10 host. The setup path could install/download components, but the current Windows session could not start WSL until the optional component takes effect after reboot/admin completion.
+
+Commands run:
+
+```powershell
+wsl --status
+wsl -l -v
+wsl --list --online
+Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux
+Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform
+wsl --install -d Ubuntu --no-launch
+wsl --update
+wsl --shutdown
+wsl -d Ubuntu -- uname -a
+```
+
+Observed limitation:
+
+- `Get-WindowsOptionalFeature ...` returned `The requested operation requires elevation.`
+- `wsl --install -d Ubuntu --no-launch` reported WSL components and Ubuntu installed, then reported that changes will not be effective until the system is rebooted.
+- `wsl --status`, `wsl -l -v`, `wsl --shutdown`, and `wsl -d Ubuntu -- uname -a` failed with `WSL_E_WSL_OPTIONAL_COMPONENT_REQUIRED`.
+- Software counters were not probed because Ubuntu could not start.
+- Hardware counters were not probed because Ubuntu could not start.
+- Native Linux, or a working WSL2 Ubuntu session after the required Windows reboot/admin completion, remains required for final `perf stat -d` hardware-counter evidence.
+
 ## Google Benchmark JSON
 
 ```bash

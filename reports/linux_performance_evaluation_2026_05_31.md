@@ -134,6 +134,36 @@ Status: not collected on this machine. This blocker is documented; no cycles, in
 - `wsl --list --quiet` did not return a usable installed Linux distribution list on this host.
 - Therefore hardware counter and flamegraph collection must be run on a Linux host or through the manual workflow where counters are exposed.
 
+### WSL2 Attempt - 2026-05-31
+
+WSL2/Ubuntu setup was attempted from Windows PowerShell on this machine. The install path downloaded/enabled WSL components and Ubuntu, but Windows reported that the changes require a reboot before WSL can start, so no Linux build, corpus generation, `perf stat -d`, software-counter probe, hardware-counter probe or flamegraph capture was run under WSL2.
+
+Commands run:
+
+```powershell
+wsl --status
+wsl -l -v
+wsl --list --online
+Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux
+Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform
+wsl --install -d Ubuntu --no-launch
+wsl --status
+wsl -l -v
+wsl --update
+wsl --shutdown
+wsl -d Ubuntu -- uname -a
+```
+
+Observed blocker:
+
+- `Get-WindowsOptionalFeature ...` could not be queried from this shell: `The requested operation requires elevation.`
+- `wsl --install -d Ubuntu --no-launch` reported `Virtual Machine Platform has been installed`, `Windows Subsystem for Linux has been installed`, `Ubuntu has been installed`, and then `The requested operation is successful. Changes will not be effective until the system is rebooted.`
+- After the install attempt, `wsl --status`, `wsl -l -v`, `wsl --shutdown`, and `wsl -d Ubuntu -- uname -a` all failed with `WSL_E_WSL_OPTIONAL_COMPONENT_REQUIRED` and the message that the Windows Subsystem for Linux Optional Component is required and the system may need to be restarted.
+- `wsl --update` succeeded with `The most recent version of Windows Subsystem for Linux is already installed.`
+- Software counters were not probed because Ubuntu could not start.
+- Hardware counters were not probed because Ubuntu could not start.
+- Native Linux, or a working WSL2 Ubuntu session after the required Windows reboot/admin completion, remains required for final `perf stat -d` evidence.
+
 Ready-to-run Linux commands:
 
 ```bash
