@@ -173,6 +173,13 @@ hooks. A TorchScript-style class documents the external-model boundary, but it i
 LibTorch or another runtime is deliberately linked. This infrastructure measures plumbing cost; it
 does not imply a profitable model.
 
+`FeatureExtractor` keeps the original vector-returning convenience API for research, Python and
+debugging, but the hot path can now extract into caller-owned storage. `FeatureBuffer` wraps a
+`std::span<double>` plus the populated size, `extract_into(...)` returns a status instead of throwing
+on insufficient capacity, and the feature count/version/name metadata remains explicit
+(`kL2FeatureCount`, `kL2FeatureVersion`, `kL2FeatureNames`). The vector API delegates to the
+caller-owned path so feature ordering and empty/shallow-book semantics stay identical.
+
 The timeout/late-signal policy has two layers. `evaluate_inference_policy` is a pure function of
 injected `(observed_latency_ns, signal_timestamp_ns, now_timestamp_ns)` values: a signal is accepted
 within budget, abstained when the model is over its timeout, and abstained when the signal is older
@@ -184,11 +191,13 @@ policy needs — a consecutive late-signal counter and a latched `disabled` flag
 behaviour is unit-tested deterministically.
 
 The benchmark runner reports inference timings under a separate `inference` category so model and
-feature-extraction cost is never folded into the trading hot path. It covers feature extraction only,
-LinearModel inference only, feature extraction + LinearModel, the measured-engine path, the
-event-loop policy-gate overhead, and — only when built with ONNX Runtime — ONNX inference only and
-feature extraction + ONNX. Each inference benchmark records its backend, model name and input shape
-alongside the latency distribution and allocation count.
+feature-extraction cost is never folded into the trading hot path. It covers vector-returning
+feature extraction, caller-owned-buffer feature extraction, LinearModel inference only, old/new
+feature extraction + LinearModel paths, the measured-engine path, a caller-owned-buffer measured
+path, pure policy-gate overhead, caller-owned-buffer + policy-gate overhead, and, only when built
+with ONNX Runtime, ONNX inference plus old/new feature extraction + ONNX rows. Each inference
+benchmark records its backend, model name, input shape, feature count/version where applicable,
+latency distribution and allocation count.
 
 Backend selection is explicit: `make_inference_backend` returns a `Model` for the requested backend
 and records whether it fell back. The deterministic `LinearModel` is the default and the fallback. An

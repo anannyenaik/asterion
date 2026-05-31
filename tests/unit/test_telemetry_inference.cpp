@@ -64,6 +64,109 @@ TEST_CASE("Feature extraction is versioned and can read directly from book state
   REQUIRE(from_book[2] == Catch::Approx(0.5));
 }
 
+TEST_CASE("Caller-owned feature buffer matches vector extraction deterministically",
+          "[inference][features]") {
+  L2View view;
+  view.symbol_id = 1;
+  view.bids.push_back(L2Level{999, 300});
+  view.bids.push_back(L2Level{998, 50});
+  view.asks.push_back(L2Level{1001, 100});
+  view.asks.push_back(L2Level{1002, 25});
+
+  FeatureExtractor extractor;
+  std::array<double, kL2FeatureCount> storage{};
+  FeatureBuffer buffer{storage};
+
+  const FeatureExtractionStatus first_status = extractor.extract_into(view, buffer);
+  REQUIRE(first_status == FeatureExtractionStatus::Ok);
+  REQUIRE(to_string(first_status) == "ok");
+  REQUIRE(buffer.size == extractor.feature_count());
+  REQUIRE(buffer.size == kL2FeatureCount);
+
+  const std::vector<double> vector_features = extractor.extract(view);
+  const std::vector<double> buffer_features(buffer.used().begin(), buffer.used().end());
+  REQUIRE(buffer_features == vector_features);
+  REQUIRE(buffer_features == std::vector<double>{2.0, 1000.0, 0.5, 400.0});
+
+  std::array<double, kL2FeatureCount> second_storage{};
+  FeatureBuffer second_buffer{second_storage};
+  const FeatureExtractionStatus second_status = extractor.extract_into(view, second_buffer);
+  REQUIRE(second_status == FeatureExtractionStatus::Ok);
+  REQUIRE(std::vector<double>(second_buffer.used().begin(), second_buffer.used().end()) ==
+          buffer_features);
+}
+
+TEST_CASE("Feature buffer capacity checks do not overwrite caller storage",
+          "[inference][features]") {
+  L2View view;
+  view.bids.push_back(L2Level{999, 300});
+  view.asks.push_back(L2Level{1001, 100});
+
+  FeatureExtractor extractor;
+  std::array<double, kL2FeatureCount - 1U> storage{42.0, 43.0, 44.0};
+  FeatureBuffer buffer{storage, 123U};
+
+  const FeatureExtractionStatus status = extractor.extract_into(view, buffer);
+
+  REQUIRE(status == FeatureExtractionStatus::InsufficientCapacity);
+  REQUIRE(to_string(status) == "insufficient_capacity");
+  REQUIRE(buffer.size == 0);
+  REQUIRE(storage[0] == Catch::Approx(42.0));
+  REQUIRE(storage[1] == Catch::Approx(43.0));
+  REQUIRE(storage[2] == Catch::Approx(44.0));
+}
+
+TEST_CASE("Feature buffer preserves metadata and shallow book semantics",
+          "[inference][features]") {
+  FeatureExtractor extractor;
+
+  REQUIRE(extractor.feature_version() == kL2FeatureVersion);
+  REQUIRE(extractor.feature_count() == kL2FeatureCount);
+  const auto name_views = extractor.feature_name_views();
+  REQUIRE(name_views.size() == kL2FeatureCount);
+  REQUIRE(name_views[0] == "spread_ticks");
+  REQUIRE(name_views[1] == "mid_price_ticks");
+  REQUIRE(name_views[2] == "top_level_imbalance");
+  REQUIRE(name_views[3] == "top_level_quantity");
+
+  L2View empty_view;
+  std::array<double, kL2FeatureCount> empty_storage{};
+  FeatureBuffer empty_buffer{empty_storage};
+  REQUIRE(extractor.extract_into(empty_view, empty_buffer) == FeatureExtractionStatus::Ok);
+  REQUIRE(std::vector<double>(empty_buffer.used().begin(), empty_buffer.used().end()) ==
+          std::vector<double>{0.0, 0.0, 0.0, 0.0});
+
+  L2View shallow_view;
+  shallow_view.bids.push_back(L2Level{999, 300});
+  std::array<double, kL2FeatureCount> shallow_storage{};
+  FeatureBuffer shallow_buffer{shallow_storage};
+  REQUIRE(extractor.extract_into(shallow_view, shallow_buffer) == FeatureExtractionStatus::Ok);
+  REQUIRE(std::vector<double>(shallow_buffer.used().begin(), shallow_buffer.used().end()) ==
+          std::vector<double>{0.0, 0.0, 0.0, 0.0});
+}
+
+TEST_CASE("Feature extraction from book can use caller-owned view and feature storage",
+          "[inference][features]") {
+  OrderBook book(7);
+  REQUIRE(book.add_order(Order{1, 11, 7, Side::Buy, 999, 300, 1, 1}));
+  REQUIRE(book.add_order(Order{2, 12, 7, Side::Sell, 1001, 100, 2, 2}));
+
+  FeatureExtractor extractor;
+  L2View scratch_view;
+  scratch_view.reserve(1);
+  std::array<double, kL2FeatureCount> storage{};
+  FeatureBuffer buffer{storage};
+
+  const FeatureExtractionStatus status =
+      extractor.extract_from_book_into(book, buffer, scratch_view);
+
+  REQUIRE(status == FeatureExtractionStatus::Ok);
+  REQUIRE(scratch_view.bids.size() == 1);
+  REQUIRE(scratch_view.asks.size() == 1);
+  REQUIRE(std::vector<double>(buffer.used().begin(), buffer.used().end()) ==
+          extractor.extract_from_book(book));
+}
+
 TEST_CASE("Measured inference separates model latency from policy decisions", "[inference]") {
   LinearModel model({0.5, 0.0, 2.0, 0.001}, 1.0);
   const std::array<double, 4> features{2.0, 1000.0, 0.5, 400.0};

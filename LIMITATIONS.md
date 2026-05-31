@@ -32,8 +32,9 @@ Explicit limitations:
 - inference benchmarks measure plumbing cost only (feature extraction, model scoring, policy
   accounting) and make no predictive-quality, signal-value or profitability claim; per-call latency
   percentiles for sub-microsecond operations are dominated by the timer resolution and are
-  representative-local, not portable; feature extraction allocates one vector per call and ONNX
-  inference is not claimed to be allocation-free;
+  representative-local, not portable; the vector-returning feature extraction convenience path still
+  allocates one vector per call, while the caller-owned-buffer path is only claimed allocation-free
+  in its scoped warmed tests/benchmark rows; ONNX inference is not claimed to be allocation-free;
 - the timeout/late-signal policy can disable the model after repeated late signals only when
   explicitly configured; by default the model is never disabled and the gate merely abstains on
   individual late or timed-out signals;

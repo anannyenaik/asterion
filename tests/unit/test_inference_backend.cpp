@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -205,7 +206,13 @@ TEST_CASE("Selected backend integrates with feature extraction and latency accou
   REQUIRE(book.add_order(Order{2, 12, 7, Side::Sell, 1001, 100, 2, 2}));
 
   FeatureExtractor extractor;
-  const std::vector<double> features = extractor.extract_from_book(book);
+  L2View view;
+  view.reserve(1);
+  book.fill_l2_view(1, view);
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+  REQUIRE(extractor.extract_into(view, feature_buffer) == FeatureExtractionStatus::Ok);
+  const std::span<const double> features = feature_buffer.used();
 
   InferenceBackendConfig config;
   config.requested = InferenceBackend::Linear;

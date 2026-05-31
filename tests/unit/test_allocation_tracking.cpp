@@ -1,5 +1,6 @@
 #include "asterion/book/order_book.hpp"
 #include "asterion/core/allocation_tracker.hpp"
+#include "asterion/inference/feature_extractor.hpp"
 #include "asterion/inference/linear_model.hpp"
 #include "asterion/strategy/imbalance_strategy.hpp"
 #include "asterion/risk/risk_gateway.hpp"
@@ -169,5 +170,31 @@ TEST_CASE("Linear inference score does not allocate after model construction", "
   const AllocationSnapshot snapshot = allocation_snapshot();
 
   REQUIRE(score == Catch::Approx(1.74));
+  REQUIRE(snapshot.allocations == 0);
+}
+
+TEST_CASE("Caller-owned feature extraction and LinearModel scoring do not allocate after warm-up",
+          "[alloc][inference][features]") {
+  L2View view;
+  view.reserve(1);
+  view.bids.push_back(L2Level{999, 300});
+  view.asks.push_back(L2Level{1001, 100});
+
+  FeatureExtractor extractor;
+  LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
+  std::array<double, kL2FeatureCount> storage{};
+  FeatureBuffer buffer{storage};
+  REQUIRE(extractor.extract_into(view, buffer) == FeatureExtractionStatus::Ok);
+  REQUIRE(model.score(buffer.used()) == Catch::Approx(2.04));
+
+  reset_allocation_counters();
+  double score = 0.0;
+  for (int i = 0; i < 16; ++i) {
+    REQUIRE(extractor.extract_into(view, buffer) == FeatureExtractionStatus::Ok);
+    score = model.score(buffer.used());
+  }
+  const AllocationSnapshot snapshot = allocation_snapshot();
+
+  REQUIRE(score == Catch::Approx(2.04));
   REQUIRE(snapshot.allocations == 0);
 }
