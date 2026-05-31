@@ -1,0 +1,84 @@
+# Manual, non-blocking Linux performance evaluation.
+#
+# This workflow is NOT part of required CI. It runs only on manual dispatch,
+# never gates on benchmark numbers, and uploads only small plain-text artifacts.
+#
+# Results are representative measurements on a GitHub-hosted runner, NOT portable
+# performance claims, NOT live-trading evidence and NOT production-HFT numbers.
+# GitHub-hosted runners frequently do not expose hardware performance counters,
+# so `perf stat -d` may report "<not supported>" or fail to open PMU events. That
+# is recorded honestly and never fails the job.
+name: linux-performance
+
+on:
+  workflow_dispatch:
+    inputs:
+      events:
+        description: "Events per corpus (kept small for runner speed/artifact size)"
+        required: false
+        default: "200000"
+      iterations:
+        description: "Measured hot-path iterations"
+        required: false
+        default: "20"
+
+permissions:
+  contents: read
+
+jobs:
+  linux-perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake g++ python3
+          # linux-tools provides perf; best-effort, may not match the runner kernel.
+          sudo apt-get install -y linux-tools-common || true
+          sudo apt-get install -y "linux-tools-$(uname -r)" || true
+
+      - name: Configure (Release)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build benchmark target
+        run: cmake --build build --target asterion_benchmarks
+
+      - name: Generate corpora + standard-vs-pooled comparison (portable, always runs)
+        run: |
+          python3 scripts/run_perf_evaluation.py \
+            --datasets baseline_100k baseline_1m high_cancellation_1m \
+            --events-cap "${{ github.event.inputs.events }}" \
+            --warmup 3 --measure "${{ github.event.inputs.iterations }}"
+
+      - name: Linux perf profile (best-effort, never blocks)
+        continue-on-error: true
+        run: |
+          set +e
+          if command -v perf >/dev/null 2>&1; then
+            bash scripts/run_linux_perf_profile.sh \
+              --dataset build/perf_corpora/baseline_1m.bin \
+              --path both --iterations "${{ github.event.inputs.iterations }}" \
+              --output-dir build/perf_profile
+            echo "perf script exit: $?"
+          else
+            mkdir -p build/perf_profile
+            {
+              echo "perf not available on this runner; no hardware counters collected."
+              echo "This is the documented GitHub-hosted-runner blocker, not a failure."
+              uname -a
+            } > build/perf_profile/perf_unavailable.txt
+          fi
+          exit 0
+
+      - name: Upload text artifacts (small, safe)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-performance-text
+          path: |
+            build/perf_results/*.json
+            build/perf_profile/*.txt
+          if-no-files-found: warn
+          retention-days: 7

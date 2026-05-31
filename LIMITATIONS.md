@@ -64,6 +64,10 @@ Explicit limitations:
   checks and are not run through the single-symbol hot-path benchmark;
 - historical benchmark trends are only meaningful on the same controlled hardware and are kept out of
   CI performance gates;
+- the larger-corpus Linux performance-evaluation path is manual/non-blocking and produces
+  representative measurements for the stated machine/environment only; if `perf` counters are
+  unavailable locally or on GitHub-hosted runners, the blocker is documented and no counter values
+  are fabricated;
 - event-log schema v1 is stable for the checked-in fixtures and guarded by manifest/tests, but
   Asterion does not yet ship a general multi-version migration framework. Breaking schema changes
   must bump the version, update `docs/event_log_schema.md`, regenerate affected fixtures and

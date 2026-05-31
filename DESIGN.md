@@ -131,6 +131,9 @@ keeps logging and string formatting outside the measured event loop. It is repre
 instrumentation for this codebase, not a production HFT architecture claim.
 The runner reports both the correctness-first L3 book path and the opt-in pooled L3 book path so the
 allocation tradeoff is visible without changing default replay semantics.
+For larger replay corpora, `asterion_benchmarks --only-hot-path` narrows the run to just those two
+rows so Linux `perf` and allocation-focused reports do not mix the replay path with unrelated
+microbenchmarks.
 
 ### Risk Gateway
 

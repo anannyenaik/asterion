@@ -213,6 +213,42 @@ benchmark architecture.
 The replay benchmark uses recorded/simulated event logs only. It does not imply live exchange
 connectivity or portable hardware performance.
 
+## Serious Linux Performance Evaluation
+
+`scripts/run_perf_evaluation.py` runs a larger-corpus standard-vs-pooled L3 hot-path evaluation.
+It generates a deterministic corpus matrix (100k baseline plus 1M balanced, high-cancellation,
+replace-heavy, deep-book, bursty, wide-price-range and an optional multi-symbol-style corpus) under
+the git-ignored `build/perf_corpora/`, runs `asterion_benchmarks --only-hot-path` (which emits both
+the standard `hot_path_binary_replay_l3_l2_strategy_risk` row and the pooled
+`hot_path_binary_replay_pooled_l3_l2_strategy_risk` row in one pass), and writes a per-corpus
+comparison plus a `corpus_manifest.json` (mode, seed, event count, symbol count, SHA-256, exact
+generation command, format) under the git-ignored `build/perf_results/`. The multi-symbol-style
+corpus is generated and checksummed for reviewer visibility, but is skipped by the hot-path
+benchmark because that benchmark is deliberately single-symbol.
+
+```bash
+cmake --build build --target asterion_benchmarks
+python scripts/run_perf_evaluation.py --warmup 5 --measure 30      # full 1M matrix
+python scripts/run_perf_evaluation.py --datasets baseline_100k --events-cap 100000  # quick
+python scripts/run_perf_evaluation.py --list
+```
+
+For each corpus it records event count, warm-up/measured iterations, p50/p95/p99/p99.9/max,
+throughput, allocation count and bytes, the guard checksum, standard-vs-pooled checksum parity and
+whether the pooled path stayed allocation-free in steady state. Large corpora are never committed.
+
+On Linux, `scripts/run_linux_perf_profile.sh` profiles the hot path with `perf stat -d`
+(cycles/instructions/branches/branch-misses/cache-references/cache-misses/context-switches/
+page-faults) and optional `perf record` + flamegraph, writing text output under the git-ignored
+`build/perf_profile/`. It fails loudly (it never fakes results) when `perf` is unavailable. The
+manual `linux-performance` GitHub workflow runs the same path on dispatch only; it is non-blocking,
+gates on no numbers, and notes that GitHub-hosted runners often do not expose hardware counters.
+
+A curated evaluation report (with the measured local results) is checked in at
+[reports/linux_performance_evaluation_2026_05_31.md](reports/linux_performance_evaluation_2026_05_31.md).
+These are representative measurements on the stated machine/environment, not portable performance
+claims. See also [docs/profiling.md](docs/profiling.md).
+
 ## Python Analysis
 
 The Python package can load benchmark JSON and return a compact schema-aware summary:

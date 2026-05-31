@@ -4,12 +4,6 @@ Profiling results are hardware, kernel, compiler and power-policy dependent. Kee
 
 ## Linux perf
 
-For the measured hot-path benchmark, use the helper script:
-
-```bash
-BUILD_DIR=build-perf HOT_PATH_ITERATIONS=10000 ./scripts/profile_hot_path_perf.sh
-```
-
 Build Release first:
 
 ```bash
@@ -17,13 +11,29 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_BUILD_BENCHMA
 cmake --build build --target asterion_benchmarks
 ```
 
-Collect counters:
+Generate a deterministic local corpus and run the standard-vs-pooled comparison:
 
 ```bash
-perf stat -e cycles ./build/asterion_benchmarks --no-text --json build/bench.json
-perf stat -e cache-misses ./build/asterion_benchmarks --no-text --json build/bench.json
-perf stat -e branch-misses ./build/asterion_benchmarks --no-text --json build/bench.json
-perf stat -e cycles,instructions,cache-references,cache-misses,branches,branch-misses ./build/asterion_benchmarks
+python scripts/run_perf_evaluation.py --datasets baseline_1m --warmup 5 --measure 30
+```
+
+Then use the Linux-only helper. It writes plain-text output under the git-ignored
+`build/perf_profile/` directory and never invents results if `perf` or hardware counters are
+unavailable.
+
+```bash
+scripts/run_linux_perf_profile.sh --dataset build/perf_corpora/baseline_1m.bin \
+    --path pooled --iterations 30 --output-dir build/perf_profile
+```
+
+Collect counters directly:
+
+```bash
+perf stat -d ./build/asterion_benchmarks --dataset build/perf_corpora/baseline_1m.bin \
+    --only-hot-path --hot-path-iterations 30 --no-text
+perf stat -e cycles,instructions,branches,branch-misses,cache-references,cache-misses,context-switches,page-faults \
+    ./build/asterion_benchmarks --dataset build/perf_corpora/baseline_1m.bin \
+    --only-hot-path --hot-path-iterations 30 --no-text
 ```
 
 The benchmark JSON contains both L3 book variants:
@@ -37,16 +47,21 @@ local observations and should not be used as CI gates.
 Record flamegraph-ready samples:
 
 ```bash
-perf record -F 997 -g -- ./build/asterion_benchmarks
-perf script > build/perf.script
+perf record -F 99 -g -- ./build/asterion_benchmarks \
+    --dataset build/perf_corpora/baseline_1m.bin --only-hot-path --hot-path-iterations 30
+perf report
+perf script > build/perf_profile/perf.script
 ```
 
 If Brendan Gregg's FlameGraph scripts are installed:
 
 ```bash
-stackcollapse-perf.pl build/perf.script > build/out.folded
-flamegraph.pl build/out.folded > build/asterion.svg
+stackcollapse-perf.pl build/perf_profile/perf.script > build/perf_profile/out.folded
+flamegraph.pl build/perf_profile/out.folded > build/perf_profile/asterion.svg
 ```
+
+GitHub-hosted runners often do not expose hardware performance counters. The manual
+`linux-performance` workflow records that blocker honestly and does not gate on benchmark numbers.
 
 ## Google Benchmark JSON
 

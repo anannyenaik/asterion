@@ -59,6 +59,7 @@ struct Options {
   std::size_t hot_path_iterations{5'000};
   std::size_t warmup_iterations{5};
   bool text_output{true};
+  bool only_hot_path{false};
   std::string logging_mode;
 };
 
@@ -104,7 +105,7 @@ Order make_order(OrderId order_id, Side side, PriceTicks price, Quantity quantit
 void print_usage(std::ostream& output) {
   output << "Usage: asterion_benchmarks [dataset.csv] [--dataset path] [--json path]"
          << " [--no-text] [--logging-mode name] [--hot-path-iterations n]"
-         << " [--warmup-iterations n]\n";
+         << " [--warmup-iterations n] [--hot-path-warmup n] [--only-hot-path]\n";
 }
 
 bool parse_size_option(std::string_view name, std::string_view value, std::size_t& output) {
@@ -151,6 +152,10 @@ bool parse_options(int argc, char** argv, Options& options) {
       options.text_output = false;
       continue;
     }
+    if (arg == "--only-hot-path") {
+      options.only_hot_path = true;
+      continue;
+    }
     if (arg == "--logging-mode") {
       if (i + 1 >= argc) {
         std::cerr << "--logging-mode requires a value\n";
@@ -170,9 +175,9 @@ bool parse_options(int argc, char** argv, Options& options) {
       }
       continue;
     }
-    if (arg == "--warmup-iterations") {
+    if (arg == "--warmup-iterations" || arg == "--hot-path-warmup") {
       if (i + 1 >= argc) {
-        std::cerr << "--warmup-iterations requires a value\n";
+        std::cerr << arg << " requires a value\n";
         return false;
       }
       if (!parse_size_option(arg, argv[++i], options.warmup_iterations)) {
@@ -1061,39 +1066,43 @@ int main(int argc, char** argv) {
       options, "hot_path_binary_replay_l3_l2_strategy_risk"));
   core_results.push_back(benchmark_hot_path_pipeline<PooledOrderBook>(
       options, "hot_path_binary_replay_pooled_l3_l2_strategy_risk"));
-  core_results.push_back(benchmark_add_order());
-  core_results.push_back(benchmark_cancel_order());
-  core_results.push_back(benchmark_replace_order());
-  core_results.push_back(benchmark_market_cross_one_level());
-  core_results.push_back(benchmark_market_cross_multiple_levels());
-  core_results.push_back(benchmark_l2_snapshot());
-  core_results.push_back(benchmark_replay_sample_events(options.dataset_path));
-  core_results.push_back(benchmark_risk_check_only());
+  if (!options.only_hot_path) {
+    core_results.push_back(benchmark_add_order());
+    core_results.push_back(benchmark_cancel_order());
+    core_results.push_back(benchmark_replace_order());
+    core_results.push_back(benchmark_market_cross_one_level());
+    core_results.push_back(benchmark_market_cross_multiple_levels());
+    core_results.push_back(benchmark_l2_snapshot());
+    core_results.push_back(benchmark_replay_sample_events(options.dataset_path));
+    core_results.push_back(benchmark_risk_check_only());
+  }
 
   // Inference benchmarks. Feature extraction and model scoring are measured on
   // their own so inference cost is never folded into the trading hot path.
   std::vector<BenchmarkResult> inference_results;
-  inference_results.push_back(benchmark_feature_extraction_only());
-  inference_results.push_back(benchmark_linear_inference_only());
-  inference_results.push_back(benchmark_feature_extraction_plus_linear());
-  inference_results.push_back(benchmark_measured_linear_inference_only());
-  inference_results.push_back(benchmark_inference_policy_overhead());
+  if (!options.only_hot_path) {
+    inference_results.push_back(benchmark_feature_extraction_only());
+    inference_results.push_back(benchmark_linear_inference_only());
+    inference_results.push_back(benchmark_feature_extraction_plus_linear());
+    inference_results.push_back(benchmark_measured_linear_inference_only());
+    inference_results.push_back(benchmark_inference_policy_overhead());
 #if defined(ASTERION_HAVE_ONNXRUNTIME)
-  // The ONNX benchmarks only build/run when the opt-in dependency is present.
-  // The tiny identity fixture is decoded to a temp file and removed afterwards.
-  std::filesystem::path onnx_model_path;
-  try {
-    onnx_model_path = materialise_onnx_fixture();
-    inference_results.push_back(benchmark_onnx_inference_only(onnx_model_path));
-    inference_results.push_back(benchmark_feature_extraction_plus_onnx(onnx_model_path));
-  } catch (const std::exception& ex) {
-    std::cerr << "onnx benchmark skipped: " << ex.what() << '\n';
-  }
-  if (!onnx_model_path.empty()) {
-    std::error_code remove_ec;
-    std::filesystem::remove(onnx_model_path, remove_ec);
-  }
+    // The ONNX benchmarks only build/run when the opt-in dependency is present.
+    // The tiny identity fixture is decoded to a temp file and removed afterwards.
+    std::filesystem::path onnx_model_path;
+    try {
+      onnx_model_path = materialise_onnx_fixture();
+      inference_results.push_back(benchmark_onnx_inference_only(onnx_model_path));
+      inference_results.push_back(benchmark_feature_extraction_plus_onnx(onnx_model_path));
+    } catch (const std::exception& ex) {
+      std::cerr << "onnx benchmark skipped: " << ex.what() << '\n';
+    }
+    if (!onnx_model_path.empty()) {
+      std::error_code remove_ec;
+      std::filesystem::remove(onnx_model_path, remove_ec);
+    }
 #endif
+  }
 
   std::vector<BenchmarkResult> results;
   results.reserve(core_results.size() + inference_results.size());
@@ -1105,9 +1114,11 @@ int main(int argc, char** argv) {
     for (const BenchmarkResult& result : core_results) {
       print_result(result);
     }
-    std::cout << "# inference (feature extraction / model scoring, measured separately)\n";
-    for (const BenchmarkResult& result : inference_results) {
-      print_result(result);
+    if (!inference_results.empty()) {
+      std::cout << "# inference (feature extraction / model scoring, measured separately)\n";
+      for (const BenchmarkResult& result : inference_results) {
+        print_result(result);
+      }
     }
   }
 

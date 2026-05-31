@@ -31,3 +31,9 @@ data/generated/
 data/captures/
 # Agent scratch directory (temporary orchestration scripts/logs).
 .claude/
+# Linux performance evaluation (large generated corpora + local perf output)
+/build/perf_corpora/
+/build/perf_results/
+/build/perf_profile/
+perf.data
+perf.data.old

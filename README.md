@@ -342,6 +342,12 @@ cmake --build build-gbench --target asterion_google_benchmarks
 See [BENCHMARKS.md](BENCHMARKS.md), [docs/profiling.md](docs/profiling.md) and
 [reports/benchmark_report_2026_05_31.md](reports/benchmark_report_2026_05_31.md) for methodology.
 
+For a larger-corpus standard-vs-pooled evaluation, deterministic 100k/1M replay corpora and a
+ready-to-run Linux `perf` path, use `scripts/run_perf_evaluation.py` and
+`scripts/run_linux_perf_profile.sh`; the curated results are in
+[reports/linux_performance_evaluation_2026_05_31.md](reports/linux_performance_evaluation_2026_05_31.md).
+These are representative local measurements, not portable performance claims.
+
 ## Latency Budget
 
 `asterion_latency_budget` times each stage of the tick-to-trade path (replay, book update,
