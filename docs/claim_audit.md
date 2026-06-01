@@ -1,0 +1,111 @@
+# Claim Audit
+
+This document audits every major claim Asterion makes and classifies the evidence
+behind it. It is the single place a reviewer can use to check that nothing in the
+README, [DESIGN.md](../DESIGN.md), [BENCHMARKS.md](../BENCHMARKS.md) or the reports
+overclaims.
+
+Asterion is **a deterministic C++20 trading systems lab for replay, matching, risk,
+inference integration, benchmarking and correctness evaluation.** It is not a real
+exchange, an HFT bot, live trading infrastructure, production model serving, or
+evidence of profitability or equities-market realism.
+
+## Classification legend
+
+| Tag | Meaning |
+| --- | --- |
+| **Implemented + tested** | Code exists and is covered by automated C++ and/or Python tests run in default CI. |
+| **Implemented + benchmarked (local)** | Code exists and has representative local measurements in a `reports/` file. Numbers are machine-dependent, not portable. |
+| **Implemented but optional** | Code exists behind an opt-in flag/API; the default path does not use it. |
+| **Simulated only** | In-process deterministic model; never touches a network or live venue. |
+| **Recorded-data demo only** | Works on checked-in/recorded fixtures; no live connectivity. |
+| **Future work** | Not implemented; listed to mark the boundary. |
+| **Explicitly not claimed** | Deliberately out of scope; called out so it is never inferred. |
+
+Evidence shorthand: C++ tests live in [`tests/unit/`](../tests/unit), Python tests in
+[`python/tests/`](../python/tests), reports in [`reports/`](../reports). See
+[evidence_index.md](evidence_index.md) for exact commands.
+
+## Core claims
+
+| Claim | Classification | Primary evidence |
+| --- | --- | --- |
+| Deterministic replay (stable book / execution-report / diagnostics / event-log checksums) | Implemented + tested | `tests/unit/test_event_log_replay.cpp` ("Replay checksums are stable…", "Replay engine validates sequence and final checksum deterministically"); `python/tests/test_replay_stability.py`; demo reproduces checksums |
+| CSV / binary event-log schema stability (v1 wire contract) | Implemented + tested | `tests/unit/test_event_log_replay.cpp` ("Event-log schema constants match the documented v1 wire contract", "Binary event-log writer preserves v1 header and record field layout"); `python/tests/test_event_log_schema.py`; [`data/schema/event_log_schema_v1.json`](../data/schema/event_log_schema_v1.json); [docs/event_log_schema.md](event_log_schema.md) |
+| Malformed / truncated input is rejected safely | Implemented + tested | `tests/unit/test_event_log_replay.cpp` ("Malformed CSV/binary event logs are rejected safely") |
+| L3 order book (order-ID lookup, FIFO per level, invariants, checksum) | Implemented + tested | `tests/unit/test_order_book.cpp` ("L3 order book preserves FIFO and aggregates L2 levels", "Order book rejects malformed and adversarial operations") |
+| Price-time-priority matching (limit/market/cancel/replace, partial/full fills) | Implemented + tested | `tests/unit/test_order_book.cpp`, `tests/unit/test_risk_gateway.cpp`; golden + randomized cases |
+| Execution reports with deterministic report checksums | Implemented + tested | `tests/unit/test_event_log_replay.cpp`; demo prints report checksum |
+| Snapshot reconstruction with deterministic checksums | Implemented + tested | `tests/unit/test_snapshot.cpp` |
+| Pre-trade risk gateway (qty, notional, position, exposure, price-band, stale-data, dup-ID, kill-switch) | Implemented + tested | `tests/unit/test_risk_gateway.cpp`, `tests/unit/test_risk_controls.cpp` |
+| Opt-in advanced risk controls (working exposure, rate limiting, self-trade prevention, replace rechecks, cancel-on-disconnect/kill) | Implemented but optional | `tests/unit/test_risk_controls.cpp`; disabled by default ("Default gateway leaves the new controls disabled") |
+| Risk audit trail + persistent append-only logs + deterministic audit checksum | Implemented + tested | `tests/unit/test_risk_audit.cpp`; `python/tests/test_risk_tooling.py` |
+| Tamper-evident audit manifests with optional HMAC-SHA256 signing | Implemented + tested | `tests/unit/test_audit_manifest.cpp` ("…detects a truncated/edited/missing file", "HMAC-SHA256 matches the known RFC test vector"); not a retention/custody system |
+| Simulated broker/session lifecycle | Simulated only | `tests/unit/test_broker_session.cpp`; never sends network messages |
+| Simulated portfolio-risk accounting gate | Simulated only | `tests/unit/test_portfolio_risk.cpp` |
+
+## Performance / allocation claims
+
+| Claim | Classification | Primary evidence |
+| --- | --- | --- |
+| Hot-path benchmark (binary replay → L3 → reusable L2 → strategy → risk), stable JSON, alloc counters | Implemented + benchmarked (local) | `benchmarks/benchmark_main.cpp`; [reports/benchmark_report_2026_05_31.md](../reports/benchmark_report_2026_05_31.md) |
+| Reusable L2 view / fixed strategy callback / reserved risk sub-paths are allocation-free after warm-up | Implemented + tested | `tests/unit/test_allocation_tracking.cpp`, `test_hot_path.cpp` (scoped, warmed) |
+| Caller-owned zero-allocation feature buffer path | Implemented + tested | `tests/unit/test_telemetry_inference.cpp` ("Caller-owned feature extraction and LinearModel scoring do not allocate after warm-up"); [reports/inference_feature_buffer_report_2026_05_31.md](../reports/inference_feature_buffer_report_2026_05_31.md). The vector-returning convenience path still allocates one vector/call. |
+| PooledOrderBook allocation reduction after warm-up | Implemented but optional + benchmarked (local) | `tests/unit/test_pooled_order_book.cpp` ("…allocation-free after explicit warm-up", "matches stable book…"); [reports/allocation_optimisation_report_2026_05_31.md](../reports/allocation_optimisation_report_2026_05_31.md), [reports/pooled_order_book_stress_report_2026_05_31.md](../reports/pooled_order_book_stress_report_2026_05_31.md). Opt-in; correctness-first `OrderBook` is the default. |
+| Per-stage latency-budget accounting (deterministic config checksum, machine-dependent ns) | Implemented + tested | `tests/unit/test_latency_budget.cpp`; demo emits latency JSON |
+| Larger-corpus standard-vs-pooled evaluation + Linux perf helper | Implemented but optional + benchmarked (local) | [reports/linux_performance_evaluation_2026_05_31.md](../reports/linux_performance_evaluation_2026_05_31.md); corpora are git-ignored |
+
+## Concurrency claims (SPSC)
+
+| Claim | Classification | Primary evidence |
+| --- | --- | --- |
+| Opt-in bounded SPSC replay pipeline; consumer reuses single-thread `ReplayEngine` so checksums are bit-identical regardless of thread timing | Implemented but optional + tested | `tests/unit/test_spsc_replay.cpp`, `test_spsc_ring_buffer.cpp`; `python/tests/test_spsc_replay.py`; [reports/spsc_replay_pipeline_report_2026_05_31.md](../reports/spsc_replay_pipeline_report_2026_05_31.md) |
+| Lossless blocking backpressure by default; opt-in `DropNewestOnFull` for overload-shedding only (not correctness-preserving) | Implemented but optional + tested | `tests/unit/test_spsc_replay.cpp` ("…tiny queue forces backpressure but stays lossless", "opt-in drop policy sheds events under overload") |
+| End-of-stream delivered exactly once; max queue depth never exceeds capacity; zero-capacity rejected without deadlock | Implemented + tested | `tests/unit/test_spsc_replay.cpp` / `test_spsc_ring_buffer.cpp` |
+| Steady-state SPSC throughput harness + `ReplayValidationMode::Light` | Implemented but optional + benchmarked (local) | `tests/unit/test_spsc_replay.cpp` (steady-state cases); [reports/spsc_steady_state_report_2026_05_31.md](../reports/spsc_steady_state_report_2026_05_31.md). `Light` keeps cheap per-event checks + full validation at end-of-replay; `Full` remains the default. |
+| Pooled-book SPSC variant | Future work / not implemented | `ReplayEngine` is not templated on book type; documented in [LIMITATIONS.md](../LIMITATIONS.md) |
+
+## Inference / ML-integration claims
+
+| Claim | Classification | Primary evidence |
+| --- | --- | --- |
+| Deterministic `LinearModel` backend, measured latency accounting, policy gate | Implemented + tested | `tests/unit/test_inference_backend.cpp`, `test_telemetry_inference.cpp` |
+| Explicit backend selection (`make_inference_backend`) | Implemented + tested | `tests/unit/test_inference_backend.cpp` ("Linear backend is selected and scores deterministically") |
+| Optional ONNX Runtime backend behind `ASTERION_USE_ONNXRUNTIME`; deterministic fallback to `LinearModel` when absent | Implemented but optional | `tests/unit/test_inference_backend.cpp` ("ONNX request falls back to LinearModel when ONNX Runtime is absent", "ONNX Runtime fixture backend scores deterministically when opt-in dependency is present"). Not in default CI. |
+| ChronosLOB-style ONNX fixture bridge (tiny 1×4→1×1 fixture, metadata, regen tool) | Recorded-data demo only / Implemented but optional | `tests/unit/test_inference_backend.cpp` (ChronosLOB cases); `python/tests/test_chronoslob_bridge.py`; [docs/chronoslob_bridge.md](chronoslob_bridge.md); [reports/chronoslob_onnx_bridge_report_2026_05_31.md](../reports/chronoslob_onnx_bridge_report_2026_05_31.md). Fixture is deterministic, **not trained**. |
+| ONNX inference allocations measured honestly (load separated from steady-state, not claimed alloc-free) | Implemented + tested | `tests/unit/test_inference_backend.cpp` ("ONNX inference allocations are measured honestly and separated from load") |
+| Timeout/late-signal policy can disable model after repeated late signals when configured | Implemented but optional | `tests/unit/test_telemetry_inference.cpp` (policy-gate cases); disabled by default |
+| Predictive quality / signal value / alpha / profitability | **Explicitly not claimed** | Inference path measures plumbing only; stated in every inference report header |
+
+## Market-data claims
+
+| Claim | Classification | Primary evidence |
+| --- | --- | --- |
+| Binance recorded public-depth case study (normalise → replay) | Recorded-data demo only | `python/tests/test_binance_normalise.py`; `tools/normalise_binance_depth_to_asterion.py`; [docs/market_data.md](market_data.md); [reports/binance_replay_case_study_2026_05_31.md](../reports/binance_replay_case_study_2026_05_31.md). Tiny hand-curated fixture; capture is manual/opt-in, never in CI. |
+| Live capture is public REST `/api/v3/depth` only, no keys, no order placement | Recorded-data demo only | `tools/capture_binance_depth.py`; `test_capture_module_imports_without_network` |
+| Real L3 order identity / per-level FIFO depth / true order lifetimes from Binance | **Explicitly not claimed** | Binance depth is L2; normaliser uses synthetic order IDs + level-replacement (stated in LIMITATIONS) |
+| Equities-market realism | **Explicitly not claimed** | Stated in README + case-study header |
+| Opt-in shared multi-symbol replay (`MultiSymbolBookSet`) with grouped-vs-shared parity | Implemented but optional + tested | `tests/unit/test_multi_symbol.cpp`, `python/tests/test_replay_stability.py`; grouped replay is the default; not a cross-symbol matching engine |
+
+## Boundary claims (deliberately out of scope)
+
+| Claim | Classification |
+| --- | --- |
+| Live exchange / broker / market-data connectivity | **Explicitly not claimed** |
+| Order placement / authenticated exchange connectivity | **Explicitly not claimed** |
+| Production-HFT performance, kernel bypass, FPGA, colocated networking | **Explicitly not claimed** |
+| Profitability / alpha / signal value | **Explicitly not claimed** |
+| Portable / committed benchmark or latency numbers | **Explicitly not claimed** (all numbers are representative local measurements) |
+| Managed audit retention, custody, compliance, tamper-proof storage | **Explicitly not claimed** |
+| Cross-symbol / portfolio-level matching | Future work |
+| Multi-version schema migration framework | Future work (v1 is stable + guarded) |
+| Linux `perf` counter evidence | Future work — postponed until native Linux / WSL access. The helper script and methodology exist; counter values are **not** fabricated when `perf` is unavailable. See [reports/perf_profile.md](../reports/perf_profile.md) and [reports/linux_performance_evaluation_2026_05_31.md](../reports/linux_performance_evaluation_2026_05_31.md). |
+
+## Auditor's note
+
+No overclaim was found that required rewriting during this audit pass. Every numeric
+result in `reports/` carries a "representative local measurements, not portable
+performance claims" header, and every simulated/optional component is labelled at its
+definition site and in [LIMITATIONS.md](../LIMITATIONS.md). This document and
+[evidence_index.md](evidence_index.md) were added to make that mapping explicit for a
+10-minute review.

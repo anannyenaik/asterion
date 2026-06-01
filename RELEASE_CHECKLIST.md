@@ -13,9 +13,13 @@ Use this before tagging or presenting the repo for review.
 - Run demo: `./scripts/run_demo.sh --skip-build`.
 - Review `README.md`, `DESIGN.md`, `CORRECTNESS.md`, `RISK.md`, `BENCHMARKS.md`,
   `LIMITATIONS.md` and `ROADMAP.md` for claim drift.
+- Re-check `docs/claim_audit.md` and `docs/evidence_index.md` against the code: every
+  claim still maps to a passing test or a labelled local report.
+- Confirm `reports/README.md` lists every file under `reports/` with its scope and limitation.
 - Confirm generated outputs are ignored: benchmark JSON, audit manifests, demo outputs,
   `data/generated/`, `benchmarks/history/` and build directories.
 - Confirm no benchmark numbers, live-trading claims or untested performance claims were added.
+- Confirm `git diff --check` is clean (no trailing-whitespace / conflict markers).
 
 ## Optional
 

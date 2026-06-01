@@ -46,6 +46,17 @@ report, diagnostics, audit chain, latency config) on checked-in data — while m
 timings vary. **What it does not claim:** any live connectivity, production HFT performance or
 portable/committed benchmark numbers (see [What This Does Not Claim](#what-this-does-not-claim)).
 
+**Reviewer shortcuts** — three docs make the audit fast:
+
+- [docs/claim_audit.md](docs/claim_audit.md) — every major claim classified against its evidence.
+- [docs/evidence_index.md](docs/evidence_index.md) — "where is X tested?" → file + command.
+- [reports/README.md](reports/README.md) — every report with scope, optional deps and limitation.
+
+> Toolchain note (Windows): the compiled Python extension is ABI-specific to the Python
+> that built it. Build and run pytest/the demo with the **same** interpreter (pass
+> `-PythonExe` to the PowerShell scripts to pin it). Default Linux CI uses one interpreter
+> throughout. See [docs/evidence_index.md](docs/evidence_index.md#toolchain-note-windows).
+
 ## What This Proves
 
 - Integer tick prices in the hot path; no floating-point prices in matching or book state.
@@ -91,6 +102,22 @@ CSV / binary / synthetic events
         v
   telemetry + benchmark runner
 ```
+
+## Key Modules
+
+| Area | Where | Tests |
+| --- | --- | --- |
+| Event log + replay (CSV/binary, diagnostics, checksums) | `cpp/src/market_data/`, `cpp/include/asterion/market_data/` | `tests/unit/test_event_log_replay.cpp`, `test_snapshot.cpp` |
+| L3 order book + matching | `cpp/src/book/`, `cpp/src/matching/` | `tests/unit/test_order_book.cpp` |
+| Pre-trade risk + audit | `cpp/src/risk/` | `tests/unit/test_risk_gateway.cpp`, `test_risk_controls.cpp`, `test_risk_audit.cpp`, `test_audit_manifest.cpp` |
+| Inference plumbing + ONNX bridge | `cpp/src/inference/` | `tests/unit/test_inference_backend.cpp`, `test_telemetry_inference.cpp` |
+| Telemetry / latency budget | `cpp/src/telemetry/` | `tests/unit/test_latency_budget.cpp` |
+| SPSC replay pipeline (opt-in) | `cpp/src/market_data/spsc_replay.cpp` | `tests/unit/test_spsc_replay.cpp`, `test_spsc_ring_buffer.cpp` |
+| Pooled order book (opt-in) | `cpp/src/book/` | `tests/unit/test_pooled_order_book.cpp` |
+| Python bindings + tooling | `python/asterion/`, `scripts/asterion_inspect.py` | `python/tests/` |
+
+See [docs/claim_audit.md](docs/claim_audit.md) for the full claim→evidence map and
+[reports/README.md](reports/README.md) for the report-by-report scope table.
 
 ## Implemented Features
 
