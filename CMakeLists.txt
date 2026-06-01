@@ -90,20 +90,15 @@ target_include_directories(asterion PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp/inclu
 # the deterministic LinearModel fallback. The dependency is never required in CI.
 #
 # Two discovery paths are supported so the opt-in CI lane is reliable:
-#   1. find_package(onnxruntime CONFIG) for distributions that ship a CMake package.
-#   2. A manual header/library search rooted at ONNXRUNTIME_ROOT (or the environment
-#      variable of the same name) for the official prebuilt archives, which do not
-#      include a CMake config file.
+#   1. A manual header/library search rooted at ONNXRUNTIME_ROOT (or the
+#      environment variable of the same name) for the official prebuilt archives.
+#   2. find_package(onnxruntime CONFIG) for distributions that ship a CMake package.
 if(ASTERION_USE_ONNXRUNTIME)
-  find_package(onnxruntime CONFIG QUIET)
-  if(onnxruntime_FOUND)
-    target_compile_definitions(asterion PUBLIC ASTERION_HAVE_ONNXRUNTIME)
-    if(MINGW)
-      target_compile_definitions(asterion PUBLIC _stdcall=__stdcall)
-    endif()
-    target_link_libraries(asterion PUBLIC onnxruntime::onnxruntime)
-    message(STATUS "Asterion: ONNX Runtime inference backend enabled (CMake package)")
-  else()
+  set(ASTERION_ONNXRUNTIME_ENABLED OFF)
+  set(ASTERION_ONNXRUNTIME_HAS_ROOT_HINT OFF)
+
+  if(ONNXRUNTIME_ROOT OR DEFINED ENV{ONNXRUNTIME_ROOT})
+    set(ASTERION_ONNXRUNTIME_HAS_ROOT_HINT ON)
     find_path(
       ASTERION_ONNXRUNTIME_INCLUDE_DIR
       NAMES onnxruntime_cxx_api.h
@@ -123,10 +118,26 @@ if(ASTERION_USE_ONNXRUNTIME)
       target_link_libraries(asterion PUBLIC ${ASTERION_ONNXRUNTIME_LIBRARY})
       message(STATUS "Asterion: ONNX Runtime inference backend enabled (manual: "
                      "${ASTERION_ONNXRUNTIME_LIBRARY})")
-    else()
-      message(STATUS "Asterion: ONNX Runtime requested but not found; "
-                     "using the deterministic LinearModel fallback")
+      set(ASTERION_ONNXRUNTIME_ENABLED ON)
     endif()
+  endif()
+
+  if(NOT ASTERION_ONNXRUNTIME_ENABLED AND NOT ASTERION_ONNXRUNTIME_HAS_ROOT_HINT)
+    find_package(onnxruntime CONFIG QUIET)
+    if(onnxruntime_FOUND)
+      target_compile_definitions(asterion PUBLIC ASTERION_HAVE_ONNXRUNTIME)
+      if(MINGW)
+        target_compile_definitions(asterion PUBLIC _stdcall=__stdcall)
+      endif()
+      target_link_libraries(asterion PUBLIC onnxruntime::onnxruntime)
+      message(STATUS "Asterion: ONNX Runtime inference backend enabled (CMake package)")
+      set(ASTERION_ONNXRUNTIME_ENABLED ON)
+    endif()
+  endif()
+
+  if(NOT ASTERION_ONNXRUNTIME_ENABLED)
+    message(STATUS "Asterion: ONNX Runtime requested but not found; "
+                   "using the deterministic LinearModel fallback")
   endif()
 endif()
 
