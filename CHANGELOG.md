@@ -10,17 +10,12 @@ representative local measurements only.
 
 ## [Unreleased]
 
-### Added
-- `docs/claim_audit.md` — every major claim classified against its evidence.
-- `docs/evidence_index.md` — reviewer questions mapped to files and reproduction commands.
-- `reports/README.md` — index of all reports with scope, optional-dependency and limitation columns.
-- `CHANGELOG.md` and `docs/cv_summary_draft.md`.
-- README reviewer-facing polish (claim-boundary links, evidence pointers).
+- No changes since `v0.1.0-rc2`.
 
-### Notes
-- No runtime, build or test code changed in this documentation/evidence pass.
+## [0.1.0-rc2] — 2026-06-01 (since v0.1.0-rc1)
 
-## [0.1.0-rc2] — candidate (since v0.1.0-rc1)
+Tagged at commit `92901f7`; published as a GitHub draft prerelease. Verified by the Linux
+CI build+test workflow (run `26775429417`, green) plus a local fresh-build gate.
 
 Features added on top of `v0.1.0-rc1`. All are opt-in or default-safe; deterministic
 single-thread replay remains the default path.
@@ -44,12 +39,19 @@ single-thread replay remains the default path.
   lossless-blocking backpressure by default, opt-in `DropNewestOnFull` for overload experiments.
 - Opt-in steady-state SPSC replay evaluation and `ReplayValidationMode::Light` for large-corpus
   throughput measurement; `Full` validation remains the default correctness path.
+- Reviewer-facing documentation/evidence pass: `docs/claim_audit.md` (claim→evidence map),
+  `docs/evidence_index.md` (reviewer question → file + command), `reports/README.md` (report
+  scope/limitation index), this `CHANGELOG.md`, `docs/cv_summary_draft.md` and README polish.
+  No runtime, build or test code changed in this pass.
 
 ### Not changed / still out of scope
 - No live exchange/broker connectivity, order placement, kernel bypass, FPGA or colocated networking.
 - No profitability/alpha claim; inference measures plumbing only.
 - No portable/committed benchmark numbers.
-- Native-Linux `perf` counter evidence remains pending (postponed until native Linux / WSL access).
+- Native-Linux `perf` counter evidence remains pending: blocked on the current host by hardware
+  virtualization being disabled in firmware (BIOS/UEFI), so WSL2 cannot boot a Linux kernel.
+  Not a release blocker; deferred to native/cloud Linux. See
+  [reports/linux_performance_evaluation_2026_05_31.md](reports/linux_performance_evaluation_2026_05_31.md).
 
 ## [0.1.0-rc1] — see [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
