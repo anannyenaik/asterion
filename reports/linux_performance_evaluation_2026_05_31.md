@@ -164,6 +164,36 @@ Observed blocker:
 - Hardware counters were not probed because Ubuntu could not start.
 - Native Linux, or a working WSL2 Ubuntu session after the required Windows reboot/admin completion, remains required for final `perf stat -d` evidence.
 
+### WSL2 Retry - 2026-06-01 (firmware-virtualization blocker)
+
+The WSL2/Ubuntu attempt was retried from Windows PowerShell after the system had been rebooted. The earlier `WSL_E_WSL_OPTIONAL_COMPONENT_REQUIRED` blocker is **resolved**: WSL itself now launches and reports a working install. However, a **new, lower-level blocker** prevents any Linux distribution from starting on this host: hardware virtualization is **disabled in the machine firmware (BIOS/UEFI)**. This is a hardware/firmware setting that cannot be changed from software; no Linux build, corpus generation, software-counter probe, hardware-counter probe, `perf stat -d` or flamegraph capture was run under WSL2.
+
+Commands run:
+
+```powershell
+wsl --status
+wsl -l -v
+wsl --version
+wsl --list --online
+wsl --install -d Ubuntu --no-launch
+systeminfo | Select-String -Pattern 'Hyper-V|Virtualization|Firmware|Second Level'
+wsl -l -v
+```
+
+Observed blocker:
+
+- `wsl --status` reported `Default Version: 2` (WSL launches; the prior optional-component blocker is gone).
+- `wsl --version` reported `WSL version: 2.7.3.0`, `Kernel version: 6.6.114.1-1`, on `Windows version: 10.0.19045.6466`.
+- `wsl -l -v` reported `Windows Subsystem for Linux has no installed distributions` (no distro present yet).
+- `wsl --list --online` listed installable distributions (Ubuntu, Ubuntu-24.04, Debian, etc.), confirming the WSL service is reachable.
+- `wsl --install -d Ubuntu --no-launch` downloaded and installed Ubuntu, then failed when creating the VM: `WSL2 is unable to start since virtualization is not enabled on this machine. Please ensure the "Virtual Machine Platform" optional component is enabled and virtualization is turned on in your computer's firmware settings.` Error code: `Wsl/InstallDistro/Service/RegisterDistro/CreateVm/HCS/HCS_E_HYPERV_NOT_INSTALLED`.
+- `systeminfo` Hyper-V Requirements reported: `VM Monitor Mode Extensions: Yes`, `Virtualization Enabled In Firmware: No`, `Second Level Address Translation: Yes`. The CPU supports virtualization, but it is **switched off in firmware**.
+- The failed VM creation rolled back: a follow-up `wsl -l -v` again reported no installed distributions, so no partial distro was left registered.
+- Software counters were not probed because no distribution could start.
+- Hardware counters were not probed because no distribution could start.
+
+Required to unblock on this machine: enable Intel VT-x / AMD-V (often labelled "Virtualization Technology", "Intel VMX", "SVM Mode", or "VT-d") in the BIOS/UEFI firmware, reboot, then re-run the WSL2/Ubuntu setup. Alternatively, run the ready-to-run Linux commands below on a native Linux host or a cloud Linux instance where the PMU is exposed. Until firmware virtualization is enabled, WSL2 cannot boot a Linux kernel on this host and `perf` hardware-counter evidence cannot be collected here.
+
 Ready-to-run Linux commands:
 
 ```bash

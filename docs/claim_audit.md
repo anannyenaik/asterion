@@ -99,7 +99,7 @@ Evidence shorthand: C++ tests live in [`tests/unit/`](../tests/unit), Python tes
 | Managed audit retention, custody, compliance, tamper-proof storage | **Explicitly not claimed** |
 | Cross-symbol / portfolio-level matching | Future work |
 | Multi-version schema migration framework | Future work (v1 is stable + guarded) |
-| Linux `perf` counter evidence | Future work — postponed until native Linux / WSL access. The helper script and methodology exist; counter values are **not** fabricated when `perf` is unavailable. See [reports/perf_profile.md](../reports/perf_profile.md) and [reports/linux_performance_evaluation_2026_05_31.md](../reports/linux_performance_evaluation_2026_05_31.md). |
+| Linux `perf` counter evidence | Future work — blocked on this host by firmware virtualization (BIOS/UEFI has virtualization disabled, so WSL2 cannot boot a Linux kernel; `HCS_E_HYPERV_NOT_INSTALLED`). The earlier WSL optional-component blocker was cleared by reboot. The helper script and methodology exist; counter values are **not** fabricated when `perf` is unavailable. See [reports/perf_profile.md](../reports/perf_profile.md) and the 2026-06-01 retry note in [reports/linux_performance_evaluation_2026_05_31.md](../reports/linux_performance_evaluation_2026_05_31.md). |
 
 ## Auditor's note
 

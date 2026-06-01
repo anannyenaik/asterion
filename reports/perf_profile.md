@@ -6,13 +6,19 @@ Representative local measurements on this machine, not portable performance clai
 
 Linux `perf` was not run in the current environment.
 
-Blocker:
+Blocker (updated 2026-06-01):
 
-- The active shell is Windows PowerShell.
-- `perf` is not available on `PATH`.
-- `wsl.exe` is present, but invoking `wsl -e sh -lc 'command -v perf || true'` returned the WSL
-  usage text instead of launching a Linux distribution, so there is no usable local Linux `perf`
-  environment from this shell.
+- The active shell is Windows PowerShell; `perf` is not available on `PATH`.
+- WSL2 itself now launches on this host (the earlier `WSL_E_WSL_OPTIONAL_COMPONENT_REQUIRED`
+  blocker was cleared by a reboot): `wsl --version` reports `2.7.3.0` / kernel `6.6.114.1-1`.
+- However, no Linux distribution can start, because hardware virtualization is **disabled in the
+  machine firmware (BIOS/UEFI)**. `wsl --install -d Ubuntu --no-launch` downloaded and installed
+  Ubuntu but failed to create the VM with `HCS_E_HYPERV_NOT_INSTALLED`
+  ("virtualization is not enabled on this machine"). `systeminfo` confirms
+  `Virtualization Enabled In Firmware: No` (with `VM Monitor Mode Extensions: Yes` and
+  `Second Level Address Translation: Yes`, i.e. the CPU supports it but firmware has it switched off).
+- To unblock here: enable Intel VT-x / AMD-V in the BIOS/UEFI, reboot, then re-run WSL2 setup; or run
+  the Linux commands below on a native Linux / cloud Linux host where the PMU is exposed.
 
 No `perf stat` counters or flamegraph samples are fabricated in this report.
 
