@@ -35,9 +35,10 @@ The model is not trained. It is a deterministic fixture with a fixed linear
 - Dirty before this task: yes, unrelated local changes were already present
 - Modified by this task: no
 
-ChronosLOB has Torch model definitions and conservative feature/safety docs, but
-no existing ONNX export hook. The Asterion-side fixture documents the simplified
-contract pending a real ChronosLOB export path.
+At the time of this fixture pass, the local ChronosLOB checkout had Torch model
+definitions and conservative feature/safety docs, but did not yet have the
+committed ChronosLOB export helper. The Asterion-side fixture documented the
+simplified contract that was later complemented by the real export path.
 
 ## Model Metadata
 
@@ -203,8 +204,9 @@ extraction and model scoring.
 ## Known Limitations
 
 - The ONNX artefact is a deterministic fixture, not a trained ChronosLOB model.
-- ChronosLOB was not modified because the local checkout was dirty and no low-risk
-  ONNX export hook existed.
+- At the time of this fixture report, ChronosLOB was not modified because the
+  local checkout was dirty and no low-risk ONNX export hook existed. The later
+  real-model report records the pushed ChronosLOB export helper.
 - Real ONNX Runtime scoring was not measured locally because the downloaded
   Windows runtime could not be loaded on this OS image.
 - ONNX Runtime remains optional and is not part of default CI dependencies.
@@ -212,10 +214,9 @@ extraction and model scoring.
 - The output score is a plumbing score, not a probability, alpha signal or order
   decision.
 
-## Recommended Next Master Prompt
+## Superseded Follow-Up
 
-Use a real, intentionally tiny ChronosLOB export path once ChronosLOB has a clean
-ONNX helper: export a fixed-shape CPU-only model without FI-2010 data, keep the
-Asterion default build dependency-light, run the existing optional ONNX Runtime
-lane, and report model-load, feature extraction, steady-state scoring and policy
-timings as local plumbing measurements only.
+Completed by the 2026-06-01 real-model bridge pass: a fixed-shape CPU-only
+ChronosLOB export helper now exists at pushed commit
+`2cf2f32148bc38fb1009f1afaa5cb38deaf1f0b7`, with the default Asterion build
+kept dependency-light and ONNX Runtime lanes remaining optional.

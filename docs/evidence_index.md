@@ -88,7 +88,7 @@ Conventions:
 
 **Q: Where is the ChronosLOB bridge?**
 - Fixture (hand-written): `data/models/chronoslob_tiny_fixture.onnx` (+ `.metadata.json`), `tools/export_chronoslob_tiny_onnx.py`, [docs/chronoslob_bridge.md](chronoslob_bridge.md).
-- Real trained artefact: `data/models/chronoslob_tiny_real.onnx` (+ `.metadata.json`), exported by ChronosLOB `tools/export_tiny_asterion_onnx.py` (ChronosLOB commit `2cf2f32`), a tiny `DeepLOBModel` trained on synthetic toy data (1×1×4→1×3).
+- Real trained artefact: `data/models/chronoslob_tiny_real.onnx` (+ `.metadata.json`), exported by ChronosLOB `tools/export_tiny_asterion_onnx.py` from pushed commit `2cf2f32148bc38fb1009f1afaa5cb38deaf1f0b7`, a tiny `DeepLOBModel` trained on synthetic toy data (1×1×4→1×3).
 - Tests: `tests/unit/test_inference_backend.cpp` (ChronosLOB fixture + `[real]` cases), `python/tests/test_chronoslob_bridge.py` (fixture + real metadata/sha256).
 - Reports: [chronoslob_onnx_bridge_report](../reports/chronoslob_onnx_bridge_report_2026_05_31.md) (fixture), [chronoslob_real_model_bridge_report](../reports/chronoslob_real_model_bridge_report_2026_06_01.md) (real model).
 - Caveat: fixture is deterministic and **not trained**; the real artefact **is** trained but on **synthetic toy data** with a reduced 4-feature single-timestep simplification — no predictive/profitability/live-trading/production claim; Asterion-side score is plumbing only.

@@ -43,14 +43,16 @@ training summary, measured latency/allocation split and reproduction commands.
 
 ## ChronosLOB Source Status
 
-A local ChronosLOB checkout was found at `../ChronosLOB/chronos-lob`, commit
-`2330a15cae6a8ba1ba1ad2df86d0983708c833bc`. That checkout already had unrelated
-local changes, so it was not modified.
+The real artefact was exported from the pushed ChronosLOB source at
+`https://github.com/anannyenaik/chronos-lob`, commit
+`2cf2f32148bc38fb1009f1afaa5cb38deaf1f0b7`. The export metadata records
+`source_dirty=false`, and the commit contains the ChronosLOB-side export helper
+(`tools/export_tiny_asterion_onnx.py`) plus its reproduction note
+(`docs/asterion_export.md`).
 
-ChronosLOB has Torch model definitions and conservative feature/safety docs, but
-no existing ONNX export hook. The bridge helper therefore lives in Asterion and
-documents that this is a fixture-based integration pending a real ChronosLOB
-export path.
+The older deterministic fixture remains an Asterion-side compatibility fixture;
+its original fixture-only source status is preserved in
+`reports/chronoslob_onnx_bridge_report_2026_05_31.md`.
 
 ## Model Contract
 
@@ -147,6 +149,20 @@ count, allocation bytes, backend name, model name, input shape, output shape,
 feature count and feature version.
 
 ## Reproduction
+
+Real ChronosLOB artefact export / verify (from Asterion, with a clean or
+throwaway ChronosLOB checkout and Python dependencies for Torch, ONNX and ONNX
+Runtime available):
+
+```powershell
+git -C ..\ChronosLOB\chronos-lob fetch origin main
+git -C ..\ChronosLOB\chronos-lob checkout --detach 2cf2f32148bc38fb1009f1afaa5cb38deaf1f0b7
+python ..\ChronosLOB\chronos-lob\tools\export_tiny_asterion_onnx.py --verify `
+  --output data\models\chronoslob_tiny_real.onnx `
+  --metadata-output data\models\chronoslob_tiny_real.metadata.json
+```
+
+Fixture regenerate / verify:
 
 ```powershell
 $env:PATH='C:\msys64\ucrt64\bin;' + $env:PATH

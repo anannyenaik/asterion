@@ -176,5 +176,6 @@ compiled only when the existing opt-in flag finds the dependency.
 
 The ChronosLOB-style ONNX bridge follow-up is now documented in
 `docs/chronoslob_bridge.md` and
-`reports/chronoslob_onnx_bridge_report_2026_05_31.md`. It remains fixture-based
-until ChronosLOB has a clean, low-risk ONNX export helper.
+`reports/chronoslob_onnx_bridge_report_2026_05_31.md`. That original bridge was
+fixture-based; the real tiny ChronosLOB export helper was later added and is
+documented in `reports/chronoslob_real_model_bridge_report_2026_06_01.md`.
