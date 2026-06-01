@@ -1,0 +1,85 @@
+{
+  "artefact_type": "trained_synthetic_smoke",
+  "claim_boundary": "A tiny ChronosLOB research-model artefact (DeepLOB-style CNN-LSTM) exported into Asterion for systems-integration and inference-latency evaluation.",
+  "claim_limitations": [
+    "No predictive quality claim.",
+    "No trading profitability claim.",
+    "Trained on synthetic toy data only; not FI-2010 or market data.",
+    "Reduced 4-feature, single-timestep simplification of DeepLOB.",
+    "Not live trading infrastructure.",
+    "Not production model-serving infrastructure.",
+    "Not production-HFT infrastructure.",
+    "Not a portable latency guarantee."
+  ],
+  "deterministic_fixture": false,
+  "expected_test_input": [
+    0.5,
+    -0.25,
+    0.8,
+    0.2
+  ],
+  "expected_test_output": [
+    -5.758237838745117,
+    -2.2456984519958496,
+    7.596829891204834
+  ],
+  "expected_test_output_engine": "onnxruntime",
+  "export_command": "python ../ChronosLOB/chronos-lob/tools/export_tiny_asterion_onnx.py --output data/models/chronoslob_tiny_real.onnx --metadata-output data/models/chronoslob_tiny_real.metadata.json",
+  "feature_count": 4,
+  "feature_mapping": {
+    "asterion_to_model": {
+      "mid_price_ticks": 1,
+      "spread_ticks": 0,
+      "top_level_imbalance": 2,
+      "top_level_quantity": 3
+    },
+    "description": "Asterion's 4 caller-owned L2 features map 1:1, in order, to the model's single-timestep [1, 1, 4] input. lookback==1 is a deliberate simplification of DeepLOB's multi-row window. Because the model was trained on a standardised synthetic toy distribution (not Asterion's real feature scale and not market data), feeding Asterion's live L2 features yields a deterministic plumbing score only, with no predictive meaning."
+  },
+  "feature_order": [
+    "spread_ticks",
+    "mid_price_ticks",
+    "top_level_imbalance",
+    "top_level_quantity"
+  ],
+  "feature_version": 1,
+  "framework": "pytorch",
+  "framework_version": "2.12.0+cpu",
+  "input_name": "features",
+  "input_shape": [
+    1,
+    1,
+    4
+  ],
+  "ir_version": 8,
+  "model_class": "DeepLOBModel",
+  "model_name": "chronoslob_tiny_real",
+  "onnx_sha256": "8e4241db6d8cc16eb843e2179aaee6baf620e709160d189560e9f17bf789f98b",
+  "onnx_version": "1.21.0",
+  "opset_version": 17,
+  "output_name": "logits",
+  "output_semantics": "Raw 3-class logits [down, flat, up]. Asterion consumes output[0] as a scalar plumbing score; it is not a probability, alpha signal or trading decision.",
+  "output_shape": [
+    1,
+    3
+  ],
+  "source_commit": "2cf2f32148bc38fb1009f1afaa5cb38deaf1f0b7",
+  "source_dirty": false,
+  "source_repo": "https://github.com/anannyenaik/chronos-lob",
+  "source_repo_path": "ChronosLOB/chronos-lob",
+  "trained_model": true,
+  "training": {
+    "data": "synthetic_toy",
+    "data_description": "Seeded synthetic standardised (O(1)) 4-feature samples positionally aligned to Asterion's L2 feature ordering; artificial 3-class label rule driven by imbalance and spread. Not FI-2010, not market data, not an alpha signal; toy scale deliberately differs from Asterion's real feature scale.",
+    "eval_accuracy": 0.947266,
+    "eval_loss": 0.123732,
+    "final_train_loss": 0.123962,
+    "initial_train_loss": 1.030692,
+    "learning_rate": 0.03,
+    "loss": "cross_entropy",
+    "optimiser": "adam",
+    "parameter_count": 907,
+    "samples": 512,
+    "seed": 7,
+    "steps": 400
+  }
+}

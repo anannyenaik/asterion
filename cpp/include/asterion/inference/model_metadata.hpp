@@ -10,6 +10,10 @@ namespace asterion {
 
 struct ModelMetadata {
   std::string model_name;
+  std::string model_class;
+  // One of: "trained_synthetic_smoke", "exported_untrained_architecture",
+  // "deterministic_fixture". Optional; empty for legacy metadata.
+  std::string artefact_type;
   std::string source_repo_path;
   std::string source_commit;
   bool source_dirty{false};
@@ -20,12 +24,18 @@ struct ModelMetadata {
   std::uint32_t feature_version{0};
   std::vector<double> expected_test_input;
   std::vector<double> expected_test_output;
+  // Optional deterministic linear head. Present for the hand-written fixture and
+  // absent for real exported models (whose behaviour lives in the ONNX graph).
   std::vector<double> reference_weights;
   double reference_bias{0.0};
   bool trained_model{false};
   bool deterministic_fixture{false};
   std::string claim_boundary;
 };
+
+// Number of scalar input values implied by a shape (product of dims). Returns 0
+// when the shape is empty or contains a non-positive (dynamic) dimension.
+[[nodiscard]] std::size_t shape_value_count(std::span<const std::int64_t> shape) noexcept;
 
 struct ModelMetadataValidation {
   bool ok{false};

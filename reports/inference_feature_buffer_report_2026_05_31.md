@@ -7,6 +7,14 @@ L2 feature extraction, LinearModel scoring and timeout/late-signal policy accoun
 claim predictive quality, trading profitability, production model-serving infrastructure, production
 HFT performance or live trading capability.
 
+> **Update (2026-06-01):** the same caller-owned buffer now also feeds a real
+> tiny ChronosLOB `DeepLOBModel` through the optional ONNX backend with no change
+> to the zero-allocation feature path (the 4 L2 features map 1:1 to the model's
+> `[1, 1, 4]` input). Benchmarks show the caller-owned-buffer + ONNX row has the
+> same allocation count as ONNX inference-only, while the vector-returning row
+> adds one allocation/call. See
+> [chronoslob_real_model_bridge_report_2026_06_01.md](chronoslob_real_model_bridge_report_2026_06_01.md).
+
 ## Limitation Before This Change
 
 The existing `FeatureExtractor` API returned `std::vector<double>` for L2 features. That was useful

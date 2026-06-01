@@ -1258,10 +1258,11 @@ void tag_from_selection(BenchmarkResult& result, const InferenceBackendSelection
                 metadata.feature_version);
 }
 
-BenchmarkResult benchmark_chronoslob_onnx_model_load(const std::filesystem::path& model_path,
+BenchmarkResult benchmark_chronoslob_onnx_model_load(const std::string& name,
+                                                     const std::filesystem::path& model_path,
                                                      const ModelMetadata& metadata) {
   BenchmarkResult result =
-      run_sampled_benchmark("chronoslob_onnx_model_load", 1,
+      run_sampled_benchmark(name, 1,
                             [&](std::vector<std::uint64_t>& samples) {
                               const auto start = std::chrono::steady_clock::now();
                               InferenceBackendSelection selection =
@@ -1279,7 +1280,8 @@ BenchmarkResult benchmark_chronoslob_onnx_model_load(const std::filesystem::path
 }
 
 BenchmarkResult benchmark_chronoslob_onnx_inference_only(
-    const std::filesystem::path& model_path, const ModelMetadata& metadata) {
+    const std::string& name, const std::filesystem::path& model_path,
+    const ModelMetadata& metadata) {
   constexpr std::size_t kIterations = 50'000;
   InferenceBackendSelection selection =
       make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
@@ -1291,7 +1293,7 @@ BenchmarkResult benchmark_chronoslob_onnx_inference_only(
   (void)warm;
 
   BenchmarkResult result =
-      run_sampled_benchmark("chronoslob_onnx_inference_only", kIterations,
+      run_sampled_benchmark(name, kIterations,
                             [&](std::vector<std::uint64_t>& samples) {
                               double accumulator = 0.0;
                               for (std::size_t i = 0; i < kIterations; ++i) {
@@ -1307,7 +1309,8 @@ BenchmarkResult benchmark_chronoslob_onnx_inference_only(
 }
 
 BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx(
-    const std::filesystem::path& model_path, const ModelMetadata& metadata) {
+    const std::string& name, const std::filesystem::path& model_path,
+    const ModelMetadata& metadata) {
   constexpr std::size_t kIterations = 50'000;
   InferenceBackendSelection selection =
       make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
@@ -1318,7 +1321,7 @@ BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx(
   (void)warm;
 
   BenchmarkResult result = run_sampled_benchmark(
-      "feature_extraction_plus_chronoslob_onnx_vector_returning", kIterations,
+      name, kIterations,
       [&](std::vector<std::uint64_t>& samples) {
         double accumulator = 0.0;
         for (std::size_t i = 0; i < kIterations; ++i) {
@@ -1335,7 +1338,8 @@ BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx(
 }
 
 BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx_caller_owned_buffer(
-    const std::filesystem::path& model_path, const ModelMetadata& metadata) {
+    const std::string& name, const std::filesystem::path& model_path,
+    const ModelMetadata& metadata) {
   constexpr std::size_t kIterations = 50'000;
   InferenceBackendSelection selection =
       make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
@@ -1349,7 +1353,7 @@ BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx_caller_owned_b
   (void)warm;
 
   BenchmarkResult result = run_sampled_benchmark(
-      "feature_extraction_plus_chronoslob_onnx_caller_owned_buffer", kIterations,
+      name, kIterations,
       [&](std::vector<std::uint64_t>& samples) {
         double accumulator = 0.0;
         for (std::size_t i = 0; i < kIterations; ++i) {
@@ -1368,7 +1372,8 @@ BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx_caller_owned_b
 }
 
 BenchmarkResult benchmark_feature_buffer_measured_chronoslob_onnx_inference(
-    const std::filesystem::path& model_path, const ModelMetadata& metadata) {
+    const std::string& name, const std::filesystem::path& model_path,
+    const ModelMetadata& metadata) {
   constexpr std::size_t kIterations = 50'000;
   InferenceBackendSelection selection =
       make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
@@ -1383,7 +1388,7 @@ BenchmarkResult benchmark_feature_buffer_measured_chronoslob_onnx_inference(
   (void)warm;
 
   BenchmarkResult result = run_sampled_benchmark(
-      "feature_buffer_measured_chronoslob_onnx_inference", kIterations,
+      name, kIterations,
       [&](std::vector<std::uint64_t>& samples) {
         std::uint64_t guard = 0;
         for (std::size_t i = 0; i < kIterations; ++i) {
@@ -1699,27 +1704,39 @@ int main(int argc, char** argv) {
     inference_results.push_back(benchmark_feature_buffer_policy_gate_overhead());
 #if defined(ASTERION_HAVE_ONNXRUNTIME)
     // The ONNX benchmarks only build/run when the opt-in dependency is present.
-    // The tiny ChronosLOB-style fixture is a checked-in deterministic artefact.
-    try {
-      const std::filesystem::path onnx_model_path = std::filesystem::path(ASTERION_SOURCE_DIR) /
-                                                    "data" / "models" /
-                                                    "chronoslob_tiny_fixture.onnx";
-      const ModelMetadata metadata = load_model_metadata(std::filesystem::path(ASTERION_SOURCE_DIR) /
-                                                         "data" / "models" /
-                                                         "chronoslob_tiny_fixture.metadata.json");
-      inference_results.push_back(benchmark_chronoslob_onnx_model_load(onnx_model_path, metadata));
-      inference_results.push_back(
-          benchmark_chronoslob_onnx_inference_only(onnx_model_path, metadata));
-      inference_results.push_back(
-          benchmark_feature_extraction_plus_chronoslob_onnx(onnx_model_path, metadata));
-      inference_results.push_back(
-          benchmark_feature_extraction_plus_chronoslob_onnx_caller_owned_buffer(onnx_model_path,
-                                                                                metadata));
-      inference_results.push_back(
-          benchmark_feature_buffer_measured_chronoslob_onnx_inference(onnx_model_path, metadata));
-    } catch (const std::exception& ex) {
-      std::cerr << "onnx benchmark skipped: " << ex.what() << '\n';
-    }
+    // Two checked-in artefacts are exercised so their cost can be compared: the
+    // tiny hand-written deterministic fixture and the real tiny ChronosLOB
+    // DeepLOB model trained on synthetic toy data and exported from ChronosLOB.
+    const auto run_onnx_suite = [&](const std::string& label,
+                                    const std::string& onnx_file,
+                                    const std::string& metadata_file) {
+      try {
+        const std::filesystem::path model_dir =
+            std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models";
+        const std::filesystem::path onnx_model_path = model_dir / onnx_file;
+        const ModelMetadata metadata = load_model_metadata(model_dir / metadata_file);
+        inference_results.push_back(
+            benchmark_chronoslob_onnx_model_load(label + "_onnx_model_load", onnx_model_path,
+                                                 metadata));
+        inference_results.push_back(benchmark_chronoslob_onnx_inference_only(
+            label + "_onnx_inference_only", onnx_model_path, metadata));
+        inference_results.push_back(benchmark_feature_extraction_plus_chronoslob_onnx(
+            "feature_extraction_plus_" + label + "_onnx_vector_returning", onnx_model_path,
+            metadata));
+        inference_results.push_back(
+            benchmark_feature_extraction_plus_chronoslob_onnx_caller_owned_buffer(
+                "feature_extraction_plus_" + label + "_onnx_caller_owned_buffer", onnx_model_path,
+                metadata));
+        inference_results.push_back(benchmark_feature_buffer_measured_chronoslob_onnx_inference(
+            "feature_buffer_measured_" + label + "_onnx_inference", onnx_model_path, metadata));
+      } catch (const std::exception& ex) {
+        std::cerr << "onnx benchmark skipped (" << label << "): " << ex.what() << '\n';
+      }
+    };
+    run_onnx_suite("chronoslob_fixture", "chronoslob_tiny_fixture.onnx",
+                   "chronoslob_tiny_fixture.metadata.json");
+    run_onnx_suite("chronoslob_real", "chronoslob_tiny_real.onnx",
+                   "chronoslob_tiny_real.metadata.json");
 #endif
   }
 

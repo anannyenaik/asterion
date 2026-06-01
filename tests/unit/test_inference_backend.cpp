@@ -30,6 +30,16 @@ std::filesystem::path chronoslob_metadata_path() {
          "chronoslob_tiny_fixture.metadata.json";
 }
 
+std::filesystem::path chronoslob_real_model_path() {
+  return std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models" /
+         "chronoslob_tiny_real.onnx";
+}
+
+std::filesystem::path chronoslob_real_metadata_path() {
+  return std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models" /
+         "chronoslob_tiny_real.metadata.json";
+}
+
 } // namespace
 
 TEST_CASE("ChronosLOB tiny fixture metadata loads and validates",
@@ -75,6 +85,70 @@ TEST_CASE("ChronosLOB fixture feature contract mismatches fail clearly",
       validate_feature_compatibility(metadata, kL2FeatureCount, kL2FeatureVersion);
   REQUIRE_FALSE(version_validation.ok);
   REQUIRE(version_validation.error.find("feature version mismatch") != std::string::npos);
+}
+
+TEST_CASE("ChronosLOB real trained artefact metadata loads and validates",
+          "[inference][backend][metadata][real]") {
+  const ModelMetadata metadata = load_model_metadata(chronoslob_real_metadata_path());
+  const ModelMetadataValidation validation = validate_model_metadata(metadata);
+  REQUIRE(validation.ok);
+  REQUIRE(validation.error.empty());
+  REQUIRE(metadata.model_name == "chronoslob_tiny_real");
+  REQUIRE(metadata.model_class == "DeepLOBModel");
+  REQUIRE(metadata.artefact_type == "trained_synthetic_smoke");
+  REQUIRE(metadata.trained_model == true);
+  REQUIRE(metadata.deterministic_fixture == false);
+  REQUIRE(shape_to_string(metadata.input_shape) == "1x1x4");
+  REQUIRE(shape_to_string(metadata.output_shape) == "1x3");
+  REQUIRE(metadata.feature_count == kL2FeatureCount);
+  REQUIRE(metadata.feature_version == kL2FeatureVersion);
+  // A real exported model carries no hand-written linear head.
+  REQUIRE(metadata.reference_weights.empty());
+  // The 4 caller-owned L2 features feed the [1, 1, 4] single-timestep input.
+  REQUIRE(shape_value_count(metadata.input_shape) == kL2FeatureCount);
+  REQUIRE(metadata.expected_test_input.size() == kL2FeatureCount);
+  REQUIRE(metadata.expected_test_output.size() == 3);
+  REQUIRE(validate_feature_compatibility(metadata, kL2FeatureCount, kL2FeatureVersion).ok);
+}
+
+TEST_CASE("Model metadata rejects an input shape that does not match feature_count",
+          "[inference][backend][metadata][real]") {
+  ModelMetadata metadata = load_model_metadata(chronoslob_real_metadata_path());
+  metadata.input_shape = {1, 1, 8}; // 8 values but feature_count is 4
+  const ModelMetadataValidation validation = validate_model_metadata(metadata);
+  REQUIRE_FALSE(validation.ok);
+  REQUIRE(validation.error.find("unsupported model shape") != std::string::npos);
+}
+
+TEST_CASE("Model metadata rejects a trained_model/artefact_type mismatch",
+          "[inference][backend][metadata][real]") {
+  ModelMetadata metadata = load_model_metadata(chronoslob_real_metadata_path());
+  metadata.artefact_type = "exported_untrained_architecture"; // inconsistent with trained_model
+  const ModelMetadataValidation validation = validate_model_metadata(metadata);
+  REQUIRE_FALSE(validation.ok);
+  REQUIRE(validation.error.find("artefact_type/trained_model mismatch") != std::string::npos);
+}
+
+TEST_CASE("ONNX request for the real model with a mismatched feature count falls back clearly",
+          "[inference][backend][fallback][real]") {
+  // Deterministic regardless of whether ONNX Runtime is compiled in: the feature
+  // contract is checked before any model load is attempted.
+  const ModelMetadata metadata = load_model_metadata(chronoslob_real_metadata_path());
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = chronoslob_real_model_path();
+  config.model_feature_count = metadata.feature_count + 1U;
+  config.model_feature_version = metadata.feature_version;
+  config.linear_weights = {1.0, 0.0, 0.0, 0.0};
+  config.linear_bias = 0.0;
+
+  const InferenceBackendSelection selection = make_inference_backend(config);
+  REQUIRE(selection.model != nullptr);
+  REQUIRE(selection.active == InferenceBackend::Linear);
+  REQUIRE(selection.fell_back);
+  REQUIRE(selection.detail.find("feature count mismatch") != std::string::npos);
+  const std::array<double, 4> features{3.0, 0.0, 0.0, 0.0};
+  REQUIRE(selection.model->score(features) == Catch::Approx(3.0));
 }
 
 TEST_CASE("ONNX request with incompatible metadata falls back with a clear diagnostic",
@@ -235,6 +309,87 @@ TEST_CASE("ONNX inference allocations are measured honestly and separated from l
   (void)steady_snapshot;
   (void)load_snapshot;
 
+}
+
+TEST_CASE("ONNX Runtime loads the real ChronosLOB DeepLOB artefact and scores deterministically",
+          "[inference][backend][onnx][real]") {
+  const ModelMetadata metadata = load_model_metadata(chronoslob_real_metadata_path());
+  REQUIRE(validate_model_metadata(metadata).ok);
+  REQUIRE(metadata.trained_model);
+
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = chronoslob_real_model_path();
+  config.model_name = metadata.model_name;
+  config.input_shape = shape_to_string(metadata.input_shape);
+  config.output_shape = shape_to_string(metadata.output_shape);
+  config.model_feature_count = metadata.feature_count;
+  config.model_feature_version = metadata.feature_version;
+  config.linear_weights = {99.0, 99.0, 99.0, 99.0};
+  config.linear_bias = 99.0;
+
+  const InferenceBackendSelection selection = make_inference_backend(config);
+  INFO(selection.detail);
+  REQUIRE(selection.model != nullptr);
+  REQUIRE(selection.active == InferenceBackend::Onnx);
+  REQUIRE_FALSE(selection.fell_back);
+  REQUIRE(selection.model->backend_name() == "onnx");
+  REQUIRE(selection.model->input_shape() == "1x1x4");
+  REQUIRE(selection.model->output_shape() == "1x3");
+
+  // The 4 caller-owned L2 features feed the [1, 1, 4] input directly; score() is
+  // the first output logit. Determinism (artefact -> output) is the invariant.
+  const std::vector<double> features = metadata.expected_test_input;
+  const double first_score = selection.model->score(features);
+  const double second_score = selection.model->score(features);
+  REQUIRE(first_score == Catch::Approx(metadata.expected_test_output.front()).margin(1e-3));
+  REQUIRE(first_score == Catch::Approx(second_score));
+
+  MeasuredInferenceEngine engine(*selection.model, InferencePolicy{1'000'000'000, 0, true, true});
+  const InferenceResult result = engine.score(features);
+  REQUIRE(result.backend == "onnx");
+  REQUIRE(result.model_name == "chronoslob_tiny_real.onnx");
+  REQUIRE(result.input_shape == "1x1x4");
+  REQUIRE(result.output_shape == "1x3");
+  REQUIRE(result.accepted);
+  REQUIRE(result.decision == InferenceDecision::Accept);
+  REQUIRE(result.score == Catch::Approx(metadata.expected_test_output.front()).margin(1e-3));
+}
+
+TEST_CASE("Real ChronosLOB ONNX load allocations are separated from steady-state inference",
+          "[inference][backend][onnx][alloc][real]") {
+  const ModelMetadata metadata = load_model_metadata(chronoslob_real_metadata_path());
+
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = chronoslob_real_model_path();
+  config.model_feature_count = metadata.feature_count;
+  config.model_feature_version = metadata.feature_version;
+  config.linear_weights = {1.0, 0.0, 0.0, 0.0};
+  config.linear_bias = 0.0;
+
+  reset_allocation_counters();
+  const InferenceBackendSelection selection = make_inference_backend(config);
+  const AllocationSnapshot load_snapshot = allocation_snapshot();
+  REQUIRE(selection.model != nullptr);
+  REQUIRE(selection.active == InferenceBackend::Onnx);
+
+  const std::vector<double> features = metadata.expected_test_input;
+  const double warm = selection.model->score(features);
+  REQUIRE(warm == Catch::Approx(metadata.expected_test_output.front()).margin(1e-3));
+
+  reset_allocation_counters();
+  double last = 0.0;
+  for (int i = 0; i < 16; ++i) {
+    last = selection.model->score(features);
+  }
+  const AllocationSnapshot steady_snapshot = allocation_snapshot();
+  INFO("real-model onnx load allocations=" << load_snapshot.allocations << " bytes="
+       << load_snapshot.bytes_allocated << "; steady-state allocations="
+       << steady_snapshot.allocations << " over 16 scores");
+  REQUIRE(last == Catch::Approx(metadata.expected_test_output.front()).margin(1e-3));
+  (void)steady_snapshot;
+  (void)load_snapshot;
 }
 #endif
 

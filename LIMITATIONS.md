@@ -44,9 +44,13 @@ Explicit limitations:
 - inference defaults to a deterministic linear backend with measured latency accounting and policy
   hooks; an optional ONNX Runtime backend exists behind the `ASTERION_USE_ONNXRUNTIME` CMake flag but
   is only exercised by a manual CI toggle, and ONNX requests fall back to `LinearModel` when the
-  dependency is absent; the checked-in ChronosLOB-style ONNX artefact is a tiny deterministic
-  fixture with metadata, not a trained model, and is used only to exercise model-plumbing when a real
-  ONNX Runtime build is available;
+  dependency is absent; two checked-in ChronosLOB ONNX artefacts exercise model-plumbing only when a
+  real ONNX Runtime build is available — a tiny deterministic hand-written fixture, and a tiny
+  **real** ChronosLOB `DeepLOBModel` trained on synthetic toy data and exported from ChronosLOB
+  (`reports/chronoslob_real_model_bridge_report_2026_06_01.md`). The real artefact is trained but on
+  synthetic toy data with a reduced 4-feature, single-timestep simplification; it carries **no**
+  predictive-quality, profitability, alpha, live-trading or production-serving claim, and the
+  Asterion-side score is a deterministic plumbing value only;
 - inference benchmarks measure plumbing cost only (feature extraction, model scoring, policy
   accounting) and make no predictive-quality, signal-value or profitability claim; per-call latency
   percentiles for sub-microsecond operations are dominated by the timer resolution and are

@@ -7,16 +7,39 @@ It does not claim predictive quality, trading profitability, live trading,
 production model serving, production HFT, SOTA modelling or a portable latency
 guarantee.
 
+There are now **two** checked-in artefacts:
+
+1. a hand-written deterministic **fixture** (`Gemm` linear head), and
+2. a **real, tiny ChronosLOB model** (a trained `DeepLOBModel`) exported from
+   ChronosLOB code.
+
 ## Artefacts
 
-- Model: `data/models/chronoslob_tiny_fixture.onnx`
+Fixture (hand-written, deterministic):
+
+- Model: `data/models/chronoslob_tiny_fixture.onnx` (564 bytes)
 - Metadata: `data/models/chronoslob_tiny_fixture.metadata.json`
 - Export helper: `tools/export_chronoslob_tiny_onnx.py`
 - Report: `reports/chronoslob_onnx_bridge_report_2026_05_31.md`
 
-The model is a 564-byte deterministic fixture, not a trained ChronosLOB
+The fixture is a 564-byte deterministic artefact, not a trained ChronosLOB
 checkpoint. It uses a fixed `Gemm` node as a small linear scoring head over the
 Asterion L2 feature buffer.
+
+Real ChronosLOB model (trained, exported from ChronosLOB):
+
+- Model: `data/models/chronoslob_tiny_real.onnx` (7158 bytes)
+- Metadata: `data/models/chronoslob_tiny_real.metadata.json`
+- Export script: ChronosLOB `tools/export_tiny_asterion_onnx.py`
+- Report: `reports/chronoslob_real_model_bridge_report_2026_06_01.md`
+
+The real artefact is a genuinely trained `DeepLOBModel` (CNN-LSTM, 907
+parameters) from ChronosLOB commit
+`2cf2f32148bc38fb1009f1afaa5cb38deaf1f0b7`, trained on **synthetic toy data**
+and exported to ONNX (opset 17). It is a systems-integration / inference-latency
+artefact only: no predictive-quality, profitability, live-trading or
+production-serving claim. See the real-model report for the full contract,
+training summary, measured latency/allocation split and reproduction commands.
 
 ## ChronosLOB Source Status
 
@@ -107,13 +130,17 @@ Default benchmark rows include:
 - `inference_policy_overhead`
 - `feature_buffer_policy_gate_overhead`
 
-When built with a real ONNX Runtime, the benchmark target also emits:
+When built with a real ONNX Runtime, the benchmark target also emits a suite for
+each artefact, labelled `chronoslob_fixture` and `chronoslob_real`:
 
-- `chronoslob_onnx_model_load`
-- `chronoslob_onnx_inference_only`
-- `feature_extraction_plus_chronoslob_onnx_vector_returning`
-- `feature_extraction_plus_chronoslob_onnx_caller_owned_buffer`
-- `feature_buffer_measured_chronoslob_onnx_inference`
+- `<label>_onnx_model_load`
+- `<label>_onnx_inference_only`
+- `feature_extraction_plus_<label>_onnx_vector_returning`
+- `feature_extraction_plus_<label>_onnx_caller_owned_buffer`
+- `feature_buffer_measured_<label>_onnx_inference`
+
+The `chronoslob_real` rows exercise the trained `DeepLOBModel`; the
+`chronoslob_fixture` rows exercise the legacy `Gemm` fixture for comparison.
 
 Each inference row reports p50, p95, p99, p99.9, max, throughput, allocation
 count, allocation bytes, backend name, model name, input shape, output shape,

@@ -7,6 +7,12 @@ ChronosLOB-style ONNX artefact. It does not claim predictive quality, trading
 profitability, live trading capability, production model-serving infrastructure,
 production-HFT infrastructure, SOTA modelling or a portable latency guarantee.
 
+> **Update (2026-06-01):** this report describes the original hand-written
+> deterministic **fixture**. The integration has since been upgraded to a
+> **real, tiny trained ChronosLOB `DeepLOBModel`** exported from ChronosLOB;
+> see [chronoslob_real_model_bridge_report_2026_06_01.md](chronoslob_real_model_bridge_report_2026_06_01.md).
+> Both artefacts remain checked in and benchmarked side by side.
+
 ## What Was Integrated
 
 - Added `data/models/chronoslob_tiny_fixture.onnx`.

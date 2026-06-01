@@ -7,6 +7,12 @@ and the timeout/late-signal policy gate. It does **not** claim any predictive qu
 profitability or live-trading performance. The numbers below were produced on a single Windows
 laptop and are not comparable across machines.
 
+> **Update (2026-06-01):** the optional ONNX path now also runs a real tiny
+> ChronosLOB `DeepLOBModel` (trained on synthetic toy data) alongside the
+> LinearModel and fixture — see
+> [chronoslob_real_model_bridge_report_2026_06_01.md](chronoslob_real_model_bridge_report_2026_06_01.md).
+> The LinearModel hot path is unchanged and remains zero-allocation.
+
 ## Scope
 
 Measured paths (all reported under the benchmark runner's separate `inference` category, kept apart

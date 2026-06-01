@@ -537,16 +537,23 @@ shape `1x1`) is used only by tests compiled with `ASTERION_HAVE_ONNXRUNTIME`; ot
 path is tested. The fixture is deterministic and not trained; its metadata lives beside it in
 `data/models/chronoslob_tiny_fixture.metadata.json`, and
 `tools/export_chronoslob_tiny_onnx.py` can regenerate or `--verify` it (requires the optional
-`onnx` package). The `ci` workflow has a manual `onnx_backend` input. When enabled, it runs an opt-in fallback lane with
+`onnx` package). Alongside it, a **real** tiny ChronosLOB model
+(`data/models/chronoslob_tiny_real.onnx`, input `1x1x4`, output `1x3`) — a trained `DeepLOBModel`
+exported from ChronosLOB on **synthetic toy data** — is loaded and validated through the same backend
+when ONNX Runtime is present. It is a systems-integration / inference-latency artefact only, with no
+predictive-quality, profitability, live-trading or production-serving claim. The `ci` workflow has a
+manual `onnx_backend` input. When enabled, it runs an opt-in fallback lane with
 `-DASTERION_USE_ONNXRUNTIME=ON` and an opt-in ONNX Runtime lane that downloads the dependency, builds
-the real backend and runs the tiny fixture. Neither lane runs in default CI.
+the real backend and runs the artefacts. Neither lane runs in default CI.
 
-When built with ONNX Runtime, the inference benchmark runner additionally emits
-`chronoslob_onnx_model_load`, `chronoslob_onnx_inference_only` and feature-extraction + ChronosLOB
-ONNX rows; ONNX inference allocations are measured and reported honestly (model-load is measured
+When built with ONNX Runtime, the inference benchmark runner additionally emits `chronoslob_fixture`
+and `chronoslob_real` ONNX suites (model load, inference only, and feature-extraction + ChronosLOB
+ONNX rows); ONNX inference allocations are measured and reported honestly (model-load is measured
 separately from steady-state) and are not claimed to be allocation-free. See
-[docs/chronoslob_bridge.md](docs/chronoslob_bridge.md) and
-[reports/chronoslob_onnx_bridge_report_2026_05_31.md](reports/chronoslob_onnx_bridge_report_2026_05_31.md).
+[docs/chronoslob_bridge.md](docs/chronoslob_bridge.md), the fixture report
+[reports/chronoslob_onnx_bridge_report_2026_05_31.md](reports/chronoslob_onnx_bridge_report_2026_05_31.md)
+and the real-model report
+[reports/chronoslob_real_model_bridge_report_2026_06_01.md](reports/chronoslob_real_model_bridge_report_2026_06_01.md).
 
 The timeout/late-signal policy can also disable the model after repeated late signals when configured
 (`InferencePolicyGate` with `disable_on_repeated_late_signals` and `max_consecutive_late_signals`);
