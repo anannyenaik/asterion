@@ -69,7 +69,11 @@ InferenceResult measure_inference(const Model& model, std::span<const double> fe
                          policy_result.late_signal,
                          policy_result.accepted,
                          policy_result.decision,
-                         std::string(model.backend_name())};
+                         std::string(model.backend_name()),
+                         std::string(model.model_name()),
+                         std::string(model.input_shape()),
+                         std::string(model.output_shape()),
+                         false};
 }
 
 InferencePolicyGate::InferencePolicyGate(InferencePolicy policy) noexcept : policy_(policy) {}

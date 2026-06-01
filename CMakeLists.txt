@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
+if(POLICY CMP0144)
+  cmake_policy(SET CMP0144 NEW)
+endif()
+
 project(
   asterion
   VERSION 0.1.0
@@ -71,6 +75,7 @@ add_library(
   cpp/src/inference/feature_extractor.cpp
   cpp/src/inference/inference.cpp
   cpp/src/inference/linear_model.cpp
+  cpp/src/inference/model_metadata.cpp
   cpp/src/inference/torchscript_model.cpp
   cpp/src/inference/backend.cpp
   cpp/src/inference/onnx_model.cpp
@@ -93,6 +98,9 @@ if(ASTERION_USE_ONNXRUNTIME)
   find_package(onnxruntime CONFIG QUIET)
   if(onnxruntime_FOUND)
     target_compile_definitions(asterion PUBLIC ASTERION_HAVE_ONNXRUNTIME)
+    if(MINGW)
+      target_compile_definitions(asterion PUBLIC _stdcall=__stdcall)
+    endif()
     target_link_libraries(asterion PUBLIC onnxruntime::onnxruntime)
     message(STATUS "Asterion: ONNX Runtime inference backend enabled (CMake package)")
   else()
@@ -108,6 +116,9 @@ if(ASTERION_USE_ONNXRUNTIME)
       PATH_SUFFIXES lib lib64)
     if(ASTERION_ONNXRUNTIME_INCLUDE_DIR AND ASTERION_ONNXRUNTIME_LIBRARY)
       target_compile_definitions(asterion PUBLIC ASTERION_HAVE_ONNXRUNTIME)
+      if(MINGW)
+        target_compile_definitions(asterion PUBLIC _stdcall=__stdcall)
+      endif()
       target_include_directories(asterion PUBLIC ${ASTERION_ONNXRUNTIME_INCLUDE_DIR})
       target_link_libraries(asterion PUBLIC ${ASTERION_ONNXRUNTIME_LIBRARY})
       message(STATUS "Asterion: ONNX Runtime inference backend enabled (manual: "

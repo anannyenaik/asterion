@@ -164,9 +164,9 @@ compiled only when the existing opt-in flag finds the dependency.
   model-serving or HFT latency claims.
 - WSL2/Linux perf hardware-counter work remains postponed until reboot or native Linux access.
 
-## Recommended Next Master Prompt
+## Follow-Up
 
-Use this next: build the ChronosLOB ONNX bridge behind the existing optional ONNX Runtime flag. Keep
-default CI dependency-light and network-free, preserve LinearModel fallback behavior, add deterministic
-fixture tests, and report local ONNX plumbing measurements only as representative local evidence with
-no predictive-quality, profitability, live-trading or production-HFT claims.
+The ChronosLOB-style ONNX bridge follow-up is now documented in
+`docs/chronoslob_bridge.md` and
+`reports/chronoslob_onnx_bridge_report_2026_05_31.md`. It remains fixture-based
+until ChronosLOB has a clean, low-risk ONNX export helper.

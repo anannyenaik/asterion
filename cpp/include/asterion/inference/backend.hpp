@@ -28,6 +28,14 @@ struct InferenceBackendConfig {
   InferenceBackend requested{InferenceBackend::Linear};
   // Used by the ONNX backend; ignored by the LinearModel.
   std::filesystem::path model_path{};
+  // Optional metadata from a model artefact. When set for an ONNX request, these
+  // are checked against Asterion's current L2 feature extractor before the model
+  // is loaded so a feature-contract mismatch falls back with a clear diagnostic.
+  std::string model_name;
+  std::string input_shape;
+  std::string output_shape;
+  std::size_t model_feature_count{0};
+  std::uint32_t model_feature_version{0};
   // Weights/bias for the LinearModel, used directly for the Linear backend and as
   // the deterministic fallback whenever the ONNX backend is unavailable.
   std::vector<double> linear_weights{};

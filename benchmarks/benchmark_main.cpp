@@ -6,6 +6,7 @@
 #include "asterion/inference/feature_extractor.hpp"
 #include "asterion/inference/inference.hpp"
 #include "asterion/inference/linear_model.hpp"
+#include "asterion/inference/model_metadata.hpp"
 #include "asterion/market_data/event_log.hpp"
 #include "asterion/market_data/replay.hpp"
 #include "asterion/matching/matching_engine.hpp"
@@ -89,6 +90,7 @@ struct BenchmarkResult {
   std::string backend;
   std::string model_name;
   std::string input_shape;
+  std::string output_shape;
   std::size_t feature_count{0};
   std::uint32_t feature_version{0};
   std::uint64_t total_ns{0};
@@ -628,12 +630,14 @@ L2View make_inference_l2_view() {
 }
 
 void tag_inference(BenchmarkResult& result, std::string backend, std::string model_name,
-                   std::string input_shape, std::size_t feature_count = kL2FeatureCount,
+                   std::string input_shape, std::string output_shape = "n/a",
+                   std::size_t feature_count = kL2FeatureCount,
                    std::uint32_t feature_version = kL2FeatureVersion) {
   result.category = "inference";
   result.backend = std::move(backend);
   result.model_name = std::move(model_name);
   result.input_shape = std::move(input_shape);
+  result.output_shape = std::move(output_shape);
   result.feature_count = feature_count;
   result.feature_version = feature_version;
 }
@@ -711,7 +715,7 @@ BenchmarkResult benchmark_linear_inference_only() {
                               }
                               return static_cast<std::uint64_t>(accumulator * 1000.0);
                             });
-  tag_inference(result, "linear", "linear_w4", "1x4");
+  tag_inference(result, "linear", "linear_w4", "1x4", "1x1");
   return result;
 }
 
@@ -734,7 +738,7 @@ BenchmarkResult benchmark_feature_extraction_plus_linear_vector_returning() {
         }
         return static_cast<std::uint64_t>(accumulator * 1000.0);
       });
-  tag_inference(result, "linear", "linear_w4", "1x4");
+  tag_inference(result, "linear", "linear_w4", "1x4", "1x1");
   return result;
 }
 
@@ -760,7 +764,7 @@ BenchmarkResult benchmark_feature_extraction_plus_linear_caller_owned_buffer() {
         }
         return static_cast<std::uint64_t>(accumulator * 1000.0);
       });
-  tag_inference(result, "linear", "linear_w4", "1x4");
+  tag_inference(result, "linear", "linear_w4", "1x4", "1x1");
   return result;
 }
 
@@ -786,7 +790,7 @@ BenchmarkResult benchmark_measured_linear_inference_only() {
                               }
                               return guard;
                             });
-  tag_inference(result, "linear", "linear_w4", "1x4");
+  tag_inference(result, "linear", "linear_w4", "1x4", "1x1");
   return result;
 }
 
@@ -816,7 +820,7 @@ BenchmarkResult benchmark_feature_buffer_measured_linear_inference() {
         }
         return guard;
       });
-  tag_inference(result, "linear", "linear_w4_policy", "1x4");
+  tag_inference(result, "linear", "linear_w4_policy", "1x4", "1x1");
   return result;
 }
 
@@ -845,7 +849,7 @@ BenchmarkResult benchmark_inference_policy_overhead() {
                               }
                               return guard;
                             });
-  tag_inference(result, "n/a", "policy_gate", "n/a", 0, 0);
+  tag_inference(result, "n/a", "policy_gate", "n/a", "n/a", 0, 0);
   return result;
 }
 
@@ -883,67 +887,57 @@ BenchmarkResult benchmark_feature_buffer_policy_gate_overhead() {
 }
 
 #if defined(ASTERION_HAVE_ONNXRUNTIME)
-std::vector<unsigned char> decode_base64_bytes(const std::filesystem::path& path) {
-  std::ifstream input(path);
-  if (!input) {
-    throw std::runtime_error("unable to read ONNX fixture: " + path.string());
-  }
-  std::string encoded((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-  std::vector<unsigned char> output;
-  int value = 0;
-  int bits = -8;
-  for (const unsigned char ch : encoded) {
-    if (std::isspace(ch)) {
-      continue;
-    }
-    if (ch == '=') {
-      break;
-    }
-    int digit = -1;
-    if (ch >= 'A' && ch <= 'Z') {
-      digit = ch - 'A';
-    } else if (ch >= 'a' && ch <= 'z') {
-      digit = ch - 'a' + 26;
-    } else if (ch >= '0' && ch <= '9') {
-      digit = ch - '0' + 52;
-    } else if (ch == '+') {
-      digit = 62;
-    } else if (ch == '/') {
-      digit = 63;
-    } else {
-      continue;
-    }
-    value = (value << 6) + digit;
-    bits += 6;
-    if (bits >= 0) {
-      output.push_back(static_cast<unsigned char>((value >> bits) & 0xff));
-      bits -= 8;
-    }
-  }
-  return output;
-}
-
-std::filesystem::path materialise_onnx_fixture() {
-  const auto bytes = decode_base64_bytes(std::filesystem::path(ASTERION_SOURCE_DIR) / "data" /
-                                         "fixtures" / "identity_1x4.onnx.b64");
-  const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-  const std::filesystem::path path = std::filesystem::temp_directory_path() /
-                                     ("asterion_bench_identity_" + std::to_string(stamp) + ".onnx");
-  std::ofstream output(path, std::ios::binary);
-  output.write(reinterpret_cast<const char*>(bytes.data()),
-               static_cast<std::streamsize>(bytes.size()));
-  return path;
-}
-
-BenchmarkResult benchmark_onnx_inference_only(const std::filesystem::path& model_path) {
-  constexpr std::size_t kIterations = 50'000;
+InferenceBackendConfig make_chronoslob_onnx_config(const std::filesystem::path& model_path,
+                                                   const ModelMetadata& metadata) {
   InferenceBackendConfig config;
   config.requested = InferenceBackend::Onnx;
   config.model_path = model_path;
+  config.model_name = metadata.model_name;
+  config.input_shape = shape_to_string(metadata.input_shape);
+  config.output_shape = shape_to_string(metadata.output_shape);
+  config.model_feature_count = metadata.feature_count;
+  config.model_feature_version = metadata.feature_version;
   config.linear_weights = {0.5, -0.001, 2.0, 0.0001};
   config.linear_bias = 1.0;
-  InferenceBackendSelection selection = make_inference_backend(std::move(config));
-  const std::array<double, 4> features{3.5, 1000.0, 0.35, 400.0};
+  return config;
+}
+
+void tag_from_selection(BenchmarkResult& result, const InferenceBackendSelection& selection,
+                        const ModelMetadata& metadata) {
+  const std::string model_name =
+      metadata.model_name.empty() ? std::string(selection.model->model_name()) : metadata.model_name;
+  tag_inference(result, std::string(to_string(selection.active)), model_name,
+                std::string(selection.model->input_shape()),
+                std::string(selection.model->output_shape()), metadata.feature_count,
+                metadata.feature_version);
+}
+
+BenchmarkResult benchmark_chronoslob_onnx_model_load(const std::filesystem::path& model_path,
+                                                     const ModelMetadata& metadata) {
+  BenchmarkResult result =
+      run_sampled_benchmark("chronoslob_onnx_model_load", 1,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              const auto start = std::chrono::steady_clock::now();
+                              InferenceBackendSelection selection =
+                                  make_inference_backend(make_chronoslob_onnx_config(model_path,
+                                                                                     metadata));
+                              const auto end = std::chrono::steady_clock::now();
+                              record_sample(samples, start, end);
+                              return selection.active == InferenceBackend::Onnx ? 1ULL : 0ULL;
+                            });
+  result.timing_mode = "model-load";
+  tag_inference(result, "onnx", metadata.model_name, shape_to_string(metadata.input_shape),
+                shape_to_string(metadata.output_shape), metadata.feature_count,
+                metadata.feature_version);
+  return result;
+}
+
+BenchmarkResult benchmark_chronoslob_onnx_inference_only(
+    const std::filesystem::path& model_path, const ModelMetadata& metadata) {
+  constexpr std::size_t kIterations = 50'000;
+  InferenceBackendSelection selection =
+      make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  const std::vector<double> features = metadata.expected_test_input;
 
   // Warm up so model-load/session-setup allocations are excluded from the
   // steady-state allocation count captured below.
@@ -951,7 +945,7 @@ BenchmarkResult benchmark_onnx_inference_only(const std::filesystem::path& model
   (void)warm;
 
   BenchmarkResult result =
-      run_sampled_benchmark("onnx_inference_only", kIterations,
+      run_sampled_benchmark("chronoslob_onnx_inference_only", kIterations,
                             [&](std::vector<std::uint64_t>& samples) {
                               double accumulator = 0.0;
                               for (std::size_t i = 0; i < kIterations; ++i) {
@@ -962,18 +956,15 @@ BenchmarkResult benchmark_onnx_inference_only(const std::filesystem::path& model
                               }
                               return static_cast<std::uint64_t>(accumulator * 1000.0);
                             });
-  tag_inference(result, std::string(to_string(selection.active)), "identity_1x4.onnx", "1x4");
+  tag_from_selection(result, selection, metadata);
   return result;
 }
 
-BenchmarkResult benchmark_feature_extraction_plus_onnx(const std::filesystem::path& model_path) {
+BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx(
+    const std::filesystem::path& model_path, const ModelMetadata& metadata) {
   constexpr std::size_t kIterations = 50'000;
-  InferenceBackendConfig config;
-  config.requested = InferenceBackend::Onnx;
-  config.model_path = model_path;
-  config.linear_weights = {0.5, -0.001, 2.0, 0.0001};
-  config.linear_bias = 1.0;
-  InferenceBackendSelection selection = make_inference_backend(std::move(config));
+  InferenceBackendSelection selection =
+      make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
   const L2View view = make_inference_l2_view();
   FeatureExtractor extractor;
 
@@ -981,7 +972,7 @@ BenchmarkResult benchmark_feature_extraction_plus_onnx(const std::filesystem::pa
   (void)warm;
 
   BenchmarkResult result = run_sampled_benchmark(
-      "feature_extraction_plus_onnx_inference", kIterations,
+      "feature_extraction_plus_chronoslob_onnx_vector_returning", kIterations,
       [&](std::vector<std::uint64_t>& samples) {
         double accumulator = 0.0;
         for (std::size_t i = 0; i < kIterations; ++i) {
@@ -993,19 +984,15 @@ BenchmarkResult benchmark_feature_extraction_plus_onnx(const std::filesystem::pa
         }
         return static_cast<std::uint64_t>(accumulator * 1000.0);
       });
-  tag_inference(result, std::string(to_string(selection.active)), "identity_1x4.onnx", "1x4");
+  tag_from_selection(result, selection, metadata);
   return result;
 }
 
-BenchmarkResult benchmark_feature_extraction_plus_onnx_caller_owned_buffer(
-    const std::filesystem::path& model_path) {
+BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx_caller_owned_buffer(
+    const std::filesystem::path& model_path, const ModelMetadata& metadata) {
   constexpr std::size_t kIterations = 50'000;
-  InferenceBackendConfig config;
-  config.requested = InferenceBackend::Onnx;
-  config.model_path = model_path;
-  config.linear_weights = {0.5, -0.001, 2.0, 0.0001};
-  config.linear_bias = 1.0;
-  InferenceBackendSelection selection = make_inference_backend(std::move(config));
+  InferenceBackendSelection selection =
+      make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
   const L2View view = make_inference_l2_view();
   FeatureExtractor extractor;
   std::array<double, kL2FeatureCount> feature_storage{};
@@ -1016,7 +1003,7 @@ BenchmarkResult benchmark_feature_extraction_plus_onnx_caller_owned_buffer(
   (void)warm;
 
   BenchmarkResult result = run_sampled_benchmark(
-      "feature_extraction_plus_onnx_caller_owned_buffer", kIterations,
+      "feature_extraction_plus_chronoslob_onnx_caller_owned_buffer", kIterations,
       [&](std::vector<std::uint64_t>& samples) {
         double accumulator = 0.0;
         for (std::size_t i = 0; i < kIterations; ++i) {
@@ -1030,7 +1017,43 @@ BenchmarkResult benchmark_feature_extraction_plus_onnx_caller_owned_buffer(
         }
         return static_cast<std::uint64_t>(accumulator * 1000.0);
       });
-  tag_inference(result, std::string(to_string(selection.active)), "identity_1x4.onnx", "1x4");
+  tag_from_selection(result, selection, metadata);
+  return result;
+}
+
+BenchmarkResult benchmark_feature_buffer_measured_chronoslob_onnx_inference(
+    const std::filesystem::path& model_path, const ModelMetadata& metadata) {
+  constexpr std::size_t kIterations = 50'000;
+  InferenceBackendSelection selection =
+      make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+  MeasuredInferenceEngine inference(*selection.model, InferencePolicy{1'000'000, 0, true, true});
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+
+  (void)extractor.extract_into(view, feature_buffer);
+  volatile double warm = inference.score(feature_buffer.used()).score;
+  (void)warm;
+
+  BenchmarkResult result = run_sampled_benchmark(
+      "feature_buffer_measured_chronoslob_onnx_inference", kIterations,
+      [&](std::vector<std::uint64_t>& samples) {
+        std::uint64_t guard = 0;
+        for (std::size_t i = 0; i < kIterations; ++i) {
+          const auto start = std::chrono::steady_clock::now();
+          const FeatureExtractionStatus status = extractor.extract_into(view, feature_buffer);
+          const InferenceResult r =
+              status == FeatureExtractionStatus::Ok ? inference.score(feature_buffer.used())
+                                                    : InferenceResult{};
+          const auto end = std::chrono::steady_clock::now();
+          guard ^= static_cast<std::uint64_t>(r.score * 1000.0);
+          guard ^= r.accepted ? 0x9e3779b97f4a7c15ULL : 0ULL;
+          record_sample(samples, start, end);
+        }
+        return guard;
+      });
+  tag_from_selection(result, selection, metadata);
   return result;
 }
 #endif // ASTERION_HAVE_ONNXRUNTIME
@@ -1040,6 +1063,7 @@ void print_result(const BenchmarkResult& result) {
             << ",backend=" << (result.backend.empty() ? "n/a" : result.backend)
             << ",model=" << (result.model_name.empty() ? "n/a" : result.model_name)
             << ",input_shape=" << (result.input_shape.empty() ? "n/a" : result.input_shape)
+            << ",output_shape=" << (result.output_shape.empty() ? "n/a" : result.output_shape)
             << ",feature_count=";
   if (result.feature_count > 0) {
     std::cout << result.feature_count << ",feature_version=" << result.feature_version;
@@ -1188,6 +1212,7 @@ void write_json(const std::filesystem::path& path, const Options& options,
     output << "      \"backend\": \"" << json_escape(result.backend) << "\",\n";
     output << "      \"model_name\": \"" << json_escape(result.model_name) << "\",\n";
     output << "      \"input_shape\": \"" << json_escape(result.input_shape) << "\",\n";
+    output << "      \"output_shape\": \"" << json_escape(result.output_shape) << "\",\n";
     output << "      \"feature_count\": ";
     if (result.feature_count > 0) {
       output << result.feature_count;
@@ -1269,20 +1294,26 @@ int main(int argc, char** argv) {
     inference_results.push_back(benchmark_feature_buffer_policy_gate_overhead());
 #if defined(ASTERION_HAVE_ONNXRUNTIME)
     // The ONNX benchmarks only build/run when the opt-in dependency is present.
-    // The tiny identity fixture is decoded to a temp file and removed afterwards.
-    std::filesystem::path onnx_model_path;
+    // The tiny ChronosLOB-style fixture is a checked-in deterministic artefact.
     try {
-      onnx_model_path = materialise_onnx_fixture();
-      inference_results.push_back(benchmark_onnx_inference_only(onnx_model_path));
-      inference_results.push_back(benchmark_feature_extraction_plus_onnx(onnx_model_path));
+      const std::filesystem::path onnx_model_path = std::filesystem::path(ASTERION_SOURCE_DIR) /
+                                                    "data" / "models" /
+                                                    "chronoslob_tiny_fixture.onnx";
+      const ModelMetadata metadata = load_model_metadata(std::filesystem::path(ASTERION_SOURCE_DIR) /
+                                                         "data" / "models" /
+                                                         "chronoslob_tiny_fixture.metadata.json");
+      inference_results.push_back(benchmark_chronoslob_onnx_model_load(onnx_model_path, metadata));
       inference_results.push_back(
-          benchmark_feature_extraction_plus_onnx_caller_owned_buffer(onnx_model_path));
+          benchmark_chronoslob_onnx_inference_only(onnx_model_path, metadata));
+      inference_results.push_back(
+          benchmark_feature_extraction_plus_chronoslob_onnx(onnx_model_path, metadata));
+      inference_results.push_back(
+          benchmark_feature_extraction_plus_chronoslob_onnx_caller_owned_buffer(onnx_model_path,
+                                                                                metadata));
+      inference_results.push_back(
+          benchmark_feature_buffer_measured_chronoslob_onnx_inference(onnx_model_path, metadata));
     } catch (const std::exception& ex) {
       std::cerr << "onnx benchmark skipped: " << ex.what() << '\n';
-    }
-    if (!onnx_model_path.empty()) {
-      std::error_code remove_ec;
-      std::filesystem::remove(onnx_model_path, remove_ec);
     }
 #endif
   }

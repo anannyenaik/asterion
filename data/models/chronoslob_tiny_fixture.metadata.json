@@ -1,0 +1,54 @@
+{
+  "claim_boundary": "Research-model-to-systems integration using a tiny ChronosLOB-style ONNX artefact.",
+  "claim_limitations": [
+    "No predictive quality claim.",
+    "No trading profitability claim.",
+    "Not live trading infrastructure.",
+    "Not production model-serving infrastructure.",
+    "Not production-HFT infrastructure.",
+    "Not a portable latency guarantee."
+  ],
+  "deterministic_fixture": true,
+  "expected_test_input": [
+    2.0,
+    1000.0,
+    0.5,
+    400.0
+  ],
+  "expected_test_output": [
+    -0.08499999999999998
+  ],
+  "export_command": "python tools/export_chronoslob_tiny_onnx.py --output data/models/chronoslob_tiny_fixture.onnx --metadata-output data/models/chronoslob_tiny_fixture.metadata.json",
+  "feature_count": 4,
+  "feature_order": [
+    "spread_ticks",
+    "mid_price_ticks",
+    "top_level_imbalance",
+    "top_level_quantity"
+  ],
+  "feature_version": 1,
+  "input_name": "features",
+  "input_shape": [
+    1,
+    4
+  ],
+  "model_name": "chronoslob_tiny_fixture",
+  "output_name": "score",
+  "output_semantics": "Single deterministic plumbing score from a fixed linear head over the Asterion L2 feature buffer.",
+  "output_shape": [
+    1,
+    1
+  ],
+  "reference_bias": 0.05,
+  "reference_weights": [
+    0.1,
+    -0.0005,
+    0.25,
+    0.0001
+  ],
+  "source_commit": "2330a15cae6a8ba1ba1ad2df86d0983708c833bc",
+  "source_dirty": true,
+  "source_notes": "ChronosLOB inspected locally for model and feature conventions. No ONNX export hook was present, so this Asterion-side deterministic fixture preserves only a small fixed-shape feature/scoring contract.",
+  "source_repo_path": "ChronosLOB/chronos-lob",
+  "trained_model": false
+}

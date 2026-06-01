@@ -339,7 +339,10 @@ PYBIND11_MODULE(_native, module) {
       .def_readwrite("late_signal", &asterion::InferenceResult::late_signal)
       .def_readwrite("accepted", &asterion::InferenceResult::accepted)
       .def_readwrite("decision", &asterion::InferenceResult::decision)
-      .def_readwrite("backend", &asterion::InferenceResult::backend);
+      .def_readwrite("backend", &asterion::InferenceResult::backend)
+      .def_readwrite("model_name", &asterion::InferenceResult::model_name)
+      .def_readwrite("input_shape", &asterion::InferenceResult::input_shape)
+      .def_readwrite("output_shape", &asterion::InferenceResult::output_shape);
 
   py::class_<asterion::ExecutionReport>(module, "ExecutionReport")
       .def(py::init<>())
@@ -507,6 +510,11 @@ PYBIND11_MODULE(_native, module) {
         result["fell_back"] = selection.fell_back;
         result["detail"] = selection.detail;
         result["onnx_runtime_available"] = asterion::kOnnxRuntimeAvailable;
+        if (selection.model != nullptr) {
+          result["model_name"] = std::string(selection.model->model_name());
+          result["input_shape"] = std::string(selection.model->input_shape());
+          result["output_shape"] = std::string(selection.model->output_shape());
+        }
         return result;
       },
       py::arg("requested") = asterion::InferenceBackend::Onnx);

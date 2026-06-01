@@ -195,9 +195,9 @@ feature-extraction cost is never folded into the trading hot path. It covers vec
 feature extraction, caller-owned-buffer feature extraction, LinearModel inference only, old/new
 feature extraction + LinearModel paths, the measured-engine path, a caller-owned-buffer measured
 path, pure policy-gate overhead, caller-owned-buffer + policy-gate overhead, and, only when built
-with ONNX Runtime, ONNX inference plus old/new feature extraction + ONNX rows. Each inference
-benchmark records its backend, model name, input shape, feature count/version where applicable,
-latency distribution and allocation count.
+with ONNX Runtime, ChronosLOB-style ONNX model-load, inference-only, feature-extraction and
+measured-policy rows. Each inference benchmark records its backend, model name, input shape, output
+shape, feature count/version where applicable, latency distribution and allocation count.
 
 Backend selection is explicit: `make_inference_backend` returns a `Model` for the requested backend
 and records whether it fell back. The deterministic `LinearModel` is the default and the fallback. An
@@ -205,8 +205,10 @@ optional ONNX Runtime backend (`OnnxModel`) is compiled only behind the `ASTERIO
 CMake flag when the dependency is found; otherwise an ONNX request degrades to `LinearModel` with an
 honest detail string. The dependency is never required by default CI; a manual CI input configures
 with `-DASTERION_USE_ONNXRUNTIME=ON` to exercise the build flag and deterministic fallback path.
-The compile-time `kOnnxRuntimeAvailable` constant lets tests branch on the build configuration. A
-tiny identity ONNX fixture is checked in as base64 and decoded only in real ONNX Runtime test builds.
+The compile-time `kOnnxRuntimeAvailable` constant lets tests branch on the build configuration.
+`data/models/chronoslob_tiny_fixture.onnx` is a small deterministic ChronosLOB-style fixture with
+metadata beside it; it is not a trained model. Metadata validation checks feature count/version
+before ONNX selection, and real ONNX Runtime tests use the fixture only when the runtime is present.
 
 ### Latency Budget Accounting
 

@@ -20,6 +20,9 @@ public:
   ~OnnxModel() override;
 
   [[nodiscard]] std::string_view backend_name() const noexcept override;
+  [[nodiscard]] std::string_view model_name() const noexcept override;
+  [[nodiscard]] std::string_view input_shape() const noexcept override;
+  [[nodiscard]] std::string_view output_shape() const noexcept override;
   [[nodiscard]] bool available() const noexcept { return available_; }
   [[nodiscard]] const std::string& load_error() const noexcept { return load_error_; }
   [[nodiscard]] const std::filesystem::path& model_path() const noexcept { return model_path_; }
@@ -30,6 +33,9 @@ private:
   std::filesystem::path model_path_;
   bool available_{false};
   std::string load_error_;
+  std::string model_name_;
+  std::string input_shape_{"unknown"};
+  std::string output_shape_{"unknown"};
   std::unique_ptr<Impl> impl_;
 };
 

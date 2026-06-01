@@ -25,7 +25,7 @@ The JSON schema is stable and includes:
 - `schema_version`;
 - `environment`: CPU, OS, compiler, build type, compiler flags, commit hash, dataset and logging mode;
 - `benchmarks`: name, `category` (`core` or `inference`), `backend`, `model_name`, `input_shape`,
-  optional `feature_count` and `feature_version`, iterations, warm-up iterations, measured
+  `output_shape`, optional `feature_count` and `feature_version`, iterations, warm-up iterations, measured
   iterations, event count, optional p50/p95/p99/p99.9/max latency fields, throughput, guard
   checksum and allocation counters.
 
@@ -65,14 +65,18 @@ row carries a real p50/p95/p99/p99.9/max distribution):
 - event-loop policy-gate overhead with injected timings (`inference_policy_overhead`);
 - caller-owned-buffer feature extraction + policy-gate overhead
   (`feature_buffer_policy_gate_overhead`);
-- ONNX inference only (`onnx_inference_only`) — **only when built with ONNX Runtime**;
-- vector-returning feature extraction + ONNX (`feature_extraction_plus_onnx_inference`) — **only
-  when built with ONNX Runtime**;
-- caller-owned-buffer feature extraction + ONNX
-  (`feature_extraction_plus_onnx_caller_owned_buffer`) — **only when built with ONNX Runtime**.
+- ChronosLOB ONNX model load (`chronoslob_onnx_model_load`) — **only when built with ONNX Runtime**;
+- ChronosLOB ONNX inference only (`chronoslob_onnx_inference_only`) — **only when built with ONNX Runtime**;
+- vector-returning feature extraction + ChronosLOB ONNX
+  (`feature_extraction_plus_chronoslob_onnx_vector_returning`) — **only when built with ONNX Runtime**;
+- caller-owned-buffer feature extraction + ChronosLOB ONNX
+  (`feature_extraction_plus_chronoslob_onnx_caller_owned_buffer`) — **only when built with ONNX Runtime**;
+- caller-owned-buffer feature extraction + measured ChronosLOB ONNX/policy path
+  (`feature_buffer_measured_chronoslob_onnx_inference`) — **only when built with ONNX Runtime**.
 
 Each inference row records its `backend` (`linear`, `onnx`, or `n/a`), `model_name`, `input_shape`
-(`1x4` where applicable), and feature metadata (`feature_count=4`, `feature_version=1`) when the row
+and `output_shape` (`1x4` and `1x1` where applicable), and feature metadata
+(`feature_count=4`, `feature_version=1`) when the row
 uses the L2 feature schema. For sub-microsecond operations the per-call p50 is dominated by timer
 resolution, not by the operation; the curated inference report calls this out and cites aggregate
 throughput as the better estimate of raw op cost. The vector-returning extraction path intentionally
@@ -80,7 +84,10 @@ allocates one `std::vector<double>` per call. The caller-owned-buffer extraction
 scoring and the policy gate are measured separately and are expected to allocate nothing after
 warm-up in the scoped unit tests/benchmark rows. ONNX inference allocations are measured and reported
 honestly, not asserted to be zero. See
-[reports/inference_report_2026_05_31.md](reports/inference_report_2026_05_31.md).
+[reports/inference_report_2026_05_31.md](reports/inference_report_2026_05_31.md). The
+ChronosLOB-style ONNX bridge is documented in
+[docs/chronoslob_bridge.md](docs/chronoslob_bridge.md) and
+[reports/chronoslob_onnx_bridge_report_2026_05_31.md](reports/chronoslob_onnx_bridge_report_2026_05_31.md).
 The feature-buffer-specific report is
 [reports/inference_feature_buffer_report_2026_05_31.md](reports/inference_feature_buffer_report_2026_05_31.md).
 

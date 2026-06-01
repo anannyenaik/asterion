@@ -687,6 +687,9 @@ def cmd_onnx_status(args: argparse.Namespace) -> int:
         "active": str(status["active"]),
         "fell_back": bool(status["fell_back"]),
         "detail": str(status["detail"]),
+        "model_name": str(status.get("model_name", "")),
+        "input_shape": str(status.get("input_shape", "")),
+        "output_shape": str(status.get("output_shape", "")),
     }
     text = "\n".join(f"{key}={value}" for key, value in payload.items())
     _emit(payload, text, args.json)

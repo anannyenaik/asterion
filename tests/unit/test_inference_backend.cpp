@@ -4,16 +4,14 @@
 #include "asterion/inference/feature_extractor.hpp"
 #include "asterion/inference/inference.hpp"
 #include "asterion/inference/linear_model.hpp"
+#include "asterion/inference/model_metadata.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
-#include <cctype>
-#include <chrono>
+#include <exception>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <span>
 #include <string>
 #include <vector>
@@ -22,61 +20,82 @@ using namespace asterion;
 
 namespace {
 
-#if defined(ASTERION_HAVE_ONNXRUNTIME)
-std::vector<unsigned char> decode_base64_fixture(const std::filesystem::path& path) {
-  std::ifstream input(path);
-  REQUIRE(input);
-  std::string encoded((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-  std::vector<unsigned char> output;
-  int value = 0;
-  int bits = -8;
-  for (const unsigned char ch : encoded) {
-    if (std::isspace(ch)) {
-      continue;
-    }
-    if (ch == '=') {
-      break;
-    }
-    int digit = -1;
-    if (ch >= 'A' && ch <= 'Z') {
-      digit = ch - 'A';
-    } else if (ch >= 'a' && ch <= 'z') {
-      digit = ch - 'a' + 26;
-    } else if (ch >= '0' && ch <= '9') {
-      digit = ch - '0' + 52;
-    } else if (ch == '+') {
-      digit = 62;
-    } else if (ch == '/') {
-      digit = 63;
-    }
-    REQUIRE(digit >= 0);
-    value = (value << 6) + digit;
-    bits += 6;
-    if (bits >= 0) {
-      output.push_back(static_cast<unsigned char>((value >> bits) & 0xff));
-      bits -= 8;
-    }
-  }
-  return output;
+std::filesystem::path chronoslob_model_path() {
+  return std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models" /
+         "chronoslob_tiny_fixture.onnx";
 }
 
-std::filesystem::path write_temp_onnx_fixture() {
-  const auto bytes =
-      decode_base64_fixture(std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "fixtures" /
-                            "identity_1x4.onnx.b64");
-  const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-  const std::filesystem::path path =
-      std::filesystem::temp_directory_path() /
-      ("asterion_identity_" + std::to_string(stamp) + ".onnx");
-  std::ofstream output(path, std::ios::binary);
-  REQUIRE(output);
-  output.write(reinterpret_cast<const char*>(bytes.data()),
-               static_cast<std::streamsize>(bytes.size()));
-  return path;
+std::filesystem::path chronoslob_metadata_path() {
+  return std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models" /
+         "chronoslob_tiny_fixture.metadata.json";
 }
-#endif
 
 } // namespace
+
+TEST_CASE("ChronosLOB tiny fixture metadata loads and validates",
+          "[inference][backend][metadata]") {
+  const ModelMetadata metadata = load_model_metadata(chronoslob_metadata_path());
+  const ModelMetadataValidation validation = validate_model_metadata(metadata);
+  REQUIRE(validation.ok);
+  REQUIRE(validation.error.empty());
+  REQUIRE(metadata.model_name == "chronoslob_tiny_fixture");
+  REQUIRE(metadata.trained_model == false);
+  REQUIRE(metadata.deterministic_fixture == true);
+  REQUIRE(shape_to_string(metadata.input_shape) == "1x4");
+  REQUIRE(shape_to_string(metadata.output_shape) == "1x1");
+  REQUIRE(metadata.feature_count == kL2FeatureCount);
+  REQUIRE(metadata.feature_version == kL2FeatureVersion);
+  REQUIRE(validate_feature_compatibility(metadata, kL2FeatureCount, kL2FeatureVersion).ok);
+}
+
+TEST_CASE("ChronosLOB tiny fixture expected input produces expected output",
+          "[inference][backend][metadata]") {
+  const ModelMetadata metadata = load_model_metadata(chronoslob_metadata_path());
+  REQUIRE(validate_model_metadata(metadata).ok);
+
+  const double score = score_reference_fixture(metadata, metadata.expected_test_input);
+
+  REQUIRE(metadata.expected_test_output.size() == 1);
+  REQUIRE(score == Catch::Approx(metadata.expected_test_output.front()));
+}
+
+TEST_CASE("ChronosLOB fixture feature contract mismatches fail clearly",
+          "[inference][backend][metadata]") {
+  ModelMetadata metadata = load_model_metadata(chronoslob_metadata_path());
+
+  metadata.feature_count = kL2FeatureCount + 1U;
+  ModelMetadataValidation count_validation =
+      validate_feature_compatibility(metadata, kL2FeatureCount, kL2FeatureVersion);
+  REQUIRE_FALSE(count_validation.ok);
+  REQUIRE(count_validation.error.find("feature count mismatch") != std::string::npos);
+
+  metadata = load_model_metadata(chronoslob_metadata_path());
+  metadata.feature_version = kL2FeatureVersion + 1U;
+  ModelMetadataValidation version_validation =
+      validate_feature_compatibility(metadata, kL2FeatureCount, kL2FeatureVersion);
+  REQUIRE_FALSE(version_validation.ok);
+  REQUIRE(version_validation.error.find("feature version mismatch") != std::string::npos);
+}
+
+TEST_CASE("ONNX request with incompatible metadata falls back with a clear diagnostic",
+          "[inference][backend][fallback]") {
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = chronoslob_model_path();
+  config.model_feature_count = kL2FeatureCount + 1U;
+  config.model_feature_version = kL2FeatureVersion;
+  config.linear_weights = {1.0, 0.0, 0.0, 0.0};
+  config.linear_bias = 0.0;
+
+  const InferenceBackendSelection selection = make_inference_backend(config);
+
+  REQUIRE(selection.model != nullptr);
+  REQUIRE(selection.active == InferenceBackend::Linear);
+  REQUIRE(selection.fell_back);
+  REQUIRE(selection.detail.find("feature count mismatch") != std::string::npos);
+  const std::array<double, 4> features{2.0, 0.0, 0.0, 0.0};
+  REQUIRE(selection.model->score(features) == Catch::Approx(2.0));
+}
 
 TEST_CASE("Linear backend is selected and scores deterministically", "[inference][backend]") {
   InferenceBackendConfig config;
@@ -118,11 +137,16 @@ TEST_CASE("ONNX request falls back to LinearModel when ONNX Runtime is absent",
 #if defined(ASTERION_HAVE_ONNXRUNTIME)
 TEST_CASE("ONNX Runtime fixture backend scores deterministically when opt-in dependency is present",
           "[inference][backend][onnx]") {
-  const std::filesystem::path model_path = write_temp_onnx_fixture();
+  const ModelMetadata metadata = load_model_metadata(chronoslob_metadata_path());
 
   InferenceBackendConfig config;
   config.requested = InferenceBackend::Onnx;
-  config.model_path = model_path;
+  config.model_path = chronoslob_model_path();
+  config.model_name = metadata.model_name;
+  config.input_shape = shape_to_string(metadata.input_shape);
+  config.output_shape = shape_to_string(metadata.output_shape);
+  config.model_feature_count = metadata.feature_count;
+  config.model_feature_version = metadata.feature_version;
   config.linear_weights = {99.0, 99.0, 99.0, 99.0};
   config.linear_bias = 99.0;
 
@@ -133,31 +157,47 @@ TEST_CASE("ONNX Runtime fixture backend scores deterministically when opt-in dep
   REQUIRE(selection.active == InferenceBackend::Onnx);
   REQUIRE_FALSE(selection.fell_back);
   REQUIRE(selection.model->backend_name() == "onnx");
+  REQUIRE(selection.model->input_shape() == "1x4");
+  REQUIRE(selection.model->output_shape() == "1x1");
 
-  const std::array<double, 4> features{3.5, 2.0, 1.0, -1.0};
+  const std::vector<double> features = metadata.expected_test_input;
   const double first_score = selection.model->score(features);
   const double second_score = selection.model->score(features);
-  // The identity fixture returns its first input element; scoring must be deterministic.
-  REQUIRE(first_score == Catch::Approx(3.5));
+  REQUIRE(first_score == Catch::Approx(metadata.expected_test_output.front()));
   REQUIRE(first_score == Catch::Approx(second_score));
+
+  const std::array<double, 3> bad_features{1.0, 2.0, 3.0};
+  try {
+    (void)selection.model->score(bad_features);
+    FAIL("expected ONNX input feature count mismatch");
+  } catch (const std::exception& ex) {
+    REQUIRE(std::string(ex.what()).find("ONNX input feature count mismatch") !=
+            std::string::npos);
+  }
 
   MeasuredInferenceEngine engine(*selection.model, InferencePolicy{1'000'000'000, 0, true, true});
   const InferenceResult result = engine.score(features);
   REQUIRE(result.backend == "onnx");
+  REQUIRE(result.model_name == "chronoslob_tiny_fixture.onnx");
+  REQUIRE(result.input_shape == "1x4");
+  REQUIRE(result.output_shape == "1x1");
   REQUIRE(result.accepted);
   REQUIRE(result.decision == InferenceDecision::Accept);
-  REQUIRE(result.score == Catch::Approx(3.5));
-
-  std::filesystem::remove(model_path);
+  REQUIRE(result.score == Catch::Approx(metadata.expected_test_output.front()));
 }
 
 TEST_CASE("ONNX inference allocations are measured honestly and separated from load",
           "[inference][backend][onnx][alloc]") {
-  const std::filesystem::path model_path = write_temp_onnx_fixture();
+  const ModelMetadata metadata = load_model_metadata(chronoslob_metadata_path());
 
   InferenceBackendConfig config;
   config.requested = InferenceBackend::Onnx;
-  config.model_path = model_path;
+  config.model_path = chronoslob_model_path();
+  config.model_name = metadata.model_name;
+  config.input_shape = shape_to_string(metadata.input_shape);
+  config.output_shape = shape_to_string(metadata.output_shape);
+  config.model_feature_count = metadata.feature_count;
+  config.model_feature_version = metadata.feature_version;
   config.linear_weights = {1.0, 0.0, 0.0, 0.0};
   config.linear_bias = 0.0;
 
@@ -169,11 +209,11 @@ TEST_CASE("ONNX inference allocations are measured honestly and separated from l
   REQUIRE(selection.model != nullptr);
   REQUIRE(selection.active == InferenceBackend::Onnx);
 
-  const std::array<double, 4> features{3.5, 2.0, 1.0, -1.0};
+  const std::vector<double> features = metadata.expected_test_input;
 
   // Warm up once so any lazy first-call allocations are not counted as steady state.
   const double warm = selection.model->score(features);
-  REQUIRE(warm == Catch::Approx(3.5));
+  REQUIRE(warm == Catch::Approx(metadata.expected_test_output.front()));
 
   // Steady-state inference allocations: measured and reported, not asserted to be
   // zero. ONNX Runtime is free to allocate per-run buffers; honesty over claims.
@@ -188,14 +228,13 @@ TEST_CASE("ONNX inference allocations are measured honestly and separated from l
                                 << " bytes=" << load_snapshot.bytes_allocated
                                 << "; steady-state allocations=" << steady_snapshot.allocations
                                 << " over 16 scores");
-  REQUIRE(last == Catch::Approx(3.5)); // deterministic scoring
+  REQUIRE(last == Catch::Approx(metadata.expected_test_output.front())); // deterministic scoring
   // The allocation counts above are informational and reported via INFO; we do
   // not assert ONNX inference is allocation-free because that is not proven.
   // Determinism is the real invariant being tested here.
   (void)steady_snapshot;
   (void)load_snapshot;
 
-  std::filesystem::remove(model_path);
 }
 #endif
 

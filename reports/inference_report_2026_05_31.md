@@ -25,11 +25,16 @@ from the replay/book/matching/risk "core" timings):
 - event-loop policy-gate overhead, injected timings (`inference_policy_overhead`)
 - caller-owned-buffer feature extraction + policy-gate overhead
   (`feature_buffer_policy_gate_overhead`)
-- ONNX inference only — **only when built with ONNX Runtime** (`onnx_inference_only`)
-- feature extraction + ONNX — **only when built with ONNX Runtime**
-  (`feature_extraction_plus_onnx_inference`)
-- caller-owned-buffer feature extraction + ONNX (only when built with ONNX Runtime)
-  (`feature_extraction_plus_onnx_caller_owned_buffer`)
+- ChronosLOB ONNX model load — **only when built with ONNX Runtime**
+  (`chronoslob_onnx_model_load`)
+- ChronosLOB ONNX inference only — **only when built with ONNX Runtime**
+  (`chronoslob_onnx_inference_only`)
+- feature extraction + ChronosLOB ONNX — **only when built with ONNX Runtime**
+  (`feature_extraction_plus_chronoslob_onnx_vector_returning`)
+- caller-owned-buffer feature extraction + ChronosLOB ONNX (only when built with ONNX Runtime)
+  (`feature_extraction_plus_chronoslob_onnx_caller_owned_buffer`)
+- caller-owned-buffer feature extraction + measured ChronosLOB ONNX/policy path (only when built
+  with ONNX Runtime) (`feature_buffer_measured_chronoslob_onnx_inference`)
 
 ## Environment
 
@@ -102,21 +107,22 @@ Notes on the numbers above:
 A LinearModel-vs-ONNX comparison is meaningful **only on the same machine and build**. ONNX Runtime
 is not installed in this local environment, so this run could not measure the ONNX rows; it measured
 the deterministic LinearModel path and confirmed the documented fallback. The benchmark runner emits
-`onnx_inference_only`, `feature_extraction_plus_onnx_inference` and
-`feature_extraction_plus_onnx_caller_owned_buffer` rows automatically when the binary is built with
+`chronoslob_onnx_model_load`, `chronoslob_onnx_inference_only`,
+`feature_extraction_plus_chronoslob_onnx_vector_returning`,
+`feature_extraction_plus_chronoslob_onnx_caller_owned_buffer` and
+`feature_buffer_measured_chronoslob_onnx_inference` rows automatically when the binary is built with
 `-DASTERION_USE_ONNXRUNTIME=ON` and a real ONNX Runtime is found (see the opt-in `onnx-runtime` CI
 lane). When those rows are present:
 
-- the tiny checked-in identity fixture (`data/fixtures/identity_1x4.onnx.b64`, 141 bytes) is decoded
-  to a temp file, scored, and removed;
-- the identity model returns its first input feature, so scoring is deterministic and is asserted in
-  the ONNX unit test;
+- the checked-in fixture is `data/models/chronoslob_tiny_fixture.onnx`, with metadata in
+  `data/models/chronoslob_tiny_fixture.metadata.json`;
+- the fixture is deterministic and not trained; its expected input/output are asserted in tests;
+- feature count/version mismatches fail clearly before ONNX selection is trusted;
 - ONNX model-load allocations are measured separately from steady-state inference allocations, and
   ONNX inference is **not** claimed to be allocation-free.
 
-Because the identity fixture does no arithmetic, any ONNX-vs-LinearModel latency gap on a given
-machine reflects ONNX Runtime call/session overhead versus an inlined dot product — it is a plumbing
-comparison, not a model-quality comparison.
+Any ONNX-vs-LinearModel latency gap on a given machine reflects runtime/session/model-call overhead
+versus an inlined dot product. It is a plumbing comparison, not a model-quality comparison.
 
 ## What This Report Does Not Claim
 
@@ -141,5 +147,5 @@ cmake --build build-onnx --target asterion_benchmarks
 The ONNX fixture itself can be regenerated and verified with:
 
 ```bash
-python scripts/generate_onnx_fixture.py --verify
+python tools/export_chronoslob_tiny_onnx.py --verify
 ```

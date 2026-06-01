@@ -47,6 +47,9 @@ struct InferenceResult {
   bool accepted{true};
   InferenceDecision decision{InferenceDecision::Accept};
   std::string backend;
+  std::string model_name;
+  std::string input_shape;
+  std::string output_shape;
   bool model_disabled{false};
 };
 

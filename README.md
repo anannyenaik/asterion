@@ -450,19 +450,21 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_USE_ONNXRUNTI
 
 The ONNX backend is optional and is not exercised by default CI; it requires ONNX Runtime to be
 installed for a real ONNX backend to load. Default CI remains dependency-free. A tiny checked-in
-identity-model fixture (`data/fixtures/identity_1x4.onnx.b64`, 141 bytes, input/output shape `1x4`)
-is decoded only by tests compiled with `ASTERION_HAVE_ONNXRUNTIME`; otherwise the fallback path is
-tested. The fixture is a hand-described identity graph (license-safe, not a trained or third-party
-model); `scripts/generate_onnx_fixture.py` documents exactly how it was produced and can regenerate
-or `--verify` it byte-for-byte (requires the optional `onnx` package). The `ci` workflow has a
-manual `onnx_backend` input. When enabled, it runs an opt-in fallback lane with
+ChronosLOB-style fixture (`data/models/chronoslob_tiny_fixture.onnx`, input shape `1x4`, output
+shape `1x1`) is used only by tests compiled with `ASTERION_HAVE_ONNXRUNTIME`; otherwise the fallback
+path is tested. The fixture is deterministic and not trained; its metadata lives beside it in
+`data/models/chronoslob_tiny_fixture.metadata.json`, and
+`tools/export_chronoslob_tiny_onnx.py` can regenerate or `--verify` it (requires the optional
+`onnx` package). The `ci` workflow has a manual `onnx_backend` input. When enabled, it runs an opt-in fallback lane with
 `-DASTERION_USE_ONNXRUNTIME=ON` and an opt-in ONNX Runtime lane that downloads the dependency, builds
-the real backend and runs the tiny identity fixture. Neither lane runs in default CI.
+the real backend and runs the tiny fixture. Neither lane runs in default CI.
 
-When built with ONNX Runtime, the inference benchmark runner additionally emits `onnx_inference_only`
-and `feature_extraction_plus_onnx_inference` rows; ONNX inference allocations are measured and
-reported honestly (model-load is measured separately from steady-state) and are not claimed to be
-allocation-free. See [reports/inference_report_2026_05_31.md](reports/inference_report_2026_05_31.md).
+When built with ONNX Runtime, the inference benchmark runner additionally emits
+`chronoslob_onnx_model_load`, `chronoslob_onnx_inference_only` and feature-extraction + ChronosLOB
+ONNX rows; ONNX inference allocations are measured and reported honestly (model-load is measured
+separately from steady-state) and are not claimed to be allocation-free. See
+[docs/chronoslob_bridge.md](docs/chronoslob_bridge.md) and
+[reports/chronoslob_onnx_bridge_report_2026_05_31.md](reports/chronoslob_onnx_bridge_report_2026_05_31.md).
 
 The timeout/late-signal policy can also disable the model after repeated late signals when configured
 (`InferencePolicyGate` with `disable_on_repeated_late_signals` and `max_consecutive_late_signals`);
