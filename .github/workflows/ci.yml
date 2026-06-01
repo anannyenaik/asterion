@@ -115,8 +115,9 @@ jobs:
         run: python3 -m pytest python/tests
 
   # Opt-in lane: download + cache a real ONNX Runtime, build with it, and run the
-  # tiny checked-in identity fixture to assert the ONNX backend is selected and
-  # scores deterministically. This dependency is never installed by the default CI.
+  # tiny checked-in ChronosLOB-style fixture to assert the ONNX backend is
+  # selected and scores deterministically. This dependency is never installed by
+  # the default CI.
   onnx-runtime:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.onnx_backend }}
     runs-on: ubuntu-latest
@@ -163,7 +164,7 @@ jobs:
       - name: Build
         run: cmake --build build-onnxrt
 
-      - name: Test (real ONNX backend + identity fixture)
+      - name: Test (real ONNX backend + ChronosLOB fixture)
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/onnxruntime/lib
         run: ctest --test-dir build-onnxrt --output-on-failure
