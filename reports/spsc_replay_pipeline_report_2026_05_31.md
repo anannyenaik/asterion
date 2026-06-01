@@ -21,6 +21,11 @@ Deterministic single-thread replay (`ReplayEngine::replay_events`) **remains the
 mode is strictly opt-in (`run_spsc_replay`) and exists to make a single concurrency boundary explicit,
 testable and benchmarkable.
 
+Follow-up note: the steady-state benchmark harness and opt-in light validation mode are documented in
+[spsc_steady_state_report_2026_05_31.md](spsc_steady_state_report_2026_05_31.md). That follow-up keeps
+the default single-thread replay path and full validation path unchanged, and frames the new work as
+benchmark/evaluation only.
+
 ## Why a concurrency boundary was added
 
 Asterion already had deterministic replay, schema guards, recorded-data tooling, optional ONNX
@@ -224,5 +229,9 @@ same target/CLI names.
 - The pooled-book SPSC variant is not implemented because `ReplayEngine` is not templated on the book
   type. `PooledOrderBook` is covered by the existing single-thread hot-path benchmark rows.
 - Per-run benchmark latency on a tiny dataset is dominated by thread lifecycle, not per-event cost.
+- Larger-corpus throughput evaluation should use
+  `spsc_replay_steady_state_l3_diagnostics` / `single_thread_replay_steady_state_l3_diagnostics`
+  with an explicit validation mode, as documented in
+  [spsc_steady_state_report_2026_05_31.md](spsc_steady_state_report_2026_05_31.md).
 - The drop policy is opt-in, lossy and not correctness-preserving for order-book streams.
 - Absolute numbers are local and non-portable; only checksum parity and stats invariants are stable.

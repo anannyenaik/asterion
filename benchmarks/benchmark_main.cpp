@@ -61,8 +61,10 @@ struct Options {
   std::size_t hot_path_iterations{5'000};
   std::size_t warmup_iterations{5};
   std::size_t spsc_queue_capacity{1024};
+  ReplayValidationMode steady_state_validation_mode{ReplayValidationMode::Light};
   bool text_output{true};
   bool only_hot_path{false};
+  bool only_steady_state_replay{false};
   std::string logging_mode;
 };
 
@@ -87,6 +89,10 @@ struct SpscBenchmarkStats {
   std::size_t backpressure_count{0};
   std::size_t dropped_events{0};
   std::size_t max_queue_depth{0};
+  std::size_t end_of_stream_markers_produced{0};
+  std::size_t end_of_stream_markers_consumed{0};
+  std::uint64_t elapsed_ns{0};
+  double throughput_events_per_second{0.0};
   bool checksum_parity{false};
 };
 
@@ -99,6 +105,8 @@ struct BenchmarkResult {
   std::size_t risk_check_count{0};
   std::string dataset_name;
   std::string timing_mode{"aggregate"};
+  std::string validation_mode{"n/a"};
+  std::string thread_lifecycle_mode{"n/a"};
   // "core" benchmarks measure replay/book/matching/risk paths. "inference"
   // benchmarks measure feature extraction and model scoring; they are reported
   // separately so inference timings are never conflated with the trading hot path.
@@ -113,6 +121,10 @@ struct BenchmarkResult {
   std::uint64_t total_ns{0};
   std::uint64_t avg_ns{0};
   double throughput_events_per_second{0.0};
+  std::uint64_t event_log_checksum{0};
+  std::uint64_t final_book_checksum{0};
+  std::uint64_t execution_report_checksum{0};
+  std::uint64_t diagnostics_checksum{0};
   std::uint64_t guard{0};
   AllocationSnapshot allocations;
   LatencyDistribution latency;
@@ -128,7 +140,8 @@ void print_usage(std::ostream& output) {
   output << "Usage: asterion_benchmarks [dataset.csv] [--dataset path] [--json path]"
          << " [--no-text] [--logging-mode name] [--hot-path-iterations n]"
          << " [--warmup-iterations n] [--hot-path-warmup n] [--spsc-queue-capacity n]"
-         << " [--only-hot-path]\n";
+         << " [--steady-state-validation-mode full|light] [--only-hot-path]"
+         << " [--only-steady-state-replay]\n";
 }
 
 bool parse_size_option(std::string_view name, std::string_view value, std::size_t& output) {
@@ -145,6 +158,19 @@ bool parse_size_option(std::string_view name, std::string_view value, std::size_
   }
   output = static_cast<std::size_t>(parsed);
   return true;
+}
+
+bool parse_validation_mode_option(std::string_view value, ReplayValidationMode& output) {
+  if (value == "full") {
+    output = ReplayValidationMode::Full;
+    return true;
+  }
+  if (value == "light") {
+    output = ReplayValidationMode::Light;
+    return true;
+  }
+  std::cerr << "--steady-state-validation-mode must be one of: full, light\n";
+  return false;
 }
 
 bool parse_options(int argc, char** argv, Options& options) {
@@ -177,6 +203,10 @@ bool parse_options(int argc, char** argv, Options& options) {
     }
     if (arg == "--only-hot-path") {
       options.only_hot_path = true;
+      continue;
+    }
+    if (arg == "--only-steady-state-replay") {
+      options.only_steady_state_replay = true;
       continue;
     }
     if (arg == "--logging-mode") {
@@ -218,6 +248,16 @@ bool parse_options(int argc, char** argv, Options& options) {
       }
       if (options.spsc_queue_capacity == 0) {
         std::cerr << "--spsc-queue-capacity must be at least 1\n";
+        return false;
+      }
+      continue;
+    }
+    if (arg == "--steady-state-validation-mode") {
+      if (i + 1 >= argc) {
+        std::cerr << "--steady-state-validation-mode requires a value\n";
+        return false;
+      }
+      if (!parse_validation_mode_option(argv[++i], options.steady_state_validation_mode)) {
         return false;
       }
       continue;
@@ -501,6 +541,40 @@ BenchmarkResult benchmark_hot_path_pipeline(const Options& options, std::string 
   return result;
 }
 
+bool replay_checksum_parity(const ReplayResult& actual, const ReplayResult& expected) {
+  return actual.events_processed == expected.events_processed &&
+         actual.event_log_checksum == expected.event_log_checksum &&
+         actual.final_book_checksum == expected.final_book_checksum &&
+         actual.execution_report_checksum == expected.execution_report_checksum &&
+         actual.diagnostics_checksum == expected.diagnostics_checksum &&
+         actual.diagnostic_error_count == expected.diagnostic_error_count &&
+         actual.diagnostic_warning_count == expected.diagnostic_warning_count &&
+         actual.sequence_valid == expected.sequence_valid;
+}
+
+void attach_replay_checksums(BenchmarkResult& result, const ReplayResult& replay) {
+  result.event_log_checksum = replay.event_log_checksum;
+  result.final_book_checksum = replay.final_book_checksum;
+  result.execution_report_checksum = replay.execution_report_checksum;
+  result.diagnostics_checksum = replay.diagnostics_checksum;
+  result.guard = replay.final_book_checksum ^ replay.diagnostics_checksum;
+}
+
+void attach_spsc_stats(BenchmarkResult& result, const SpscReplayStats& stats, bool parity) {
+  result.spsc.available = true;
+  result.spsc.queue_capacity = stats.queue_capacity;
+  result.spsc.produced_events = stats.produced_events;
+  result.spsc.consumed_events = stats.consumed_events;
+  result.spsc.backpressure_count = stats.backpressure_count;
+  result.spsc.dropped_events = stats.dropped_events;
+  result.spsc.max_queue_depth = stats.max_queue_depth;
+  result.spsc.end_of_stream_markers_produced = stats.end_of_stream_markers_produced;
+  result.spsc.end_of_stream_markers_consumed = stats.end_of_stream_markers_consumed;
+  result.spsc.elapsed_ns = stats.elapsed_ns;
+  result.spsc.throughput_events_per_second = stats.throughput_events_per_second;
+  result.spsc.checksum_parity = parity;
+}
+
 // Single-thread deterministic replay baseline (book + validation + diagnostics).
 // This is the parity reference for the SPSC pipeline rows below. Each iteration
 // replays the dataset once and is recorded as one per-run latency sample.
@@ -522,18 +596,17 @@ BenchmarkResult benchmark_replay_single_thread(const Options& options) {
 
   std::vector<std::uint64_t> samples;
   samples.reserve(options.hot_path_iterations);
-  std::uint64_t guard = kFnvOffsetBasis;
+  ReplayResult last_result;
 
   reset_allocation_counters();
   const auto start = std::chrono::steady_clock::now();
   for (std::size_t i = 0; i < options.hot_path_iterations; ++i) {
     const auto run_start = std::chrono::steady_clock::now();
     ReplayEngine engine(symbol_id);
-    const ReplayResult result = engine.replay_events(events);
+    last_result = engine.replay_events(events);
     const auto run_end = std::chrono::steady_clock::now();
     samples.push_back(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(run_end - run_start).count()));
-    guard = result.final_book_checksum ^ result.diagnostics_checksum;
   }
   const auto end = std::chrono::steady_clock::now();
   const AllocationSnapshot allocations = allocation_snapshot();
@@ -550,13 +623,15 @@ BenchmarkResult benchmark_replay_single_thread(const Options& options) {
   result.dataset_name = options.dataset_path.filename().string();
   // Each latency sample is one whole-dataset replay run, not one event.
   result.timing_mode = "per-run";
+  result.validation_mode = std::string(to_string(ReplayValidationMode::Full));
+  result.thread_lifecycle_mode = "single_thread";
   result.total_ns = total_ns;
   result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
   result.throughput_events_per_second =
       total_ns == 0
           ? 0.0
           : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
-  result.guard = guard;
+  attach_replay_checksums(result, last_result);
   result.allocations = allocations;
   result.latency = latency_distribution(std::move(samples));
   return result;
@@ -595,6 +670,7 @@ BenchmarkResult benchmark_replay_spsc(const Options& options) {
   samples.reserve(options.hot_path_iterations);
   bool parity = true;
   SpscReplayStats last_stats;
+  ReplayResult last_replay;
 
   reset_allocation_counters();
   const auto start = std::chrono::steady_clock::now();
@@ -608,6 +684,7 @@ BenchmarkResult benchmark_replay_spsc(const Options& options) {
         spsc.replay.final_book_checksum ^ spsc.replay.diagnostics_checksum;
     parity = parity && (guard == reference_guard);
     last_stats = spsc.stats;
+    last_replay = spsc.replay;
   }
   const auto end = std::chrono::steady_clock::now();
   const AllocationSnapshot allocations = allocation_snapshot();
@@ -623,23 +700,117 @@ BenchmarkResult benchmark_replay_spsc(const Options& options) {
   result.event_count = event_count;
   result.dataset_name = options.dataset_path.filename().string();
   result.timing_mode = "per-run";
+  result.validation_mode = std::string(to_string(ReplayValidationMode::Full));
+  result.thread_lifecycle_mode = "per_replay";
   result.total_ns = total_ns;
   result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
   result.throughput_events_per_second =
       total_ns == 0
           ? 0.0
           : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
+  attach_replay_checksums(result, last_replay);
   result.guard = reference_guard;
   result.allocations = allocations;
   result.latency = latency_distribution(std::move(samples));
-  result.spsc.available = true;
-  result.spsc.queue_capacity = last_stats.queue_capacity;
-  result.spsc.produced_events = last_stats.produced_events;
-  result.spsc.consumed_events = last_stats.consumed_events;
-  result.spsc.backpressure_count = last_stats.backpressure_count;
-  result.spsc.dropped_events = last_stats.dropped_events;
-  result.spsc.max_queue_depth = last_stats.max_queue_depth;
-  result.spsc.checksum_parity = parity;
+  attach_spsc_stats(result, last_stats, parity);
+  return result;
+}
+
+BenchmarkResult benchmark_replay_single_thread_steady_state(const Options& options) {
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load replay dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("replay dataset is empty: " + options.dataset_path.string());
+  }
+  const SymbolId symbol_id = log.events.front().symbol_id;
+  const std::span<const MarketDataEvent> events(log.events);
+
+  ReplayConfig replay_config;
+  replay_config.validation_mode = options.steady_state_validation_mode;
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    ReplayEngine engine(symbol_id, replay_config);
+    (void)engine.replay_events(events);
+  }
+
+  ReplayEngine engine(symbol_id, replay_config);
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  const ReplayResult replay = engine.replay_events(events);
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = "single_thread_replay_steady_state_l3_diagnostics";
+  result.iterations = 1;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = 1;
+  result.event_count = log.events.size();
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "aggregate";
+  result.validation_mode = std::string(to_string(options.steady_state_validation_mode));
+  result.thread_lifecycle_mode = "single_thread";
+  result.total_ns = total_ns;
+  result.avg_ns = log.events.empty() ? 0 : total_ns / log.events.size();
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(log.events.size()) * 1'000'000'000.0 /
+                static_cast<double>(total_ns);
+  attach_replay_checksums(result, replay);
+  result.allocations = allocations;
+  return result;
+}
+
+BenchmarkResult benchmark_replay_spsc_steady_state(const Options& options) {
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load replay dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("replay dataset is empty: " + options.dataset_path.string());
+  }
+  const SymbolId symbol_id = log.events.front().symbol_id;
+  const std::span<const MarketDataEvent> events(log.events);
+
+  ReplayConfig replay_config;
+  replay_config.validation_mode = options.steady_state_validation_mode;
+  ReplayEngine reference_engine(symbol_id, replay_config);
+  const ReplayResult reference = reference_engine.replay_events(events);
+
+  SpscReplayConfig config;
+  config.queue_capacity = options.spsc_queue_capacity;
+  config.replay = replay_config;
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    (void)run_spsc_replay_steady_state(events, symbol_id, config);
+  }
+
+  reset_allocation_counters();
+  const SpscReplayResult spsc = run_spsc_replay_steady_state(events, symbol_id, config);
+  const AllocationSnapshot allocations = allocation_snapshot();
+  const bool parity = replay_checksum_parity(spsc.replay, reference);
+
+  BenchmarkResult result;
+  result.name = "spsc_replay_steady_state_l3_diagnostics";
+  result.iterations = 1;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = 1;
+  result.event_count = log.events.size();
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "aggregate";
+  result.validation_mode = std::string(to_string(options.steady_state_validation_mode));
+  result.thread_lifecycle_mode = "steady_state";
+  result.total_ns = spsc.stats.elapsed_ns;
+  result.avg_ns = log.events.empty() ? 0 : spsc.stats.elapsed_ns / log.events.size();
+  result.throughput_events_per_second = spsc.stats.throughput_events_per_second;
+  attach_replay_checksums(result, spsc.replay);
+  result.allocations = allocations;
+  attach_spsc_stats(result, spsc.stats, parity);
   return result;
 }
 
@@ -1252,6 +1423,8 @@ void print_result(const BenchmarkResult& result) {
             << ",risk_check_count=" << result.risk_check_count
             << ",dataset=" << (result.dataset_name.empty() ? "n/a" : result.dataset_name)
             << ",timing_mode=" << result.timing_mode
+            << ",validation_mode=" << result.validation_mode
+            << ",thread_lifecycle_mode=" << result.thread_lifecycle_mode
             << ",total_ns=" << result.total_ns << ",avg_ns=" << result.avg_ns
             << ",p50_ns=";
   if (result.latency.available) {
@@ -1267,6 +1440,10 @@ void print_result(const BenchmarkResult& result) {
             << ",allocations=" << result.allocations.allocations
             << ",deallocations=" << result.allocations.deallocations
             << ",bytes_allocated=" << result.allocations.bytes_allocated
+            << ",event_log_checksum=" << result.event_log_checksum
+            << ",final_book_checksum=" << result.final_book_checksum
+            << ",execution_report_checksum=" << result.execution_report_checksum
+            << ",diagnostics_checksum=" << result.diagnostics_checksum
             << ",guard=" << result.guard;
   if (result.spsc.available) {
     std::cout << ",queue_capacity=" << result.spsc.queue_capacity
@@ -1275,6 +1452,13 @@ void print_result(const BenchmarkResult& result) {
               << ",backpressure_count=" << result.spsc.backpressure_count
               << ",dropped_events=" << result.spsc.dropped_events
               << ",max_queue_depth=" << result.spsc.max_queue_depth
+              << ",end_of_stream_markers_produced="
+              << result.spsc.end_of_stream_markers_produced
+              << ",end_of_stream_markers_consumed="
+              << result.spsc.end_of_stream_markers_consumed
+              << ",spsc_elapsed_ns=" << result.spsc.elapsed_ns
+              << ",spsc_throughput_events_per_second=" << std::fixed << std::setprecision(2)
+              << result.spsc.throughput_events_per_second << std::defaultfloat
               << ",checksum_parity=" << (result.spsc.checksum_parity ? "true" : "false");
   }
   std::cout << '\n';
@@ -1419,6 +1603,9 @@ void write_json(const std::filesystem::path& path, const Options& options,
     output << "      \"risk_check_count\": " << result.risk_check_count << ",\n";
     output << "      \"dataset_name\": \"" << json_escape(result.dataset_name) << "\",\n";
     output << "      \"timing_mode\": \"" << json_escape(result.timing_mode) << "\",\n";
+    output << "      \"validation_mode\": \"" << json_escape(result.validation_mode) << "\",\n";
+    output << "      \"thread_lifecycle_mode\": \"" << json_escape(result.thread_lifecycle_mode)
+           << "\",\n";
     output << "      \"total_ns\": " << result.total_ns << ",\n";
     output << "      \"avg_ns\": " << result.avg_ns << ",\n";
     write_optional_latency(output, "p50_ns", result.latency, &LatencyDistribution::p50_ns);
@@ -1429,6 +1616,10 @@ void write_json(const std::filesystem::path& path, const Options& options,
     output << "      \"throughput_events_per_second\": " << std::fixed << std::setprecision(2)
            << result.throughput_events_per_second << std::defaultfloat << ",\n";
     output << "      \"guard\": " << result.guard << ",\n";
+    output << "      \"event_log_checksum\": " << result.event_log_checksum << ",\n";
+    output << "      \"final_book_checksum\": " << result.final_book_checksum << ",\n";
+    output << "      \"execution_report_checksum\": " << result.execution_report_checksum << ",\n";
+    output << "      \"diagnostics_checksum\": " << result.diagnostics_checksum << ",\n";
     output << "      \"allocations\": " << result.allocations.allocations << ",\n";
     output << "      \"deallocations\": " << result.allocations.deallocations << ",\n";
     output << "      \"bytes_allocated\": " << result.allocations.bytes_allocated;
@@ -1441,6 +1632,13 @@ void write_json(const std::filesystem::path& path, const Options& options,
       output << "        \"backpressure_count\": " << result.spsc.backpressure_count << ",\n";
       output << "        \"dropped_events\": " << result.spsc.dropped_events << ",\n";
       output << "        \"max_queue_depth\": " << result.spsc.max_queue_depth << ",\n";
+      output << "        \"end_of_stream_markers_produced\": "
+             << result.spsc.end_of_stream_markers_produced << ",\n";
+      output << "        \"end_of_stream_markers_consumed\": "
+             << result.spsc.end_of_stream_markers_consumed << ",\n";
+      output << "        \"elapsed_ns\": " << result.spsc.elapsed_ns << ",\n";
+      output << "        \"throughput_events_per_second\": " << std::fixed << std::setprecision(2)
+             << result.spsc.throughput_events_per_second << std::defaultfloat << ",\n";
       output << "        \"checksum_parity\": " << (result.spsc.checksum_parity ? "true" : "false")
              << "\n";
       output << "      }\n";
@@ -1464,14 +1662,18 @@ int main(int argc, char** argv) {
   // Core replay/book/matching/risk benchmarks. These timings are kept separate
   // from the inference timings below.
   std::vector<BenchmarkResult> core_results;
-  core_results.push_back(benchmark_hot_path_pipeline<OrderBook>(
-      options, "hot_path_binary_replay_l3_l2_strategy_risk"));
-  core_results.push_back(benchmark_hot_path_pipeline<PooledOrderBook>(
-      options, "hot_path_binary_replay_pooled_l3_l2_strategy_risk"));
-  // Opt-in SPSC replay pipeline rows and their single-thread parity baseline.
-  core_results.push_back(benchmark_replay_single_thread(options));
-  core_results.push_back(benchmark_replay_spsc(options));
-  if (!options.only_hot_path) {
+  if (!options.only_steady_state_replay) {
+    core_results.push_back(benchmark_hot_path_pipeline<OrderBook>(
+        options, "hot_path_binary_replay_l3_l2_strategy_risk"));
+    core_results.push_back(benchmark_hot_path_pipeline<PooledOrderBook>(
+        options, "hot_path_binary_replay_pooled_l3_l2_strategy_risk"));
+    // Opt-in SPSC replay pipeline rows and their single-thread parity baseline.
+    core_results.push_back(benchmark_replay_single_thread(options));
+    core_results.push_back(benchmark_replay_spsc(options));
+  }
+  core_results.push_back(benchmark_replay_single_thread_steady_state(options));
+  core_results.push_back(benchmark_replay_spsc_steady_state(options));
+  if (!options.only_hot_path && !options.only_steady_state_replay) {
     core_results.push_back(benchmark_add_order());
     core_results.push_back(benchmark_cancel_order());
     core_results.push_back(benchmark_replace_order());
@@ -1485,7 +1687,7 @@ int main(int argc, char** argv) {
   // Inference benchmarks. Feature extraction and model scoring are measured on
   // their own so inference cost is never folded into the trading hot path.
   std::vector<BenchmarkResult> inference_results;
-  if (!options.only_hot_path) {
+  if (!options.only_hot_path && !options.only_steady_state_replay) {
     inference_results.push_back(benchmark_feature_extraction_vector_returning());
     inference_results.push_back(benchmark_feature_extraction_caller_owned_buffer());
     inference_results.push_back(benchmark_linear_inference_only());

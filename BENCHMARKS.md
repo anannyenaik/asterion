@@ -16,6 +16,7 @@ cmake --build build --target asterion_benchmarks
 ./build/asterion_benchmarks --dataset data/samples/sample_replay.csv
 ./build/asterion_benchmarks --dataset data/samples/sample_replay.bin
 ./build/asterion_benchmarks --dataset data/samples/sample_hot_path_replay.bin --hot-path-iterations 10000
+./build/asterion_benchmarks --only-steady-state-replay --dataset data/generated/balanced_100k.bin --steady-state-validation-mode light
 ./build/asterion_benchmarks --json build/asterion_benchmark.json --no-text
 PYTHONPATH=build/python python python/examples/load_benchmark_json.py build/asterion_benchmark.json
 ```
@@ -26,8 +27,8 @@ The JSON schema is stable and includes:
 - `environment`: CPU, OS, compiler, build type, compiler flags, commit hash, dataset and logging mode;
 - `benchmarks`: name, `category` (`core` or `inference`), `backend`, `model_name`, `input_shape`,
   `output_shape`, optional `feature_count` and `feature_version`, iterations, warm-up iterations, measured
-  iterations, event count, optional p50/p95/p99/p99.9/max latency fields, throughput, guard
-  checksum and allocation counters.
+  iterations, event count, validation mode, thread lifecycle mode, optional p50/p95/p99/p99.9/max
+  latency fields, throughput, replay checksums, guard checksum and allocation counters.
 
 Benchmarks are split into two categories so inference timings are never folded into the trading hot
 path. The text output prints a `# core` group and a `# inference` group; the JSON tags every row with
@@ -49,6 +50,16 @@ Core (replay / book / matching / risk):
   and each SPSC run spins up and joins a producer thread (thread lifecycle is part of the measured
   cost), so per-run latency on a tiny dataset is dominated by thread setup. See
   [reports/spsc_replay_pipeline_report_2026_05_31.md](reports/spsc_replay_pipeline_report_2026_05_31.md);
+- steady-state replay rows for large-corpus SPSC evaluation:
+  `single_thread_replay_steady_state_l3_diagnostics` and
+  `spsc_replay_steady_state_l3_diagnostics`. These rows use `timing_mode = aggregate`, expose
+  `thread_lifecycle_mode` (`single_thread` or `steady_state`) and `validation_mode`, and are intended
+  for throughput evaluation where total elapsed time and throughput are more meaningful than
+  per-run latency percentiles. The steady SPSC row creates producer and consumer threads once, starts
+  timing after both are ready, streams the preloaded corpus, reports EOS marker counts and keeps
+  checksum parity against the matching single-thread row. Use `--only-steady-state-replay` for large
+  local corpora so old full-validation per-run rows do not pollute the measurement. See
+  [reports/spsc_steady_state_report_2026_05_31.md](reports/spsc_steady_state_report_2026_05_31.md);
 - add order;
 - cancel order;
 - replace order;
@@ -113,6 +124,12 @@ The pooled L3 benchmark is opt-in and uses `PooledOrderBook`, a vector-backed pr
 book with a reusable flat order-id index. It shares the same replay semantics in parity tests but is
 not the default replay or matching book. It exists to measure the allocation-reduction experiment
 under disclosed warm-up conditions.
+
+Replay validation defaults to correctness-first `full`: after every event, replay checks full book
+invariants and crossed top of book. The benchmark-only `--steady-state-validation-mode light` option
+keeps cheap per-event top-of-book checks and defers the full invariant walk to end-of-replay. This is
+explicitly for large-corpus throughput evaluation; it does not weaken the default replay path or the
+correctness tests.
 
 A curated local report is checked in at
 `reports/benchmark_report_2026_05_31.md`. It is representative local evidence from one laptop, not a

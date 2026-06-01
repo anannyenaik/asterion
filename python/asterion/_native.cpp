@@ -188,12 +188,17 @@ PYBIND11_MODULE(_native, module) {
       .def_readwrite("severity", &asterion::ReplayDiagnostic::severity)
       .def_readwrite("reason", &asterion::ReplayDiagnostic::reason);
 
+  py::enum_<asterion::ReplayValidationMode>(module, "ReplayValidationMode")
+      .value("Full", asterion::ReplayValidationMode::Full)
+      .value("Light", asterion::ReplayValidationMode::Light);
+
   py::class_<asterion::ReplayConfig>(module, "ReplayConfig")
       .def(py::init<>())
       .def_readwrite("validate_sequence_numbers",
                      &asterion::ReplayConfig::validate_sequence_numbers)
       .def_readwrite("validate_timestamps", &asterion::ReplayConfig::validate_timestamps)
       .def_readwrite("validate_book_state", &asterion::ReplayConfig::validate_book_state)
+      .def_readwrite("validation_mode", &asterion::ReplayConfig::validation_mode)
       .def_readwrite("max_speed", &asterion::ReplayConfig::max_speed);
 
   py::class_<asterion::ReplayResult>(module, "ReplayResult")
@@ -232,7 +237,14 @@ PYBIND11_MODULE(_native, module) {
       .def_readonly("backpressure_count", &asterion::SpscReplayStats::backpressure_count)
       .def_readonly("dropped_events", &asterion::SpscReplayStats::dropped_events)
       .def_readonly("end_of_stream_seen", &asterion::SpscReplayStats::end_of_stream_seen)
-      .def_readonly("drop_policy_enabled", &asterion::SpscReplayStats::drop_policy_enabled);
+      .def_readonly("end_of_stream_markers_produced",
+                    &asterion::SpscReplayStats::end_of_stream_markers_produced)
+      .def_readonly("end_of_stream_markers_consumed",
+                    &asterion::SpscReplayStats::end_of_stream_markers_consumed)
+      .def_readonly("drop_policy_enabled", &asterion::SpscReplayStats::drop_policy_enabled)
+      .def_readonly("elapsed_ns", &asterion::SpscReplayStats::elapsed_ns)
+      .def_readonly("throughput_events_per_second",
+                    &asterion::SpscReplayStats::throughput_events_per_second);
 
   py::class_<asterion::SpscReplayResult>(module, "SpscReplayResult")
       .def_readonly("replay", &asterion::SpscReplayResult::replay)
@@ -601,6 +613,15 @@ PYBIND11_MODULE(_native, module) {
         // call; the GIL is released so the producer/consumer threads run freely.
         py::gil_scoped_release release;
         return asterion::run_spsc_replay(events, symbol_id, config);
+      },
+      py::arg("events"), py::arg("symbol_id"),
+      py::arg_v("config", asterion::SpscReplayConfig{}, "SpscReplayConfig()"));
+  module.def(
+      "run_spsc_replay_steady_state",
+      [](const std::vector<asterion::MarketDataEvent>& events, asterion::SymbolId symbol_id,
+         asterion::SpscReplayConfig config) {
+        py::gil_scoped_release release;
+        return asterion::run_spsc_replay_steady_state(events, symbol_id, config);
       },
       py::arg("events"), py::arg("symbol_id"),
       py::arg_v("config", asterion::SpscReplayConfig{}, "SpscReplayConfig()"));

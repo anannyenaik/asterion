@@ -110,6 +110,9 @@ CSV / binary / synthetic events
   (`run_spsc_replay`) whose consumer reuses the single-thread `ReplayEngine` path for bit-identical
   checksums, with lossless-blocking backpressure by default and an opt-in drop policy. Deterministic
   single-thread replay remains the default; this is not production networking or live connectivity.
+- Opt-in steady-state SPSC replay evaluation (`run_spsc_replay_steady_state`) and
+  `ReplayValidationMode.Light` for large-corpus throughput measurements with controlled validation
+  cost. Full validation remains the default correctness path.
 - Aggregate per-symbol replay summaries over multi-symbol logs. The default path is the stable
   grouped single-symbol replay view; an opt-in shared `MultiSymbolBookSet` replay path is also
   tested for parity on deterministic generated streams.
@@ -317,6 +320,11 @@ PYTHONPATH=build/python python scripts/run_spsc_replay_demo.py \
 
 # Benchmark rows: single-thread baseline + SPSC pipeline (checksum parity reported).
 ./build/asterion_benchmarks --only-hot-path --hot-path-iterations 2000
+
+# Large-corpus steady-state replay rows only; generated corpora should stay under ignored paths.
+./build/asterion_benchmarks --only-steady-state-replay \
+  --dataset data/generated/balanced_100k.bin \
+  --steady-state-validation-mode light --spsc-queue-capacity 4096
 ```
 
 ```python
@@ -327,9 +335,15 @@ config = asterion.SpscReplayConfig()
 config.queue_capacity = 8
 result = asterion.run_spsc_replay(events, events[0].symbol_id, config)
 print(result.replay.final_book_checksum, result.stats.produced_events, result.stats.dropped_events)
+
+steady_config = asterion.SpscReplayConfig()
+steady_config.replay.validation_mode = asterion.ReplayValidationMode.Light
+steady = asterion.run_spsc_replay_steady_state(events, events[0].symbol_id, steady_config)
+print(steady.stats.throughput_events_per_second, steady.stats.end_of_stream_markers_consumed)
 ```
 
 See [reports/spsc_replay_pipeline_report_2026_05_31.md](reports/spsc_replay_pipeline_report_2026_05_31.md)
+[reports/spsc_steady_state_report_2026_05_31.md](reports/spsc_steady_state_report_2026_05_31.md)
 and the SPSC section of [DESIGN.md](DESIGN.md). These are representative local measurements, not
 portable performance claims.
 

@@ -39,6 +39,16 @@ std::string_view to_string(ReplayDiagnosticSeverity severity) noexcept {
   return "unknown";
 }
 
+std::string_view to_string(ReplayValidationMode mode) noexcept {
+  switch (mode) {
+  case ReplayValidationMode::Full:
+    return "full";
+  case ReplayValidationMode::Light:
+    return "light";
+  }
+  return "unknown";
+}
+
 std::uint64_t append_to_checksum(std::uint64_t seed,
                                  const ReplayDiagnostic& diagnostic) noexcept {
   seed = checksum_append(seed, static_cast<std::uint64_t>(diagnostic.event_index));
@@ -83,6 +93,14 @@ void ReplayEngine::begin_stream(ReplayResult& result) const {
 }
 
 void ReplayEngine::finalize_stream(ReplayResult& result) const {
+  if (config_.validate_book_state && config_.validation_mode == ReplayValidationMode::Light &&
+      result.sequence_valid) {
+    MarketDataEvent final_event{};
+    final_event.symbol_id = book_.symbol_id();
+    if (!validate_full_book(final_event, result.events_processed, result, "final ")) {
+      result.sequence_valid = false;
+    }
+  }
   result.final_book_checksum = book_.checksum();
 }
 
@@ -330,17 +348,21 @@ bool ReplayEngine::validate_book_after_apply(const MarketDataEvent& event,
     return true;
   }
 
-  const auto invariant_report = book_.check_invariants();
-  if (!invariant_report.ok) {
-    const std::string reason =
-        invariant_report.violations.empty() ? "book invariant violation"
-                                            : "book invariant violation: " +
-                                                  invariant_report.violations.front();
-    add_diagnostic(result, event_index, event, ReplayDiagnosticSeverity::Error, reason);
+  if (config_.validation_mode == ReplayValidationMode::Light) {
+    return validate_top_of_book(event, event_index, result);
+  }
+  if (config_.validation_mode != ReplayValidationMode::Full) {
+    add_diagnostic(result, event_index, event, ReplayDiagnosticSeverity::Error,
+                   "unsupported replay validation mode");
     result.error = result.diagnostics.back().reason;
     return false;
   }
 
+  return validate_full_book(event, event_index, result, "");
+}
+
+bool ReplayEngine::validate_top_of_book(const MarketDataEvent& event, std::size_t event_index,
+                                        ReplayResult& result) const {
   const auto best_bid = book_.best_bid();
   const auto best_ask = book_.best_ask();
   if (best_bid.has_value() && best_ask.has_value() && *best_bid >= *best_ask) {
@@ -352,6 +374,23 @@ bool ReplayEngine::validate_book_after_apply(const MarketDataEvent& event,
   }
 
   return true;
+}
+
+bool ReplayEngine::validate_full_book(const MarketDataEvent& event, std::size_t event_index,
+                                      ReplayResult& result, std::string_view prefix) const {
+  const auto invariant_report = book_.check_invariants();
+  if (!invariant_report.ok) {
+    const std::string reason =
+        invariant_report.violations.empty() ? "book invariant violation"
+                                            : "book invariant violation: " +
+                                                  invariant_report.violations.front();
+    add_diagnostic(result, event_index, event, ReplayDiagnosticSeverity::Error,
+                   std::string(prefix) + reason);
+    result.error = result.diagnostics.back().reason;
+    return false;
+  }
+
+  return validate_top_of_book(event, event_index, result);
 }
 
 void ReplayEngine::add_diagnostic(ReplayResult& result, std::size_t event_index,

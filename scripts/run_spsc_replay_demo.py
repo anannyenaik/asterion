@@ -103,7 +103,11 @@ def main() -> int:
             "backpressure_count": spsc.stats.backpressure_count,
             "dropped_events": spsc.stats.dropped_events,
             "end_of_stream_seen": spsc.stats.end_of_stream_seen,
+            "end_of_stream_markers_produced": spsc.stats.end_of_stream_markers_produced,
+            "end_of_stream_markers_consumed": spsc.stats.end_of_stream_markers_consumed,
             "drop_policy_enabled": spsc.stats.drop_policy_enabled,
+            "elapsed_ns": spsc.stats.elapsed_ns,
+            "throughput_events_per_second": spsc.stats.throughput_events_per_second,
         },
         "checksum_parity": parity,
     }
@@ -132,7 +136,9 @@ def main() -> int:
             f"max_queue_depth={spsc.stats.max_queue_depth} "
             f"backpressure_count={spsc.stats.backpressure_count} "
             f"dropped={spsc.stats.dropped_events} "
-            f"end_of_stream_seen={spsc.stats.end_of_stream_seen}"
+            f"end_of_stream_seen={spsc.stats.end_of_stream_seen} "
+            f"eos_produced={spsc.stats.end_of_stream_markers_produced} "
+            f"eos_consumed={spsc.stats.end_of_stream_markers_consumed}"
         )
         print(f"checksum_parity={parity}")
 

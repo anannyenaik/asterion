@@ -93,6 +93,21 @@ joined before `run_spsc_replay` returns, and a consumer halt (fatal diagnostic) 
 to wind down so there is no deadlock. Details and representative measurements are in
 [reports/spsc_replay_pipeline_report_2026_05_31.md](reports/spsc_replay_pipeline_report_2026_05_31.md).
 
+For large-corpus evaluation, `run_spsc_replay_steady_state` creates producer and consumer threads
+once, waits until both are ready, starts a measurement gate, streams a preloaded corpus through the
+same bounded queue, and joins both threads before returning. The benchmark row
+`spsc_replay_steady_state_l3_diagnostics` records `thread_lifecycle_mode=steady_state`,
+queue/backpressure stats, elapsed time, throughput and checksum parity against
+`single_thread_replay_steady_state_l3_diagnostics`. This is a benchmark/evaluation harness, not a
+new production networking path.
+
+Replay validation is controlled by `ReplayValidationMode`. `Full` is the default and preserves the
+correctness-first behavior: full book invariants and crossed-book checks after every event. `Light`
+is opt-in for large-corpus throughput evaluation: it keeps cheap per-event crossed-book checks,
+defers the full invariant walk to end-of-replay, and keeps deterministic final checksums and
+diagnostics. `validate_book_state=false` still disables book-state validation for explicit callers,
+matching the previous API behavior.
+
 ### Recorded Event Logs
 
 CSV and binary logs share the same canonical event fields and produce the same event-stream

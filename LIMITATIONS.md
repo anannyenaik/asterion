@@ -27,6 +27,11 @@ Explicit limitations:
   max queue depth are timing-dependent, and those are never part of any checksum. The pooled-book
   SPSC variant is not implemented because `ReplayEngine` is not templated on the book type;
   `PooledOrderBook` is exercised by the existing single-thread hot-path benchmark rows instead;
+- steady-state SPSC replay evaluation (`run_spsc_replay_steady_state`) and
+  `ReplayValidationMode::Light` are opt-in benchmark/evaluation tools. `Light` avoids repeated full
+  invariant walks during each event by keeping cheap per-event top-of-book checks and running full
+  validation at end-of-replay. It is for throughput measurement on large corpora, not a replacement
+  for the default correctness-first `Full` validation mode;
 - benchmark results are hardware-dependent; generic dumps are not checked in;
 - the checked-in benchmark report is representative local evidence for one laptop and one optimized
   path, not a portable latency claim;

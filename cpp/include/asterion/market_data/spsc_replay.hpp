@@ -4,6 +4,7 @@
 #include "asterion/market_data/replay.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
 
 namespace asterion {
@@ -64,7 +65,11 @@ struct SpscReplayStats {
   // on it (clean shutdown). False when the consumer halted early on a fatal
   // diagnostic before the marker arrived.
   bool end_of_stream_seen{false};
+  std::size_t end_of_stream_markers_produced{0};
+  std::size_t end_of_stream_markers_consumed{0};
   bool drop_policy_enabled{false};
+  std::uint64_t elapsed_ns{0};
+  double throughput_events_per_second{0.0};
 };
 
 struct SpscReplayResult {
@@ -82,5 +87,14 @@ struct SpscReplayResult {
 [[nodiscard]] SpscReplayResult run_spsc_replay(std::span<const MarketDataEvent> events,
                                                SymbolId symbol_id,
                                                const SpscReplayConfig& config = {});
+
+// Steady-state throughput harness for opt-in evaluation. Producer and consumer
+// threads are both created once, wait on a start gate, then stream the preloaded
+// corpus through the same bounded SPSC queue. The measured elapsed time starts
+// after both threads are ready, so per-run thread creation is not folded into the
+// per-event throughput number.
+[[nodiscard]] SpscReplayResult
+run_spsc_replay_steady_state(std::span<const MarketDataEvent> events, SymbolId symbol_id,
+                             const SpscReplayConfig& config = {});
 
 } // namespace asterion

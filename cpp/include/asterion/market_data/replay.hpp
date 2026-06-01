@@ -15,6 +15,15 @@ namespace asterion {
 
 enum class ReplayDiagnosticSeverity : std::uint8_t { Info = 1, Warning = 2, Error = 3 };
 
+enum class ReplayValidationMode : std::uint8_t {
+  // Correctness-first validation: full book invariants and crossed-book checks
+  // are evaluated after every applied event. This remains the default.
+  Full = 0,
+  // Throughput-evaluation mode: keep cheap per-event top-of-book checks, defer
+  // the full invariant walk to end-of-replay, and keep deterministic checksums.
+  Light = 1,
+};
+
 struct ReplayDiagnostic {
   std::size_t event_index{0};
   SequenceNumber sequence_number{0};
@@ -27,6 +36,7 @@ struct ReplayConfig {
   bool validate_sequence_numbers{true};
   bool validate_timestamps{true};
   bool validate_book_state{true};
+  ReplayValidationMode validation_mode{ReplayValidationMode::Full};
   bool max_speed{true};
 };
 
@@ -44,6 +54,7 @@ struct ReplayResult {
 };
 
 [[nodiscard]] std::string_view to_string(ReplayDiagnosticSeverity severity) noexcept;
+[[nodiscard]] std::string_view to_string(ReplayValidationMode mode) noexcept;
 [[nodiscard]] std::uint64_t append_to_checksum(std::uint64_t seed,
                                                const ReplayDiagnostic& diagnostic) noexcept;
 [[nodiscard]] std::uint64_t checksum_diagnostics(
@@ -88,6 +99,10 @@ private:
                                                  std::size_t event_index, ReplayResult& result);
   [[nodiscard]] bool validate_book_after_apply(const MarketDataEvent& event,
                                                std::size_t event_index, ReplayResult& result);
+  [[nodiscard]] bool validate_top_of_book(const MarketDataEvent& event, std::size_t event_index,
+                                          ReplayResult& result) const;
+  [[nodiscard]] bool validate_full_book(const MarketDataEvent& event, std::size_t event_index,
+                                        ReplayResult& result, std::string_view prefix) const;
   void add_diagnostic(ReplayResult& result, std::size_t event_index,
                       const MarketDataEvent& event, ReplayDiagnosticSeverity severity,
                       std::string reason) const;

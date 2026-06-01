@@ -5,6 +5,7 @@
 
 #include <map>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace asterion {
@@ -206,24 +207,9 @@ void mark_shared_failure(SharedSymbolState& state) {
   return true;
 }
 
-[[nodiscard]] bool validate_shared_book_after_apply(const MarketDataEvent& event,
-                                                    const OrderBook& book,
-                                                    const ReplayConfig& config,
-                                                    SharedSymbolState& state) {
-  if (!config.validate_book_state) {
-    return true;
-  }
-
-  const auto invariant_report = book.check_invariants();
-  if (!invariant_report.ok) {
-    const std::string reason =
-        invariant_report.violations.empty() ? "book invariant violation"
-                                            : "book invariant violation: " +
-                                                  invariant_report.violations.front();
-    add_shared_diagnostic(state, event, ReplayDiagnosticSeverity::Error, reason);
-    return false;
-  }
-
+[[nodiscard]] bool validate_shared_top_of_book(const MarketDataEvent& event,
+                                               const OrderBook& book,
+                                               SharedSymbolState& state) {
   const auto best_bid = book.best_bid();
   const auto best_ask = book.best_ask();
   if (best_bid.has_value() && best_ask.has_value() && *best_bid >= *best_ask) {
@@ -234,6 +220,40 @@ void mark_shared_failure(SharedSymbolState& state) {
   }
 
   return true;
+}
+
+[[nodiscard]] bool validate_shared_full_book(const MarketDataEvent& event, const OrderBook& book,
+                                             SharedSymbolState& state, std::string_view prefix) {
+  const auto invariant_report = book.check_invariants();
+  if (!invariant_report.ok) {
+    const std::string reason =
+        invariant_report.violations.empty() ? "book invariant violation"
+                                            : "book invariant violation: " +
+                                                  invariant_report.violations.front();
+    add_shared_diagnostic(state, event, ReplayDiagnosticSeverity::Error,
+                          std::string(prefix) + reason);
+    return false;
+  }
+
+  return validate_shared_top_of_book(event, book, state);
+}
+
+[[nodiscard]] bool validate_shared_book_after_apply(const MarketDataEvent& event,
+                                                    const OrderBook& book,
+                                                    const ReplayConfig& config,
+                                                    SharedSymbolState& state) {
+  if (!config.validate_book_state) {
+    return true;
+  }
+  if (config.validation_mode == ReplayValidationMode::Light) {
+    return validate_shared_top_of_book(event, book, state);
+  }
+  if (config.validation_mode != ReplayValidationMode::Full) {
+    add_shared_diagnostic(state, event, ReplayDiagnosticSeverity::Error,
+                          "unsupported replay validation mode");
+    return false;
+  }
+  return validate_shared_full_book(event, book, state, "");
 }
 
 } // namespace
@@ -389,6 +409,14 @@ AggregateReplaySummary replay_shared_by_symbol(std::span<const MarketDataEvent> 
     SymbolReplaySummary& summary = state.summary;
     const OrderBook* book = book_set.find_book(symbol_id);
     if (book != nullptr) {
+      if (!state.failed && config.replay_config.validate_book_state &&
+          config.replay_config.validation_mode == ReplayValidationMode::Light) {
+        MarketDataEvent final_event{};
+        final_event.symbol_id = symbol_id;
+        if (!validate_shared_full_book(final_event, *book, state, "final ")) {
+          mark_shared_failure(state);
+        }
+      }
       summary.final_book_checksum = book->checksum();
     } else {
       summary.final_book_checksum = OrderBook(symbol_id).checksum();
