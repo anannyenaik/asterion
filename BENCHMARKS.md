@@ -39,6 +39,16 @@ Core (replay / book / matching / risk):
   risk check (`hot_path_binary_replay_l3_l2_strategy_risk`);
 - the same binary replay path through the opt-in pooled L3 book
   (`hot_path_binary_replay_pooled_l3_l2_strategy_risk`);
+- single-thread deterministic replay (book + validation + diagnostics) as the SPSC parity baseline
+  (`replay_l3_diagnostics_single_thread`);
+- the opt-in bounded SPSC replay pipeline over the same path
+  (`spsc_replay_l3_diagnostics`). This row also reports `queue_capacity`, `produced_events`,
+  `consumed_events`, `backpressure_count`, `dropped_events`, `max_queue_depth` and
+  `checksum_parity` (whether the threaded result matched the single-thread baseline bit-for-bit).
+  These two rows use `timing_mode = per-run`: each latency sample is one whole-dataset replay run,
+  and each SPSC run spins up and joins a producer thread (thread lifecycle is part of the measured
+  cost), so per-run latency on a tiny dataset is dominated by thread setup. See
+  [reports/spsc_replay_pipeline_report_2026_05_31.md](reports/spsc_replay_pipeline_report_2026_05_31.md);
 - add order;
 - cancel order;
 - replace order;

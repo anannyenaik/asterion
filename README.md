@@ -106,6 +106,10 @@ CSV / binary / synthetic events
 - Execution report schema with status, execution type, fill fields and reject reason.
 - Risk gateway and kill switch.
 - Deterministic CSV and binary replay, sample replay data and replay diagnostics.
+- One opt-in concurrency boundary: a bounded single-producer/single-consumer (SPSC) replay pipeline
+  (`run_spsc_replay`) whose consumer reuses the single-thread `ReplayEngine` path for bit-identical
+  checksums, with lossless-blocking backpressure by default and an opt-in drop policy. Deterministic
+  single-thread replay remains the default; this is not production networking or live connectivity.
 - Aggregate per-symbol replay summaries over multi-symbol logs. The default path is the stable
   grouped single-symbol replay view; an opt-in shared `MultiSymbolBookSet` replay path is also
   tested for parity on deterministic generated streams.
@@ -291,6 +295,43 @@ check binary semantic properties and replay checksums, and assert CSV/binary
 event tuple equivalence without network access.
 See [docs/market_data.md](docs/market_data.md) and the case-study report
 [reports/binance_replay_case_study_2026_05_31.md](reports/binance_replay_case_study_2026_05_31.md).
+
+## Opt-In Concurrent Replay Pipeline (SPSC)
+
+Asterion has exactly one explicit concurrency boundary: an **opt-in bounded
+single-producer/single-consumer (SPSC) replay pipeline** for systems evaluation. A producer thread
+publishes preloaded events, in order, into a fixed-capacity SPSC ring buffer; a consumer thread drains
+them, in order, and runs the **same** `ReplayEngine` path, so the book / execution-report / diagnostics
+checksums are bit-identical to the single-thread path regardless of thread timing.
+
+**Deterministic single-thread replay remains the default. This is not production networking, not live
+exchange connectivity, not production-HFT infrastructure and not a latency guarantee.** The default
+backpressure policy is lossless blocking (the producer waits when the queue is full; nothing is
+dropped). An opt-in `DropNewestOnFull` policy exists for overload-shedding experiments only and is not
+correctness-preserving for order-book streams.
+
+```bash
+# Reviewer-facing parity + stats demo (needs the built Python bindings on PYTHONPATH).
+PYTHONPATH=build/python python scripts/run_spsc_replay_demo.py \
+  --input data/samples/sample_replay.csv --queue-capacity 4 --json
+
+# Benchmark rows: single-thread baseline + SPSC pipeline (checksum parity reported).
+./build/asterion_benchmarks --only-hot-path --hot-path-iterations 2000
+```
+
+```python
+import asterion
+
+events = asterion.load_log("data/samples/sample_replay.csv")
+config = asterion.SpscReplayConfig()
+config.queue_capacity = 8
+result = asterion.run_spsc_replay(events, events[0].symbol_id, config)
+print(result.replay.final_book_checksum, result.stats.produced_events, result.stats.dropped_events)
+```
+
+See [reports/spsc_replay_pipeline_report_2026_05_31.md](reports/spsc_replay_pipeline_report_2026_05_31.md)
+and the SPSC section of [DESIGN.md](DESIGN.md). These are representative local measurements, not
+portable performance claims.
 
 ## Python Usage
 

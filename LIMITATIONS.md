@@ -14,7 +14,19 @@ Explicit limitations:
 - no broad allocation-avoidance claim; only the documented reusable L2, fixed strategy callback,
   reserved risk sub-paths and opt-in pooled L3 benchmark path are shown allocation-free after
   warm-up under their scoped tests;
-- no concurrency model in the first implementation;
+- deterministic single-thread replay is the default. There is exactly one opt-in concurrency
+  boundary: a bounded single-producer/single-consumer (SPSC) replay pipeline (`run_spsc_replay`)
+  for systems evaluation. It is not production networking, not live exchange connectivity, not a
+  production-HFT or lock-free trading architecture, and not a latency guarantee. The default
+  backpressure policy is lossless blocking (the producer waits when the bounded queue is full, so no
+  event is dropped); an opt-in `DropNewestOnFull` policy exists for overload-shedding experiments
+  only and is not correctness-preserving for order-book streams (dropping events creates sequence
+  gaps and unknown-order references that deterministically halt replay). The SPSC consumer reuses the
+  exact single-thread `ReplayEngine` processing path, so book/execution/diagnostics checksums are
+  bit-identical to the single-thread path regardless of thread timing; only backpressure count and
+  max queue depth are timing-dependent, and those are never part of any checksum. The pooled-book
+  SPSC variant is not implemented because `ReplayEngine` is not templated on the book type;
+  `PooledOrderBook` is exercised by the existing single-thread hot-path benchmark rows instead;
 - benchmark results are hardware-dependent; generic dumps are not checked in;
 - the checked-in benchmark report is representative local evidence for one laptop and one optimized
   path, not a portable latency claim;

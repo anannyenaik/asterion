@@ -10,10 +10,6 @@ namespace asterion {
 
 namespace {
 
-void finalize_result(ReplayEngine& replay, ReplayResult& result) {
-  result.final_book_checksum = replay.book().checksum();
-}
-
 [[nodiscard]] bool is_price_required(MarketEventType type) {
   return type == MarketEventType::Add || type == MarketEventType::Replace ||
          type == MarketEventType::Trade;
@@ -81,62 +77,77 @@ ReplayResult ReplayEngine::replay_file(const std::filesystem::path& path, EventL
   return result;
 }
 
-ReplayResult ReplayEngine::replay_events(std::span<const MarketDataEvent> events) {
-  ReplayResult result;
+void ReplayEngine::begin_stream(ReplayResult& result) const {
   result.execution_report_checksum = kFnvOffsetBasis;
   result.diagnostics_checksum = kFnvOffsetBasis;
-  result.event_log_checksum = checksum_events(events);
-  SequenceNumber expected_sequence = 0;
-  TimestampNs last_timestamp = 0;
-  bool has_last_timestamp = false;
+}
 
-  for (std::size_t index = 0; index < events.size(); ++index) {
-    const MarketDataEvent& event = events[index];
-    if (config_.validate_sequence_numbers) {
-      if (expected_sequence == 0) {
-        expected_sequence = event.sequence_number;
-      }
-      if (event.sequence_number != expected_sequence) {
-        add_diagnostic(result, index, event, ReplayDiagnosticSeverity::Error,
-                       "sequence gap: expected " + std::to_string(expected_sequence) +
-                           ", received " + std::to_string(event.sequence_number));
-        result.sequence_valid = false;
-        result.error = result.diagnostics.back().reason;
-        finalize_result(*this, result);
-        return result;
-      }
-      ++expected_sequence;
-    }
-    if (config_.validate_timestamps) {
-      if (has_last_timestamp && event.timestamp_ns < last_timestamp) {
-        add_diagnostic(result, index, event, ReplayDiagnosticSeverity::Error,
-                       "timestamp reversal: previous " + std::to_string(last_timestamp) +
-                           ", received " + std::to_string(event.timestamp_ns));
-        result.sequence_valid = false;
-        result.error = result.diagnostics.back().reason;
-        finalize_result(*this, result);
-        return result;
-      }
-      last_timestamp = event.timestamp_ns;
-      has_last_timestamp = true;
-    }
+void ReplayEngine::finalize_stream(ReplayResult& result) const {
+  result.final_book_checksum = book_.checksum();
+}
 
-    if (!validate_event_before_apply(event, index, result)) {
+bool ReplayEngine::replay_step(const MarketDataEvent& event, ReplayStreamState& state,
+                               ReplayResult& result) {
+  const std::size_t index = state.event_index;
+  if (config_.validate_sequence_numbers) {
+    if (state.expected_sequence == 0) {
+      state.expected_sequence = event.sequence_number;
+    }
+    if (event.sequence_number != state.expected_sequence) {
+      add_diagnostic(result, index, event, ReplayDiagnosticSeverity::Error,
+                     "sequence gap: expected " + std::to_string(state.expected_sequence) +
+                         ", received " + std::to_string(event.sequence_number));
       result.sequence_valid = false;
       result.error = result.diagnostics.back().reason;
-      finalize_result(*this, result);
-      return result;
+      state.halted = true;
+      return false;
     }
-
-    if (!apply_event(event, index, result)) {
+    ++state.expected_sequence;
+  }
+  if (config_.validate_timestamps) {
+    if (state.has_last_timestamp && event.timestamp_ns < state.last_timestamp) {
+      add_diagnostic(result, index, event, ReplayDiagnosticSeverity::Error,
+                     "timestamp reversal: previous " + std::to_string(state.last_timestamp) +
+                         ", received " + std::to_string(event.timestamp_ns));
       result.sequence_valid = false;
-      finalize_result(*this, result);
-      return result;
+      result.error = result.diagnostics.back().reason;
+      state.halted = true;
+      return false;
     }
-    ++result.events_processed;
+    state.last_timestamp = event.timestamp_ns;
+    state.has_last_timestamp = true;
   }
 
-  finalize_result(*this, result);
+  if (!validate_event_before_apply(event, index, result)) {
+    result.sequence_valid = false;
+    result.error = result.diagnostics.back().reason;
+    state.halted = true;
+    return false;
+  }
+
+  if (!apply_event(event, index, result)) {
+    result.sequence_valid = false;
+    state.halted = true;
+    return false;
+  }
+  ++result.events_processed;
+  ++state.event_index;
+  return true;
+}
+
+ReplayResult ReplayEngine::replay_events(std::span<const MarketDataEvent> events) {
+  ReplayResult result;
+  begin_stream(result);
+  result.event_log_checksum = checksum_events(events);
+
+  ReplayStreamState state;
+  for (std::size_t index = 0; index < events.size(); ++index) {
+    if (!replay_step(events[index], state, result)) {
+      break;
+    }
+  }
+
+  finalize_stream(result);
   return result;
 }
 

@@ -59,6 +59,40 @@ orders rest or trade.
 
 Replay is deterministic so a final checksum can be compared across runs, machines and future code changes. This is essential for debugging book reconstruction and matching behavior because it turns a stream of market events into a reproducible artifact.
 
+### Opt-In SPSC Replay Pipeline
+
+Asterion adds exactly one explicit concurrency boundary: an opt-in bounded
+single-producer/single-consumer (SPSC) replay pipeline (`run_spsc_replay`) for systems evaluation.
+Deterministic single-thread replay (`ReplayEngine::replay_events`) remains the default; this is a
+scoped concurrency boundary, not a multithreaded rewrite. It is **not** production networking, live
+exchange connectivity, production-HFT infrastructure or a latency guarantee.
+
+The replay pipeline has one natural producer (the event source) and one natural consumer (the
+book/validation/diagnostics path), so an SPSC ring buffer
+(`cpp/include/asterion/concurrency/spsc_ring_buffer.hpp`) is the smallest primitive that fits. Because
+each ring index is written by exactly one thread, the buffer needs only release/acquire stores — no
+read-modify-write atomics — and its backing storage is allocated once, so steady-state push/pop never
+allocate. It is single-producer/single-consumer only and explicitly not a general MPMC queue.
+
+To make parity structural rather than coincidental, the engine exposes a streaming API
+(`begin_stream` / `replay_step` / `finalize_stream`) that holds exactly the loop-local state the batch
+`replay_events` path keeps on the stack; both paths share it, so feeding events one-at-a-time through
+the SPSC consumer produces a bit-identical `ReplayResult`. The producer publishes fixed-size event
+structs in order and emits a single end-of-stream marker; the consumer drains them in order, applies
+the engine and computes the same book / execution / diagnostics checksums. Because FIFO order is
+preserved and the consumer applies events in the single-thread order, checksums are independent of
+thread scheduling; only `backpressure_count` and `max_queue_depth` are timing-dependent and they are
+never part of any checksum.
+
+The default backpressure policy is **lossless blocking**: the producer waits when the bounded queue
+is full, so nothing is dropped (`produced_events == consumed_events`, `dropped_events == 0`). An
+opt-in `DropNewestOnFull` policy exists for overload-shedding experiments only; it is not
+correctness-preserving for order-book streams (dropped events create sequence gaps and unknown-order
+references that deterministically halt replay) and is documented as such. The producer is always
+joined before `run_spsc_replay` returns, and a consumer halt (fatal diagnostic) signals the producer
+to wind down so there is no deadlock. Details and representative measurements are in
+[reports/spsc_replay_pipeline_report_2026_05_31.md](reports/spsc_replay_pipeline_report_2026_05_31.md).
+
 ### Recorded Event Logs
 
 CSV and binary logs share the same canonical event fields and produce the same event-stream

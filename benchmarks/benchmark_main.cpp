@@ -9,6 +9,7 @@
 #include "asterion/inference/model_metadata.hpp"
 #include "asterion/market_data/event_log.hpp"
 #include "asterion/market_data/replay.hpp"
+#include "asterion/market_data/spsc_replay.hpp"
 #include "asterion/matching/matching_engine.hpp"
 #include "asterion/risk/risk_gateway.hpp"
 #include "asterion/strategy/imbalance_strategy.hpp"
@@ -59,6 +60,7 @@ struct Options {
   std::optional<std::filesystem::path> json_path;
   std::size_t hot_path_iterations{5'000};
   std::size_t warmup_iterations{5};
+  std::size_t spsc_queue_capacity{1024};
   bool text_output{true};
   bool only_hot_path{false};
   std::string logging_mode;
@@ -71,6 +73,21 @@ struct LatencyDistribution {
   std::uint64_t p99_ns{0};
   std::uint64_t p999_ns{0};
   std::uint64_t max_ns{0};
+};
+
+// Stats for the opt-in SPSC replay pipeline rows. Empty/unavailable for every
+// other benchmark. These numbers are timing-dependent (backpressure/max depth)
+// and are reported for transparency only; checksum_parity confirms the threaded
+// pipeline produced bit-identical results to the single-thread baseline.
+struct SpscBenchmarkStats {
+  bool available{false};
+  std::size_t queue_capacity{0};
+  std::size_t produced_events{0};
+  std::size_t consumed_events{0};
+  std::size_t backpressure_count{0};
+  std::size_t dropped_events{0};
+  std::size_t max_queue_depth{0};
+  bool checksum_parity{false};
 };
 
 struct BenchmarkResult {
@@ -99,6 +116,7 @@ struct BenchmarkResult {
   std::uint64_t guard{0};
   AllocationSnapshot allocations;
   LatencyDistribution latency;
+  SpscBenchmarkStats spsc;
 };
 
 Order make_order(OrderId order_id, Side side, PriceTicks price, Quantity quantity) {
@@ -109,7 +127,8 @@ Order make_order(OrderId order_id, Side side, PriceTicks price, Quantity quantit
 void print_usage(std::ostream& output) {
   output << "Usage: asterion_benchmarks [dataset.csv] [--dataset path] [--json path]"
          << " [--no-text] [--logging-mode name] [--hot-path-iterations n]"
-         << " [--warmup-iterations n] [--hot-path-warmup n] [--only-hot-path]\n";
+         << " [--warmup-iterations n] [--hot-path-warmup n] [--spsc-queue-capacity n]"
+         << " [--only-hot-path]\n";
 }
 
 bool parse_size_option(std::string_view name, std::string_view value, std::size_t& output) {
@@ -185,6 +204,20 @@ bool parse_options(int argc, char** argv, Options& options) {
         return false;
       }
       if (!parse_size_option(arg, argv[++i], options.warmup_iterations)) {
+        return false;
+      }
+      continue;
+    }
+    if (arg == "--spsc-queue-capacity") {
+      if (i + 1 >= argc) {
+        std::cerr << "--spsc-queue-capacity requires a value\n";
+        return false;
+      }
+      if (!parse_size_option(arg, argv[++i], options.spsc_queue_capacity)) {
+        return false;
+      }
+      if (options.spsc_queue_capacity == 0) {
+        std::cerr << "--spsc-queue-capacity must be at least 1\n";
         return false;
       }
       continue;
@@ -465,6 +498,148 @@ BenchmarkResult benchmark_hot_path_pipeline(const Options& options, std::string 
   result.guard = context.guard ^ log.event_checksum;
   result.allocations = allocations;
   result.latency = latency_distribution(std::move(samples));
+  return result;
+}
+
+// Single-thread deterministic replay baseline (book + validation + diagnostics).
+// This is the parity reference for the SPSC pipeline rows below. Each iteration
+// replays the dataset once and is recorded as one per-run latency sample.
+BenchmarkResult benchmark_replay_single_thread(const Options& options) {
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load replay dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("replay dataset is empty: " + options.dataset_path.string());
+  }
+  const SymbolId symbol_id = log.events.front().symbol_id;
+  const std::span<const MarketDataEvent> events(log.events);
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    ReplayEngine engine(symbol_id);
+    (void)engine.replay_events(events);
+  }
+
+  std::vector<std::uint64_t> samples;
+  samples.reserve(options.hot_path_iterations);
+  std::uint64_t guard = kFnvOffsetBasis;
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  for (std::size_t i = 0; i < options.hot_path_iterations; ++i) {
+    const auto run_start = std::chrono::steady_clock::now();
+    ReplayEngine engine(symbol_id);
+    const ReplayResult result = engine.replay_events(events);
+    const auto run_end = std::chrono::steady_clock::now();
+    samples.push_back(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(run_end - run_start).count()));
+    guard = result.final_book_checksum ^ result.diagnostics_checksum;
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const std::size_t event_count = log.events.size() * options.hot_path_iterations;
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = "replay_l3_diagnostics_single_thread";
+  result.iterations = options.hot_path_iterations;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = options.hot_path_iterations;
+  result.event_count = event_count;
+  result.dataset_name = options.dataset_path.filename().string();
+  // Each latency sample is one whole-dataset replay run, not one event.
+  result.timing_mode = "per-run";
+  result.total_ns = total_ns;
+  result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
+  result.guard = guard;
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  return result;
+}
+
+// Opt-in SPSC replay pipeline row. The producer thread feeds the dataset through
+// the bounded SPSC queue; the consumer thread runs the same ReplayEngine path.
+// Each iteration spins up and joins one producer thread (lifecycle is part of the
+// measured cost). checksum_parity confirms the threaded result is bit-identical
+// to the single-thread baseline computed here.
+BenchmarkResult benchmark_replay_spsc(const Options& options) {
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load replay dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("replay dataset is empty: " + options.dataset_path.string());
+  }
+  const SymbolId symbol_id = log.events.front().symbol_id;
+  const std::span<const MarketDataEvent> events(log.events);
+
+  // Single-thread reference checksum for the parity check.
+  ReplayEngine reference_engine(symbol_id);
+  const ReplayResult reference = reference_engine.replay_events(events);
+  const std::uint64_t reference_guard =
+      reference.final_book_checksum ^ reference.diagnostics_checksum;
+
+  SpscReplayConfig config;
+  config.queue_capacity = options.spsc_queue_capacity;
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    (void)run_spsc_replay(events, symbol_id, config);
+  }
+
+  std::vector<std::uint64_t> samples;
+  samples.reserve(options.hot_path_iterations);
+  bool parity = true;
+  SpscReplayStats last_stats;
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  for (std::size_t i = 0; i < options.hot_path_iterations; ++i) {
+    const auto run_start = std::chrono::steady_clock::now();
+    const SpscReplayResult spsc = run_spsc_replay(events, symbol_id, config);
+    const auto run_end = std::chrono::steady_clock::now();
+    samples.push_back(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(run_end - run_start).count()));
+    const std::uint64_t guard =
+        spsc.replay.final_book_checksum ^ spsc.replay.diagnostics_checksum;
+    parity = parity && (guard == reference_guard);
+    last_stats = spsc.stats;
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const std::size_t event_count = log.events.size() * options.hot_path_iterations;
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = "spsc_replay_l3_diagnostics";
+  result.iterations = options.hot_path_iterations;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = options.hot_path_iterations;
+  result.event_count = event_count;
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "per-run";
+  result.total_ns = total_ns;
+  result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
+  result.guard = reference_guard;
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  result.spsc.available = true;
+  result.spsc.queue_capacity = last_stats.queue_capacity;
+  result.spsc.produced_events = last_stats.produced_events;
+  result.spsc.consumed_events = last_stats.consumed_events;
+  result.spsc.backpressure_count = last_stats.backpressure_count;
+  result.spsc.dropped_events = last_stats.dropped_events;
+  result.spsc.max_queue_depth = last_stats.max_queue_depth;
+  result.spsc.checksum_parity = parity;
   return result;
 }
 
@@ -1092,7 +1267,17 @@ void print_result(const BenchmarkResult& result) {
             << ",allocations=" << result.allocations.allocations
             << ",deallocations=" << result.allocations.deallocations
             << ",bytes_allocated=" << result.allocations.bytes_allocated
-            << ",guard=" << result.guard << '\n';
+            << ",guard=" << result.guard;
+  if (result.spsc.available) {
+    std::cout << ",queue_capacity=" << result.spsc.queue_capacity
+              << ",produced_events=" << result.spsc.produced_events
+              << ",consumed_events=" << result.spsc.consumed_events
+              << ",backpressure_count=" << result.spsc.backpressure_count
+              << ",dropped_events=" << result.spsc.dropped_events
+              << ",max_queue_depth=" << result.spsc.max_queue_depth
+              << ",checksum_parity=" << (result.spsc.checksum_parity ? "true" : "false");
+  }
+  std::cout << '\n';
 }
 
 std::string json_escape(std::string_view value) {
@@ -1246,7 +1431,22 @@ void write_json(const std::filesystem::path& path, const Options& options,
     output << "      \"guard\": " << result.guard << ",\n";
     output << "      \"allocations\": " << result.allocations.allocations << ",\n";
     output << "      \"deallocations\": " << result.allocations.deallocations << ",\n";
-    output << "      \"bytes_allocated\": " << result.allocations.bytes_allocated << "\n";
+    output << "      \"bytes_allocated\": " << result.allocations.bytes_allocated;
+    if (result.spsc.available) {
+      output << ",\n";
+      output << "      \"spsc\": {\n";
+      output << "        \"queue_capacity\": " << result.spsc.queue_capacity << ",\n";
+      output << "        \"produced_events\": " << result.spsc.produced_events << ",\n";
+      output << "        \"consumed_events\": " << result.spsc.consumed_events << ",\n";
+      output << "        \"backpressure_count\": " << result.spsc.backpressure_count << ",\n";
+      output << "        \"dropped_events\": " << result.spsc.dropped_events << ",\n";
+      output << "        \"max_queue_depth\": " << result.spsc.max_queue_depth << ",\n";
+      output << "        \"checksum_parity\": " << (result.spsc.checksum_parity ? "true" : "false")
+             << "\n";
+      output << "      }\n";
+    } else {
+      output << "\n";
+    }
     output << "    }" << (i + 1U == results.size() ? "\n" : ",\n");
   }
   output << "  ]\n";
@@ -1268,6 +1468,9 @@ int main(int argc, char** argv) {
       options, "hot_path_binary_replay_l3_l2_strategy_risk"));
   core_results.push_back(benchmark_hot_path_pipeline<PooledOrderBook>(
       options, "hot_path_binary_replay_pooled_l3_l2_strategy_risk"));
+  // Opt-in SPSC replay pipeline rows and their single-thread parity baseline.
+  core_results.push_back(benchmark_replay_single_thread(options));
+  core_results.push_back(benchmark_replay_spsc(options));
   if (!options.only_hot_path) {
     core_results.push_back(benchmark_add_order());
     core_results.push_back(benchmark_cancel_order());

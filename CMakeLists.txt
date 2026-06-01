@@ -59,6 +59,7 @@ add_library(
   cpp/src/market_data/event_log.cpp
   cpp/src/market_data/replay.cpp
   cpp/src/market_data/replay_aggregate.cpp
+  cpp/src/market_data/spsc_replay.cpp
   cpp/src/market_data/synthetic_generator.cpp
   cpp/src/book/order_book.cpp
   cpp/src/book/pooled_order_book.cpp
@@ -84,6 +85,13 @@ add_library(
   cpp/src/telemetry/metrics.cpp)
 
 target_include_directories(asterion PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include)
+
+# The opt-in SPSC replay pipeline (cpp/src/market_data/spsc_replay.cpp) spawns a
+# single producer thread. Link the platform threading library; deterministic
+# single-thread replay remains the default and does not depend on this at runtime.
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+target_link_libraries(asterion PUBLIC Threads::Threads)
 
 # Optional real inference backend. When requested and ONNX Runtime is found, the
 # library is built with the ONNX backend; otherwise the build still succeeds with
@@ -217,6 +225,8 @@ if(ASTERION_BUILD_TESTS)
     tests/unit/test_inference_backend.cpp
     tests/unit/test_allocation_tracking.cpp
     tests/unit/test_pooled_order_book.cpp
+    tests/unit/test_spsc_ring_buffer.cpp
+    tests/unit/test_spsc_replay.cpp
     tests/unit/test_hot_path.cpp
     tests/golden/test_golden_traces.cpp
     tests/property/test_book_properties.cpp)

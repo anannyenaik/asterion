@@ -9,6 +9,7 @@
 #include "asterion/market_data/event_log.hpp"
 #include "asterion/market_data/replay.hpp"
 #include "asterion/market_data/replay_aggregate.hpp"
+#include "asterion/market_data/spsc_replay.hpp"
 #include "asterion/matching/execution_report.hpp"
 #include "asterion/risk/audit_manifest.hpp"
 #include "asterion/risk/portfolio_risk.hpp"
@@ -209,6 +210,33 @@ PYBIND11_MODULE(_native, module) {
                      &asterion::ReplayResult::diagnostic_warning_count)
       .def_readwrite("diagnostics", &asterion::ReplayResult::diagnostics)
       .def_readwrite("error", &asterion::ReplayResult::error);
+
+  // Opt-in SPSC replay pipeline. Deterministic single-thread replay remains the
+  // default; this exposes the bounded single-producer/single-consumer pipeline
+  // for reviewer-facing parity and stats inspection.
+  py::enum_<asterion::SpscBackpressurePolicy>(module, "SpscBackpressurePolicy")
+      .value("Block", asterion::SpscBackpressurePolicy::Block)
+      .value("DropNewestOnFull", asterion::SpscBackpressurePolicy::DropNewestOnFull);
+
+  py::class_<asterion::SpscReplayConfig>(module, "SpscReplayConfig")
+      .def(py::init<>())
+      .def_readwrite("queue_capacity", &asterion::SpscReplayConfig::queue_capacity)
+      .def_readwrite("backpressure", &asterion::SpscReplayConfig::backpressure)
+      .def_readwrite("replay", &asterion::SpscReplayConfig::replay);
+
+  py::class_<asterion::SpscReplayStats>(module, "SpscReplayStats")
+      .def_readonly("produced_events", &asterion::SpscReplayStats::produced_events)
+      .def_readonly("consumed_events", &asterion::SpscReplayStats::consumed_events)
+      .def_readonly("queue_capacity", &asterion::SpscReplayStats::queue_capacity)
+      .def_readonly("max_queue_depth", &asterion::SpscReplayStats::max_queue_depth)
+      .def_readonly("backpressure_count", &asterion::SpscReplayStats::backpressure_count)
+      .def_readonly("dropped_events", &asterion::SpscReplayStats::dropped_events)
+      .def_readonly("end_of_stream_seen", &asterion::SpscReplayStats::end_of_stream_seen)
+      .def_readonly("drop_policy_enabled", &asterion::SpscReplayStats::drop_policy_enabled);
+
+  py::class_<asterion::SpscReplayResult>(module, "SpscReplayResult")
+      .def_readonly("replay", &asterion::SpscReplayResult::replay)
+      .def_readonly("stats", &asterion::SpscReplayResult::stats);
 
   py::class_<asterion::AggregateReplayConfig>(module, "AggregateReplayConfig")
       .def(py::init<>())
@@ -564,6 +592,18 @@ PYBIND11_MODULE(_native, module) {
   module.def("compare_replay_parity_file", &asterion::compare_replay_parity_file, py::arg("path"),
              py::arg("format") = asterion::EventLogFormat::Auto,
              py::arg_v("config", asterion::AggregateReplayConfig{}, "AggregateReplayConfig()"));
+
+  module.def(
+      "run_spsc_replay",
+      [](const std::vector<asterion::MarketDataEvent>& events, asterion::SymbolId symbol_id,
+         asterion::SpscReplayConfig config) {
+        // The C++ pipeline borrows the events as a span for the duration of the
+        // call; the GIL is released so the producer/consumer threads run freely.
+        py::gil_scoped_release release;
+        return asterion::run_spsc_replay(events, symbol_id, config);
+      },
+      py::arg("events"), py::arg("symbol_id"),
+      py::arg_v("config", asterion::SpscReplayConfig{}, "SpscReplayConfig()"));
 
   // ---- Tamper-evident audit manifests ----
   py::enum_<asterion::AuditManifestIssueType>(module, "AuditManifestIssueType")

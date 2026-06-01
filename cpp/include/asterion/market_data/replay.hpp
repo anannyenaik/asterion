@@ -49,6 +49,19 @@ struct ReplayResult {
 [[nodiscard]] std::uint64_t checksum_diagnostics(
     std::span<const ReplayDiagnostic> diagnostics) noexcept;
 
+// Per-stream cursor state for the incremental replay API (replay_step). It holds
+// exactly the loop-local state that the batch replay_events path keeps on the
+// stack, so feeding the same events one-at-a-time through replay_step produces a
+// bit-identical ReplayResult. This is what lets the opt-in SPSC consumer reuse
+// the single-thread processing path without duplicating any validation logic.
+struct ReplayStreamState {
+  SequenceNumber expected_sequence{0};
+  TimestampNs last_timestamp{0};
+  bool has_last_timestamp{false};
+  std::size_t event_index{0};
+  bool halted{false};
+};
+
 class ReplayEngine {
 public:
   explicit ReplayEngine(SymbolId symbol_id, ReplayConfig config = {});
@@ -57,6 +70,16 @@ public:
   [[nodiscard]] ReplayResult replay_file(const std::filesystem::path& path,
                                          EventLogFormat format = EventLogFormat::Auto);
   [[nodiscard]] ReplayResult replay_events(std::span<const MarketDataEvent> events);
+
+  // Streaming API. begin_stream seeds the result checksums; replay_step applies a
+  // single event and returns false when the stream must halt (a fatal diagnostic),
+  // exactly mirroring the early-return behaviour of replay_events; finalize_stream
+  // records the final book checksum. Callers own sequencing and the event-log
+  // checksum (e.g. via checksum_events) so that parity with replay_events holds.
+  void begin_stream(ReplayResult& result) const;
+  [[nodiscard]] bool replay_step(const MarketDataEvent& event, ReplayStreamState& state,
+                                 ReplayResult& result);
+  void finalize_stream(ReplayResult& result) const;
 
 private:
   [[nodiscard]] bool apply_event(const MarketDataEvent& event, std::size_t event_index,
