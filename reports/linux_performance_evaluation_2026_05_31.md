@@ -4,6 +4,12 @@
 
 This report adds a larger deterministic replay performance-evaluation path for Asterion: generated replay corpora, standard-vs-pooled L3 hot-path comparisons, steady-state allocation accounting, and a ready-to-run Linux perf profiling helper. It strengthens the low-latency systems story without claiming production-HFT performance.
 
+**Follow-up status:** Linux `perf` evidence was later collected in WSL2
+([2026-06-01 report](linux_performance_evaluation_2026_06_01.md)) and on Durham
+Hamilton8 HPC ([2026-06-04 report](durham_hpc_performance_evaluation_2026_06_04.md)).
+This 2026-05-31 report remains the Windows/MSYS2 larger-corpus evaluation and
+perf-helper setup note, not the latest Linux counter evidence.
+
 ## Scope Boundary
 
 - Asterion is not production-HFT infrastructure.

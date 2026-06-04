@@ -87,6 +87,36 @@ Note: per-run `Full`-validation replay is O(book/event), so the 1M Linux rows us
 `--only-steady-state-replay --steady-state-validation-mode light`; correctness stays
 covered by `ctest` (Full validation) and end-of-replay checksum parity.
 
+## Durham Hamilton8 HPC perf run (2026-06-04) - collected
+
+A separate non-WSL Linux pass was collected on Durham Hamilton8 under Slurm. It
+ran on compute node `cn025.ham8.dur.ac.uk` (partition `shared`, job `17356789`,
+1 task / 1 CPU / 8 GiB, CPU affinity 121), not on a login node.
+
+- Environment: Rocky Linux 8.10, kernel
+  `4.18.0-553.123.1.el8_10.x86_64`, AMD EPYC 7702, GCC 13.2 Release, CMake
+  3.30.5, Ninja 1.13.2, Python 3.12.6.
+- GCC Release built and `ctest` passed. Clang 18 was attempted but is not
+  accepted evidence because one allocation-tracker assertion failed and later
+  benchmark attempts missed `libc++.so.1`.
+- `perf stat -d -- true` succeeded inside Slurm with `perf_event_paranoid = 2`.
+  Explicit event runs counted cycles, instructions, branches, branch misses,
+  cache references/misses and L1 events. `LLC-loads`/`LLC-load-misses` were
+  `<not supported>`.
+- Evidence collected: 1M standard-vs-pooled hot path, six 1M steady-state SPSC
+  rows, balanced-10k LinearModel replay-loop inference, `perf stat` counters and
+  completed `perf record` hotspot reports for the high-cancellation hot path and
+  baseline SPSC process.
+- Limitation: one balanced-10k inference `perf report --stdio` conversion was
+  OOM-killed after JSON/counter files were written, so that hotspot report is not
+  interpreted.
+
+Results:
+[reports/durham_hpc_performance_evaluation_2026_06_04.md](../reports/durham_hpc_performance_evaluation_2026_06_04.md)
+and [reports/perf_profile.md](../reports/perf_profile.md). Representative HPC
+compute-node measurements only - one shared allocation, no LLC events, no root
+governor/turbo control, not portable.
+
 ## WSL2 blocker record (historical)
 
 On 2026-05-31, WSL2/Ubuntu was tested from Windows PowerShell on the Windows 10 host. The setup path could install/download components, but the current Windows session could not start WSL until the optional component takes effect after reboot/admin completion.

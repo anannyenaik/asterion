@@ -15,6 +15,12 @@ project builds and tests pass on Linux, and the host **does expose hardware PMU
 counters**, so this run records real cycles/instructions/IPC/branch/cache
 counters around the replay and hot-path workloads, plus `perf record` hotspots.
 
+**Follow-up native-HPC note (2026-06-04):** a separate Durham Hamilton8 Slurm
+compute-node pass now exists in
+[durham_hpc_performance_evaluation_2026_06_04.md](durham_hpc_performance_evaluation_2026_06_04.md).
+That report is GCC/Rocky Linux HPC evidence, not WSL2 evidence; it is still a
+single disclosed allocation and not portable.
+
 ## Scope Boundary
 
 - Asterion is not production-HFT infrastructure. These numbers are one local WSL2

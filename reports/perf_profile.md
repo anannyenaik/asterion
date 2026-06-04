@@ -1,8 +1,61 @@
 # Perf Profile
 
 Representative local measurements on one WSL2 Linux environment on this laptop,
-not portable performance claims. Not live trading, not production HFT, not a
-portable latency proof.
+plus one Durham Hamilton8 HPC Slurm compute-node allocation, not portable
+performance claims. Not live trading, not production HFT, not a portable latency
+proof.
+
+## Durham Hamilton8 HPC status (updated 2026-06-04)
+
+Linux `perf` was also run on Durham Hamilton8 under Slurm, on compute node
+`cn025.ham8.dur.ac.uk` (main benchmark job `17356789`, partition `shared`, 1
+task / 1 CPU / 8 GiB, CPU affinity 121). This was a compute-node run, not a
+login-node benchmark.
+
+Environment:
+
+- Rocky Linux 8.10, kernel `4.18.0-553.123.1.el8_10.x86_64`.
+- AMD EPYC 7702 64-Core Processor, topology visible to job: 128 CPUs, 2 sockets,
+  64 cores/socket, 1 thread/core.
+- GCC/G++ 13.2.0, Release `-O3 -DNDEBUG`, CMake 3.30.5, Ninja 1.13.2, Python
+  3.12.6, `perf 4.18.0-553.123.1.el8_10.x86_64`.
+- Source commit `216f473667aede486c95fe9607e09646932ab5a1`; GCC `ctest`
+  passed. Clang 18 was attempted but is not accepted evidence because one
+  allocation-tracker assertion failed and later benchmark attempts could not
+  resolve `libc++.so.1`.
+
+`perf stat -d -- true` succeeded inside Slurm with `perf_event_paranoid = 2`.
+Explicit event runs counted cycles/instructions/branches/branch-misses/cache
+refs/cache misses/L1 loads/L1 misses/context/page-fault events. `LLC-loads` and
+`LLC-load-misses` were `<not supported>`, and governor/turbo were not
+controllable without root.
+
+Representative counter rows:
+
+| process | IPC | branch-miss % | cache-miss % of refs | L1 miss % | context switches | migrations |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| high-cancellation 1M hot path | 1.915 | 1.06 | 5.45 | 0.52 | 0 | 0 |
+| baseline 1M steady SPSC | 1.003 | 0.80 | 43.71 | 3.19 | 0 | 0 |
+| replace-heavy 1M steady SPSC | 1.080 | 0.81 | 43.03 | 2.95 | 0 | 0 |
+| deep-book 1M steady SPSC | 0.909 | 1.20 | 35.68 | 4.52 | 0 | 0 |
+| balanced 10k inference process | 2.018 | 1.15 | 13.69 | 7.98 | 0 | 0 |
+
+Completed hotspot reports:
+
+- High-cancellation 1M hot path: `append_to_checksum` (~19%), FNV checksum byte
+  append, `operator new`, `OrderBook::check_invariants`, `clock_gettime`/vDSO
+  timing and `RiskGateway::check_new_order` were the largest rows.
+- Baseline 1M steady SPSC: checksum work, `OrderBook::find_order`, hashtable
+  lookup, `OrderBook::checksum`, invariant checks and allocator/container work
+  dominated. `__sched_yield` was around 0.82%, not dominant.
+
+The balanced-10k inference `perf record` completed, but `perf report --stdio`
+was OOM-killed and the Slurm job ended in state `OUT_OF_MEMORY` after benchmark
+JSON and other counter files had already been written. That inference hotspot
+report is incomplete and should not be interpreted.
+
+Full details are in
+[durham_hpc_performance_evaluation_2026_06_04.md](durham_hpc_performance_evaluation_2026_06_04.md).
 
 ## Local Status (updated 2026-06-01)
 
@@ -111,6 +164,9 @@ representative SPSC result.
 - **WSL2, not native/cloud Linux.** Virtualized PMU (no LLC events, multiplexed
   counters), uncontrolled turbo, one laptop — representative local measurements,
   not portable or production-HFT.
+- **Durham HPC, one shared Slurm allocation.** The Hamilton8 run is not WSL2 and
+  not a login-node benchmark, but it is still one shared allocation with no LLC
+  events, no root control over governor/turbo and partial `-O3` call graphs.
 - `Full`-validation per-run replay is O(book/event) and does not scale to 1M
   here; 1M evidence uses `Light` (a throughput-evaluation mode). Correctness is
   covered by `ctest` (Full validation) and end-of-replay checksum parity.
@@ -126,10 +182,11 @@ valgrind --tool=massif ./build/asterion_benchmarks --dataset build/perf_corpora/
   --only-steady-state-replay --steady-state-validation-mode light
 ```
 
-## Native Linux / flamegraph (future)
+## More controlled Linux / flamegraph (future)
 
-On a non-virtualized Linux host, add `LLC` cache events, a fixed governor/turbo,
-and DWARF or frame-pointer call graphs for flamegraph-quality profiles:
+On a more controlled Linux host or Slurm allocation, add `LLC` cache events when
+available, a fixed governor/turbo when permitted, and DWARF or frame-pointer call
+graphs for flamegraph-quality profiles:
 
 ```bash
 cmake -S . -B build-perf -G Ninja -DCMAKE_BUILD_TYPE=Release \

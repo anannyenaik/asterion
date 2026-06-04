@@ -443,8 +443,10 @@ ready-to-run Linux `perf` path, use `scripts/run_perf_evaluation.py` and
 [reports/linux_performance_evaluation_2026_05_31.md](reports/linux_performance_evaluation_2026_05_31.md)
 (Windows/MSYS2) and, with **WSL2 Linux `perf` hardware counters** (cycles/IPC/branch/cache,
 hotspots), [reports/linux_performance_evaluation_2026_06_01.md](reports/linux_performance_evaluation_2026_06_01.md).
-These are representative local measurements (the WSL2 run uses a virtualized PMU on one laptop),
-not portable performance claims.
+The follow-up **Durham Hamilton8 HPC** Slurm compute-node run is in
+[reports/durham_hpc_performance_evaluation_2026_06_04.md](reports/durham_hpc_performance_evaluation_2026_06_04.md).
+These are representative local/HPC measurements (WSL2 uses a virtualized PMU; Durham is one shared
+allocation with no LLC events and no root governor/turbo control), not portable performance claims.
 
 ## Latency Budget
 

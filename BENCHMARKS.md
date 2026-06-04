@@ -328,19 +328,25 @@ page-faults) and optional `perf record` + flamegraph, writing text output under 
 manual `linux-performance` GitHub workflow runs the same path on dispatch only; it is non-blocking,
 gates on no numbers, and notes that GitHub-hosted runners often do not expose hardware counters.
 
-Two curated evaluation reports are checked in. The Windows/MSYS2 standard-vs-pooled
+Three curated Linux/perf-adjacent evaluation reports are checked in. The Windows/MSYS2 standard-vs-pooled
 evaluation is
 [reports/linux_performance_evaluation_2026_05_31.md](reports/linux_performance_evaluation_2026_05_31.md).
 The **WSL2 Linux** pass — `perf stat -d` hardware counters (cycles/IPC/branch/cache),
 `perf record` hotspots, a 1M standard-vs-pooled hot path, 1M SPSC steady-state and a
 LinearModel inference replay-loop comparison — is
 [reports/linux_performance_evaluation_2026_06_01.md](reports/linux_performance_evaluation_2026_06_01.md).
-Both are representative measurements on the stated machine/environment, not portable
-performance claims; the WSL2 run uses a virtualized PMU (no `LLC` events, multiplexed
-counters, uncontrolled turbo) and is not native/cloud Linux. Per-run `Full`-validation
-replay is O(book/event) and does not scale to 1M, so the large-corpus Linux rows use
-`--only-steady-state-replay --steady-state-validation-mode light` (a throughput mode,
-not a correctness substitute). See also [docs/profiling.md](docs/profiling.md).
+The **Durham Hamilton8 HPC** pass - GCC Release build/test on a Slurm compute node,
+1M standard-vs-pooled hot path, six 1M SPSC steady-state rows, LinearModel
+replay-loop inference, explicit `perf stat` counters and completed hotspots for two
+targets - is
+[reports/durham_hpc_performance_evaluation_2026_06_04.md](reports/durham_hpc_performance_evaluation_2026_06_04.md).
+All are representative measurements on the stated machine/environment, not portable
+performance claims; the WSL2 run uses a virtualized PMU and the Durham run is one
+shared allocation with no `LLC` events and no root governor/turbo control. Per-run
+`Full`-validation replay is O(book/event) and does not scale to 1M, so the
+large-corpus Linux rows use `--only-steady-state-replay` and
+`--steady-state-validation-mode light` (a throughput mode, not a correctness
+substitute). See also [docs/profiling.md](docs/profiling.md).
 
 ## Python Analysis
 

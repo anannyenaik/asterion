@@ -63,7 +63,8 @@ Conventions:
   evidence table, methodology and before/after summaries. It transcribes existing measured results
   only — no new numbers.
 - Report: [performance_evidence_summary](../reports/performance_evidence_summary_2026_06_01.md).
-- Caveat: representative local measurements only; Linux perf deferred (firmware virtualization).
+- Caveat: representative local/environment measurements only; Linux perf evidence is now collected
+  in WSL2 and on Durham Hamilton8 HPC, each with its own disclosed limits.
 
 **Q: Where are allocation results?**
 - Answer: scoped, warmed allocation tests + local before/after reports.
@@ -140,22 +141,34 @@ Conventions:
 - File: [LIMITATIONS.md](../LIMITATIONS.md) (full scope statement); per-component notes also live at definition sites and in [claim_audit.md](claim_audit.md).
 
 **Q: What is the Linux perf status?**
-- Answer: **collected (2026-06-01) in WSL2.** After the BIOS/UEFI firmware-virtualization
+- Answer: **collected in WSL2 (2026-06-01) and Durham Hamilton8 HPC (2026-06-04).** After the BIOS/UEFI firmware-virtualization
   blocker was enabled, WSL2 boots a Linux kernel, the project builds and `ctest` passes,
   and the virtualized PMU exposes hardware counters. `perf stat -d` (cycles/instructions/
   IPC/branch/cache) and `perf record` hotspots were captured around the steady-state
   replay and hot-path workloads, alongside a 1M standard-vs-pooled hot path, 1M SPSC
   steady-state and a LinearModel inference replay-loop comparison.
+- Durham added a non-WSL Slurm compute-node pass: GCC Release build/test, explicit
+  `perf stat` counters, completed hotspots for two targets, 1M hot-path evidence,
+  six 1M SPSC rows and balanced-10k LinearModel replay-loop inference evidence.
 - Environment: WSL2 (Microsoft Hyper-V), Ubuntu 24.04.4, kernel
   `6.6.114.1-microsoft-standard-WSL2`, GCC 13.3.0 Release, `perf 6.8.12`. The
   virtualized PMU reports `LLC` cache events as `<not supported>` and multiplexes
   counters; CPU turbo is uncontrolled. Representative WSL2 measurements only — not
   native/cloud Linux, not portable.
+- Environment: Durham Hamilton8 HPC, Rocky Linux 8.10, kernel
+  `4.18.0-553.123.1.el8_10.x86_64`, AMD EPYC 7702, GCC 13.2 Release, Slurm job
+  `17356789` on `cn025.ham8.dur.ac.uk`. Explicit `perf stat` runs counted
+  cycles/instructions/branch/cache/L1 events; `LLC` events were unsupported and
+  governor/turbo were not controllable from the non-root allocation. One inference
+  hotspot report was OOM-killed; JSON/counter files and two other hotspot reports
+  were preserved.
 - Files: [reports/linux_performance_evaluation_2026_06_01.md](../reports/linux_performance_evaluation_2026_06_01.md),
+  [reports/durham_hpc_performance_evaluation_2026_06_04.md](../reports/durham_hpc_performance_evaluation_2026_06_04.md),
   [reports/perf_profile.md](../reports/perf_profile.md), `scripts/run_linux_perf_profile.sh`.
-- Caveat: WSL2 virtualized PMU on one laptop; a native/cloud Linux pass would add `LLC`
-  events, controllable governor/turbo and flamegraph-quality call graphs. Counter values
-  are never fabricated when a real PMU is unavailable.
+- Caveat: both runs are representative environment-specific measurements, not portable
+  claims. A more controlled bare-metal/cloud pass would still help if it exposes LLC
+  events, lets frequency be fixed and uses a profiling build for flamegraph-quality
+  call graphs. Counter values are never fabricated when a real PMU is unavailable.
 
 ## Toolchain note (Windows)
 

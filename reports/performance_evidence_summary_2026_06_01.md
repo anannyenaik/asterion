@@ -12,6 +12,18 @@ row. For per-claim classification see [docs/claim_audit.md](../docs/claim_audit.
 for reproduction commands see [docs/evidence_index.md](../docs/evidence_index.md)
 and [BENCHMARKS.md](../BENCHMARKS.md).
 
+## 2026-06-04 update: Durham HPC compute-node pass
+
+The latest Linux evidence is the Durham Hamilton8 HPC Slurm compute-node pass in
+[durham_hpc_performance_evaluation_2026_06_04.md](durham_hpc_performance_evaluation_2026_06_04.md).
+It adds GCC Release build/test evidence on Rocky Linux, 1M hot-path and SPSC
+latency distributions, LinearModel replay-loop inference cost, explicit Linux
+`perf stat` counters and completed `perf record` hotspot reports under one
+disclosed Slurm allocation. It is still representative local/HPC evidence only:
+one shared compute-node allocation, no LLC events, no root control over
+governor/turbo, GCC evidence only, ONNX skipped and one inference hotspot report
+incomplete because `perf report --stdio` was OOM-killed.
+
 ## What this evidence proves
 
 - The correctness-first hot path (binary replay → L3 book update → reusable L2
@@ -38,11 +50,17 @@ and [BENCHMARKS.md](../BENCHMARKS.md).
   saturates on large corpora and **zero dropped events**.
 - The recorded **Binance public-depth case study** normalises and replays
   deterministically to fixed correctness checksums.
+- The **Durham Hamilton8 HPC pass** shows the same scoped allocation/parity
+  story on a Slurm compute node: GCC Release `ctest` passed, the 1M
+  high-cancellation pooled hot path reached **0 measured allocations** with
+  guard parity, all six 1M SPSC rows were lossless with checksum parity, and
+  explicit Linux `perf` counters were collected under disclosed PMU limits.
 
 ## What this evidence does not prove
 
-- No portable or cross-machine performance numbers. Every latency/throughput
-  figure is from one Windows 10 / MSYS2 laptop and is not comparable elsewhere.
+- No portable or cross-machine performance numbers. Most curated rows are from
+  one Windows 10 / MSYS2 laptop; the WSL2 and Durham HPC rows are explicitly
+  labelled with their own environments. None is comparable across machines.
 - No production-HFT performance, kernel bypass, FPGA, or colocated networking.
 - No live trading, no authenticated exchange/broker connectivity, no order
   placement.
@@ -51,21 +69,24 @@ and [BENCHMARKS.md](../BENCHMARKS.md).
   synthetic toy data with no market meaning.
 - No production model-serving claim; ONNX Runtime is opt-in and absent from
   default CI.
-- No native or cloud Linux `perf` evidence. Hardware-counter evidence **has now
-  been collected, but in WSL2** (a Microsoft virtualized PMU on one laptop): no
-  LLC cache events, counters are multiplexed, and CPU turbo is uncontrolled, so
-  these are representative WSL2 measurements, not native/cloud Linux and not
-  portable (see [Linux perf — collected in WSL2](#linux-perf--collected-in-wsl2)).
+- No portable Linux `perf` evidence. Hardware-counter evidence has now been
+  collected both in WSL2 and on Durham Hamilton8 HPC, but both are disclosed
+  representative environments, not portable latency/counter claims. The WSL2
+  pass uses a virtualized PMU on one laptop; the Durham pass uses one shared
+  Slurm allocation with no LLC events and no root control over governor/turbo.
 
 ## Local environment
 
-All measurements below come from one laptop. Most rows are the Windows 10 / MSYS2
-environment in the table below; the **WSL2 Linux** rows in the evidence table (and
-the [2026-06-01 Linux report](linux_performance_evaluation_2026_06_01.md)) were
-measured on the **same laptop under WSL2** (Ubuntu 24.04.4, kernel
+Most rows below come from one laptop. Those rows are the Windows 10 / MSYS2
+environment in the table below; the **WSL2 Linux** rows in the evidence table
+(and the [2026-06-01 Linux report](linux_performance_evaluation_2026_06_01.md))
+were measured on the **same laptop under WSL2** (Ubuntu 24.04.4, kernel
 `6.6.114.1-microsoft-standard-WSL2`, GCC 13.3.0 Release, perf 6.8.12 on a
-virtualized PMU). Individual reports record the exact benchmark-executable commit
-field for their run.
+virtualized PMU). The **Durham HPC** rows are from a separate Hamilton8 Slurm
+compute-node allocation documented in
+[durham_hpc_performance_evaluation_2026_06_04.md](durham_hpc_performance_evaluation_2026_06_04.md).
+Individual reports record the exact benchmark-executable commit field for their
+run.
 
 | field | value |
 | --- | --- |
@@ -107,6 +128,7 @@ rows as noted in each source report.
 | **WSL2 Linux** SPSC steady-state | single-thread vs SPSC, `Light` validation | six 1M corpora | **WSL2** | n/a (aggregate) | n/a | n/a | single 0.77M–3.37M ev/s; SPSC 0.56M–1.24M ev/s | node-book storage (not pooled): 1.47M–2.55M/run | checksum parity true (6/6); dropped 0 | [linux_performance_evaluation_2026_06_01](linux_performance_evaluation_2026_06_01.md) | ratio is the signal; `Light` is a throughput mode, not correctness |
 | **WSL2 Linux** inference replay-loop | LinearModel feature+score+policy gate vs inference-free hot path | `balanced_10k` (500k events) | **WSL2** | base 400 / loop 500 ns | base 900 / loop 1,200 ns | base 1,700 / loop 1,800 ns | base 1.61M / loop 1.27M ev/s | base 703,450; inference adds **0** | guard `1442857765714779360` | [linux_performance_evaluation_2026_06_01](linux_performance_evaluation_2026_06_01.md) | plumbing only; +~100 ns p50; ONNX row skipped (not built on Linux); WSL2 local |
 | **WSL2 Linux** perf-stat counters | steady-state Light replay process | `baseline_1m`/`replace_heavy_1m`/`deep_book_1m` (1M) | **WSL2** | n/a | n/a | n/a | IPC 0.73–0.74; 2.5–2.9 GHz | branch-miss <1.4%; cache-miss 66–69% of refs; L1-dcache-miss 5.4–7.6% | n/a | [perf_profile](perf_profile.md) | virtualized PMU, LLC `<not supported>`, counters multiplexed (49–75%); pinned `taskset -c 2` |
+| **Durham HPC Linux** hot path / SPSC / inference / perf counters | GCC Release on Hamilton8 Slurm compute node | 1M hot path, six 1M SPSC corpora, `balanced_10k` inference | **Rocky Linux HPC** | hot std 281 ns / pooled 291 ns; inference base 371 ns / loop 511 ns | hot std 631 ns / pooled 681 ns; inference base 601 ns / loop 792 ns | hot std 812 ns / pooled 832 ns; inference base 831 ns / loop 1,002 ns | hot std 2.88M / pooled 2.82M ev/s; SPSC 0.90M–4.63M ev/s | pooled hot path **0**; inference adds **0** over node book | hot guard parity `14180005740461440914`; SPSC parity true 6/6 | [durham_hpc_performance_evaluation_2026_06_04](durham_hpc_performance_evaluation_2026_06_04.md) | single shared Slurm allocation; GCC only; no LLC events; governor/turbo uncontrolled; one inference hotspot report OOM-killed |
 
 ## Methodology
 
@@ -156,10 +178,19 @@ The same methodology disciplines run through every report above.
   CPU turbo is uncontrolled — representative WSL2 measurements, not native/cloud
   Linux and not portable. See
   [linux_performance_evaluation_2026_06_01.md](linux_performance_evaluation_2026_06_01.md).
-- **What a native/cloud Linux pass would still add.** A non-virtualized PMU would
-  add `LLC` cache events, a fixed governor/turbo and flamegraph-quality call
-  graphs. The helper `scripts/run_linux_perf_profile.sh` fails loudly rather than
-  fabricating counters when `perf` is unavailable.
+- **Durham HPC Linux perf is also collected.** The 2026-06-04 Hamilton8 pass ran
+  on a Rocky Linux Slurm compute node, not a login node. GCC Release built and
+  `ctest` passed, large deterministic corpora were generated under `/nobackup`,
+  and explicit `perf stat` event lists counted cycles/instructions/branch/cache/L1
+  events around selected benchmark processes. This is **one shared HPC allocation**:
+  no LLC events, no root control over governor/turbo, GCC evidence only, and one
+  inference `perf report --stdio` conversion was OOM-killed. See
+  [durham_hpc_performance_evaluation_2026_06_04.md](durham_hpc_performance_evaluation_2026_06_04.md).
+- **What a more controlled Linux pass would still add.** A host/allocation with
+  `LLC` cache events, fixed governor/turbo and a frame-pointer profiling build
+  would improve counter completeness and flamegraph-quality call graphs. The
+  helper `scripts/run_linux_perf_profile.sh` fails loudly rather than fabricating
+  counters when `perf` is unavailable.
 - **Why CI does not gate on benchmark numbers.** Benchmark timings are
   machine-dependent, so CI asserts only deterministic correctness, checksum
   parity and stable allocation behaviour. The benchmark/`linux-performance`
@@ -232,10 +263,10 @@ the absolute number (see
 [spsc_steady_state](spsc_steady_state_report_2026_05_31.md) and
 [spsc_replay_pipeline](spsc_replay_pipeline_report_2026_05_31.md)).
 
-## Limitations and deferred Linux perf
+## Limitations and Linux perf status
 
-- All numbers are **representative local measurements on one Windows 10 / MSYS2
-  laptop**, not portable performance claims.
+- All numbers are **representative local/environment measurements** on the stated
+  Windows/MSYS2, WSL2 or Durham HPC host, not portable performance claims.
 - The pooled book and the SPSC pipeline are **opt-in**; the correctness-first
   `OrderBook` and single-thread replay remain the defaults and are always
   available.
@@ -284,6 +315,33 @@ parity). See
 [linux_performance_evaluation_2026_06_01.md](linux_performance_evaluation_2026_06_01.md)
 and [perf_profile.md](perf_profile.md).
 
+### Durham HPC perf — collected on Hamilton8
+
+Hardware-counter evidence has also been collected on a **Durham Hamilton8 HPC**
+Slurm compute node (Rocky Linux 8.10, kernel
+`4.18.0-553.123.1.el8_10.x86_64`, AMD EPYC 7702, GCC 13.2 Release). Measured
+on 2026-06-04:
+
+- **GCC Release `ctest` passed** on the HPC checkout.
+- **1M high-cancellation hot path**: the opt-in pooled book reached **0 measured
+  allocations / 0 bytes** vs 7,340,580 allocations for the standard book, with
+  guard-checksum parity.
+- **1M steady-state SPSC** across six corpora: lossless, **0 dropped**, full
+  checksum parity on all six; queue depth reached 4096, so backpressure was real.
+- **LinearModel inference replay-loop** (`balanced_10k`, 500k events): **+about
+  140 ns p50 and 0 added allocations** vs the inference-free standard hot path.
+- **`perf stat` counters**: explicit event runs counted cycles, instructions,
+  branches, branch misses, cache refs/misses, L1 loads/misses, context switches,
+  migrations and page faults. `LLC-loads`/`LLC-load-misses` were unsupported.
+- **`perf record` hotspots** completed for the high-cancellation hot path and
+  baseline SPSC process. The balanced-10k inference `perf report --stdio`
+  conversion was OOM-killed, so that hotspot report is incomplete and not used.
+
+Boundaries preserved: **one shared Slurm allocation**, GCC evidence only, no
+root control over governor/turbo, no LLC events and no portable latency/counter
+claim. See
+[durham_hpc_performance_evaluation_2026_06_04.md](durham_hpc_performance_evaluation_2026_06_04.md).
+
 ## Recommended next work
 
 - **Done (2026-06-01): inference event-loop cost report.** The cost of inserting
@@ -304,9 +362,16 @@ and [perf_profile.md](perf_profile.md).
   and a LinearModel inference replay-loop comparison. See
   [linux_performance_evaluation_2026_06_01.md](linux_performance_evaluation_2026_06_01.md)
   and [perf_profile.md](perf_profile.md). Representative WSL2 measurements only.
-- A **native or cloud Linux perf pass** (non-virtualized PMU) would add `LLC`
-  cache events, controllable governor/turbo and flamegraph-quality call graphs;
-  hardware-counter values are never fabricated when a real PMU is unavailable.
+- **Done (2026-06-04): Durham Hamilton8 HPC perf pass.** GCC Release build/test,
+  large-corpus latency/allocation evidence, SPSC parity, LinearModel replay-loop
+  inference cost, explicit `perf stat` counters and completed hotspot reports for
+  two targets were collected on a Slurm compute node. See
+  [durham_hpc_performance_evaluation_2026_06_04.md](durham_hpc_performance_evaluation_2026_06_04.md).
+- A **more controlled bare-metal/cloud Linux perf pass** would still help if it
+  exposes LLC events, lets governor/turbo be fixed and uses a frame-pointer build
+  for flamegraph-quality call graphs; hardware-counter values are never fabricated
+  when a real PMU is unavailable.
 - The **technical paper** can now draw its microarchitectural section from the
-  measured WSL2 counters, with the WSL2/virtualized-PMU caveats stated; a
-  native/cloud Linux pass would further strengthen it.
+  measured WSL2 and Durham HPC counters, with each environment's PMU and
+  governor/turbo caveats stated; a more controlled Linux profiling pass would
+  further strengthen it.
