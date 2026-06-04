@@ -63,7 +63,31 @@ flamegraph.pl build/perf_profile/out.folded > build/perf_profile/asterion.svg
 GitHub-hosted runners often do not expose hardware performance counters. The manual
 `linux-performance` workflow records that blocker honestly and does not gate on benchmark numbers.
 
-## WSL2 blocker record
+## WSL2 perf run (2026-06-01) — collected
+
+The earlier firmware-virtualization blocker (below) is **resolved**. With BIOS/UEFI
+virtualization enabled, WSL2 boots a Linux kernel, the project builds and `ctest`
+passes, and the virtualized PMU exposes hardware counters, so a real `perf` pass was
+captured:
+
+- Environment: **WSL2** (Microsoft Hyper-V), Ubuntu 24.04.4, kernel
+  `6.6.114.1-microsoft-standard-WSL2`, GCC 13.3.0 Release, `perf 6.8.12`
+  (`linux-tools-6.8.0-124-generic`; the `/usr/bin/perf` wrapper warns because the
+  WSL2 kernel ships no matching `linux-tools`, so the generic binary is run directly).
+- `perf stat -d -- true` returns hardware counters; `LLC-loads`/`LLC-load-misses`
+  are `<not supported>` on the virtualized PMU and counters are multiplexed.
+- CPU governor/turbo are not controllable in WSL2; affinity pinning (`taskset -c 2`)
+  works and all `perf` runs are pinned.
+- Results: `reports/linux_performance_evaluation_2026_06_01.md` and
+  `reports/perf_profile.md` (cycles/IPC/branch/cache counters, hotspots,
+  standard-vs-pooled, SPSC and inference-loop interpretation). Representative WSL2
+  measurements only — not native/cloud Linux, not portable.
+
+Note: per-run `Full`-validation replay is O(book/event), so the 1M Linux rows use
+`--only-steady-state-replay --steady-state-validation-mode light`; correctness stays
+covered by `ctest` (Full validation) and end-of-replay checksum parity.
+
+## WSL2 blocker record (historical)
 
 On 2026-05-31, WSL2/Ubuntu was tested from Windows PowerShell on the Windows 10 host. The setup path could install/download components, but the current Windows session could not start WSL until the optional component takes effect after reboot/admin completion.
 

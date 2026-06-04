@@ -440,8 +440,11 @@ not, one top-level evidence table and before/after summaries — see
 For a larger-corpus standard-vs-pooled evaluation, deterministic 100k/1M replay corpora and a
 ready-to-run Linux `perf` path, use `scripts/run_perf_evaluation.py` and
 `scripts/run_linux_perf_profile.sh`; the curated results are in
-[reports/linux_performance_evaluation_2026_05_31.md](reports/linux_performance_evaluation_2026_05_31.md).
-These are representative local measurements, not portable performance claims.
+[reports/linux_performance_evaluation_2026_05_31.md](reports/linux_performance_evaluation_2026_05_31.md)
+(Windows/MSYS2) and, with **WSL2 Linux `perf` hardware counters** (cycles/IPC/branch/cache,
+hotspots), [reports/linux_performance_evaluation_2026_06_01.md](reports/linux_performance_evaluation_2026_06_01.md).
+These are representative local measurements (the WSL2 run uses a virtualized PMU on one laptop),
+not portable performance claims.
 
 ## Latency Budget
 

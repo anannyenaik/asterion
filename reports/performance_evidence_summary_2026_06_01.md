@@ -51,13 +51,21 @@ and [BENCHMARKS.md](../BENCHMARKS.md).
   synthetic toy data with no market meaning.
 - No production model-serving claim; ONNX Runtime is opt-in and absent from
   default CI.
-- No native Linux `perf` hardware-counter evidence yet (deferred — see
-  [Limitations and deferred Linux perf](#limitations-and-deferred-linux-perf)).
+- No native or cloud Linux `perf` evidence. Hardware-counter evidence **has now
+  been collected, but in WSL2** (a Microsoft virtualized PMU on one laptop): no
+  LLC cache events, counters are multiplexed, and CPU turbo is uncontrolled, so
+  these are representative WSL2 measurements, not native/cloud Linux and not
+  portable (see [Linux perf — collected in WSL2](#linux-perf--collected-in-wsl2)).
 
 ## Local environment
 
-All measurements below come from one machine. Individual reports record the exact
-benchmark-executable commit field for their run.
+All measurements below come from one laptop. Most rows are the Windows 10 / MSYS2
+environment in the table below; the **WSL2 Linux** rows in the evidence table (and
+the [2026-06-01 Linux report](linux_performance_evaluation_2026_06_01.md)) were
+measured on the **same laptop under WSL2** (Ubuntu 24.04.4, kernel
+`6.6.114.1-microsoft-standard-WSL2`, GCC 13.3.0 Release, perf 6.8.12 on a
+virtualized PMU). Individual reports record the exact benchmark-executable commit
+field for their run.
 
 | field | value |
 | --- | --- |
@@ -95,6 +103,10 @@ rows as noted in each source report.
 | SPSC steady-state replay | single-thread vs steady SPSC, `Light` validation | balanced/replace-heavy/deep-book 10k–1M | Win/MSYS2 | n/a (aggregate run) | n/a | n/a | single 0.49M–1.60M ev/s; SPSC 0.37M–1.54M ev/s | dominated by correctness-first book storage | checksum parity: true (6/6); dropped 0 | [spsc_steady_state](spsc_steady_state_report_2026_05_31.md) | absolute numbers dominated by validation cost; ratio is the signal |
 | Binance replay case study | normalise → deterministic replay | tiny hand-curated public-depth fixture (11 events) | Win/MSYS2 | not measured | n/a | n/a | not measured | n/a | `final_book_checksum 2539005926052284398`; 0 diagnostics | [binance_replay_case_study](binance_replay_case_study_2026_05_31.md) | correctness checksums, **not** performance; L2→synthetic IDs |
 | large generated replay | standard vs pooled hot path | 100k + seven 1M corpora | Win/MSYS2 | std 1,000–1,500 ns; pooled 800–1,200 ns | std 4,100–7,500 ns; pooled 2,800–5,400 ns | see source | std 0.35M–0.87M ev/s; pooled 0.54M–1.16M ev/s | std 4.2M–54M → pooled **0** | guard parity: yes (7/7) | [linux_performance_evaluation](linux_performance_evaluation_2026_05_31.md) | Windows/MSYS2, not native Linux; corpora git-ignored |
+| **WSL2 Linux** std vs pooled hot path + perf counters | standard vs pooled L3 hot path | `high_cancellation_1m` (1M, 5 iters) | **WSL2** | std/pooled 300 ns | std/pooled 800 ns | std 12,900 / pooled 13,500 ns | std 2.66M / pooled 2.71M ev/s | std 7,340,580 → pooled **0** | guard `14180005740461440914` (match) | [linux_performance_evaluation_2026_06_01](linux_performance_evaluation_2026_06_01.md) | WSL2 virtualized PMU (no LLC, multiplexed); uncontrolled turbo; not native/cloud Linux; not portable |
+| **WSL2 Linux** SPSC steady-state | single-thread vs SPSC, `Light` validation | six 1M corpora | **WSL2** | n/a (aggregate) | n/a | n/a | single 0.77M–3.37M ev/s; SPSC 0.56M–1.24M ev/s | node-book storage (not pooled): 1.47M–2.55M/run | checksum parity true (6/6); dropped 0 | [linux_performance_evaluation_2026_06_01](linux_performance_evaluation_2026_06_01.md) | ratio is the signal; `Light` is a throughput mode, not correctness |
+| **WSL2 Linux** inference replay-loop | LinearModel feature+score+policy gate vs inference-free hot path | `balanced_10k` (500k events) | **WSL2** | base 400 / loop 500 ns | base 900 / loop 1,200 ns | base 1,700 / loop 1,800 ns | base 1.61M / loop 1.27M ev/s | base 703,450; inference adds **0** | guard `1442857765714779360` | [linux_performance_evaluation_2026_06_01](linux_performance_evaluation_2026_06_01.md) | plumbing only; +~100 ns p50; ONNX row skipped (not built on Linux); WSL2 local |
+| **WSL2 Linux** perf-stat counters | steady-state Light replay process | `baseline_1m`/`replace_heavy_1m`/`deep_book_1m` (1M) | **WSL2** | n/a | n/a | n/a | IPC 0.73–0.74; 2.5–2.9 GHz | branch-miss <1.4%; cache-miss 66–69% of refs; L1-dcache-miss 5.4–7.6% | n/a | [perf_profile](perf_profile.md) | virtualized PMU, LLC `<not supported>`, counters multiplexed (49–75%); pinned `taskset -c 2` |
 
 ## Methodology
 
@@ -135,18 +147,19 @@ The same methodology disciplines run through every report above.
   ~58 MB each) are loaded from local disk before the measured loop; corpus
   loading is outside the measured event loop, but disk and OS cache state are
   part of the local environment and are not portable.
-- **Why native Linux perf is pending.** Hardware-counter evidence
-  (cycles/instructions/branch/cache, flamegraphs) requires a Linux PMU. On this
-  host WSL2 launches but no Linux kernel can boot because hardware virtualization
-  is disabled in BIOS/UEFI firmware (`HCS_E_HYPERV_NOT_INSTALLED`;
-  `systeminfo` → `Virtualization Enabled In Firmware: No`). This is a firmware
-  setting that cannot be changed from software.
-- **What Linux perf will add later.** Once a native/cloud Linux host or
-  firmware-enabled WSL2 is available, `scripts/run_linux_perf_profile.sh` will
-  add `perf stat -d` counters and optional `perf record` + flamegraphs for the
-  hot path, turning the current latency distributions into a
-  microarchitectural breakdown. The helper fails loudly rather than fabricating
-  counters when `perf` is unavailable.
+- **Linux perf is now collected, in WSL2.** The earlier firmware-virtualization
+  blocker is resolved; WSL2 boots, the project builds and `ctest` passes, and the
+  (virtualized) PMU exposes hardware counters. `perf stat -d` cycles/instructions/
+  IPC/branch/cache counters and `perf record` hotspots were captured around the
+  steady-state replay and hot-path workloads. This is **WSL2, one laptop**: the
+  virtualized PMU has no `LLC` cache events, counters are time-multiplexed, and
+  CPU turbo is uncontrolled — representative WSL2 measurements, not native/cloud
+  Linux and not portable. See
+  [linux_performance_evaluation_2026_06_01.md](linux_performance_evaluation_2026_06_01.md).
+- **What a native/cloud Linux pass would still add.** A non-virtualized PMU would
+  add `LLC` cache events, a fixed governor/turbo and flamegraph-quality call
+  graphs. The helper `scripts/run_linux_perf_profile.sh` fails loudly rather than
+  fabricating counters when `perf` is unavailable.
 - **Why CI does not gate on benchmark numbers.** Benchmark timings are
   machine-dependent, so CI asserts only deterministic correctness, checksum
   parity and stable allocation behaviour. The benchmark/`linux-performance`
@@ -234,14 +247,42 @@ the absolute number (see
 - The Binance case study is a **recorded public-depth demo** with synthetic
   order IDs from L2 data — not live trading, not authenticated connectivity, not
   equities-market realism.
-- **Native Linux `perf` hardware-counter evidence is deferred.** It is blocked on
-  this host by firmware virtualization being disabled in BIOS/UEFI, which
-  prevents WSL2 from booting a Linux kernel. The helper script and methodology
-  exist; counter values are **not** fabricated while `perf` is unavailable.
-  Required to unblock here: enable Intel VT-x / AMD-V in firmware and reboot, or
-  run on a native/cloud Linux host where the PMU is exposed. See
-  [linux_performance_evaluation](linux_performance_evaluation_2026_05_31.md) and
-  [perf_profile.md](perf_profile.md).
+- **Linux `perf` evidence is collected in WSL2 (not native/cloud Linux).** See
+  the dedicated section below.
+
+### Linux perf — collected in WSL2
+
+Hardware-counter evidence has been collected in a **WSL2** Linux environment
+(Ubuntu 24.04.4, kernel `6.6.114.1-microsoft-standard-WSL2`, GCC 13.3.0 Release)
+after the BIOS/UEFI firmware-virtualization blocker was enabled. The project
+builds and `ctest` passes on Linux, and the virtualized PMU exposes hardware
+counters. Measured, in WSL2, on the i7-7700HQ laptop:
+
+- **`perf stat -d`** on the steady-state Light replay path: IPC ≈ 0.73–0.74, very
+  high cache-miss-of-references (66–69%), low branch-miss (< 1.4%) — the
+  correctness-first node-based book is **memory-latency-bound** (pointer-chasing).
+- **`perf record`** hotspots: the order-id hashtable insert/rehash and
+  `OrderBook::cancel_order` (and, under single-core pinning, `__sched_yield` from
+  the SPSC threads).
+- **1M std-vs-pooled hot path** (`high_cancellation_1m`): the opt-in pooled book
+  reaches **0 measured allocations / 0 bytes** vs 7,340,580 for the standard
+  book, with guard-checksum parity — the Windows pooled result reproduced on
+  Linux.
+- **1M SPSC steady-state Light** across six corpora: lossless, **0 dropped**, full
+  checksum parity on all six.
+- **LinearModel inference replay-loop** (balanced_10k, 500k events): **+≈100 ns
+  p50 and 0 added allocations** vs the inference-free hot path.
+
+Boundaries preserved: **WSL2, one laptop, virtualized PMU** (no `LLC` events,
+multiplexed counters), uncontrolled turbo — representative WSL2 measurements, not
+native/cloud Linux, not portable, not production-HFT. The optional ONNX backend
+was **not** built on Linux, so the ONNX replay-loop row is recorded as skipped,
+not measured. `Full`-validation per-run replay is O(book/event) and does not
+scale to 1M here, so the 1M evidence uses the `Light` throughput-evaluation mode
+(correctness is covered by `ctest` Full validation + end-of-replay checksum
+parity). See
+[linux_performance_evaluation_2026_06_01.md](linux_performance_evaluation_2026_06_01.md)
+and [perf_profile.md](perf_profile.md).
 
 ## Recommended next work
 
@@ -257,10 +298,15 @@ the absolute number (see
 - A **larger replay-loop inference corpus**: use recorded/simulated data beyond
   the 12-event fixture to observe LinearModel and optional ONNX systems cost
   without adding profitability, alpha or predictive-quality claims.
-- The **native Linux perf pass remains last** for performance evidence work; do
-  not fabricate hardware-counter values while native Linux/PMU access is absent.
-- The **technical paper** remains deferred until native Linux `perf` evidence is
-  collected, so the microarchitectural section can be written from measured
-  counters rather than placeholders.
-</content>
-</invoke>
+- **Done (2026-06-01): WSL2 Linux perf pass.** `perf stat -d` counters and
+  `perf record` hotspots were collected in WSL2 around the steady-state replay and
+  hot-path workloads, alongside a 1M std-vs-pooled hot path, 1M SPSC steady-state
+  and a LinearModel inference replay-loop comparison. See
+  [linux_performance_evaluation_2026_06_01.md](linux_performance_evaluation_2026_06_01.md)
+  and [perf_profile.md](perf_profile.md). Representative WSL2 measurements only.
+- A **native or cloud Linux perf pass** (non-virtualized PMU) would add `LLC`
+  cache events, controllable governor/turbo and flamegraph-quality call graphs;
+  hardware-counter values are never fabricated when a real PMU is unavailable.
+- The **technical paper** can now draw its microarchitectural section from the
+  measured WSL2 counters, with the WSL2/virtualized-PMU caveats stated; a
+  native/cloud Linux pass would further strengthen it.

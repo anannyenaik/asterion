@@ -140,10 +140,22 @@ Conventions:
 - File: [LIMITATIONS.md](../LIMITATIONS.md) (full scope statement); per-component notes also live at definition sites and in [claim_audit.md](claim_audit.md).
 
 **Q: What is the Linux perf status?**
-- Answer: methodology + helper script exist; counter values are postponed and are not fabricated.
-- Status (2026-06-01): blocked on this host by firmware virtualization. WSL2 now launches (v2.7.3.0, kernel 6.6.114.1-1; the earlier optional-component blocker was cleared by reboot), but no Linux distribution can boot because virtualization is disabled in BIOS/UEFI (`HCS_E_HYPERV_NOT_INSTALLED`; `systeminfo` → `Virtualization Enabled In Firmware: No`). Enabling Intel VT-x / AMD-V in firmware, or using a native/cloud Linux host, is required.
-- Files: [reports/perf_profile.md](../reports/perf_profile.md), [reports/linux_performance_evaluation_2026_05_31.md](../reports/linux_performance_evaluation_2026_05_31.md), `scripts/run_linux_perf_profile.sh`.
-- Caveat: local-only / pending firmware virtualization or native Linux.
+- Answer: **collected (2026-06-01) in WSL2.** After the BIOS/UEFI firmware-virtualization
+  blocker was enabled, WSL2 boots a Linux kernel, the project builds and `ctest` passes,
+  and the virtualized PMU exposes hardware counters. `perf stat -d` (cycles/instructions/
+  IPC/branch/cache) and `perf record` hotspots were captured around the steady-state
+  replay and hot-path workloads, alongside a 1M standard-vs-pooled hot path, 1M SPSC
+  steady-state and a LinearModel inference replay-loop comparison.
+- Environment: WSL2 (Microsoft Hyper-V), Ubuntu 24.04.4, kernel
+  `6.6.114.1-microsoft-standard-WSL2`, GCC 13.3.0 Release, `perf 6.8.12`. The
+  virtualized PMU reports `LLC` cache events as `<not supported>` and multiplexes
+  counters; CPU turbo is uncontrolled. Representative WSL2 measurements only — not
+  native/cloud Linux, not portable.
+- Files: [reports/linux_performance_evaluation_2026_06_01.md](../reports/linux_performance_evaluation_2026_06_01.md),
+  [reports/perf_profile.md](../reports/perf_profile.md), `scripts/run_linux_perf_profile.sh`.
+- Caveat: WSL2 virtualized PMU on one laptop; a native/cloud Linux pass would add `LLC`
+  events, controllable governor/turbo and flamegraph-quality call graphs. Counter values
+  are never fabricated when a real PMU is unavailable.
 
 ## Toolchain note (Windows)
 

@@ -90,7 +90,15 @@ Explicit limitations:
 - the larger-corpus Linux performance-evaluation path is manual/non-blocking and produces
   representative measurements for the stated machine/environment only; if `perf` counters are
   unavailable locally or on GitHub-hosted runners, the blocker is documented and no counter values
-  are fabricated;
+  are fabricated. A WSL2 `perf` pass was collected on 2026-06-01
+  (`reports/linux_performance_evaluation_2026_06_01.md`): it is **WSL2, one laptop, a virtualized
+  PMU** (no `LLC` cache events, time-multiplexed counters, uncontrolled CPU turbo) — representative
+  WSL2 measurements only, not native/cloud Linux and not portable. Because per-run `Full`-validation
+  replay is O(resting-book size) per event, the 1M Linux rows use
+  `--steady-state-validation-mode light`, a throughput-evaluation mode; correctness stays covered by
+  the default `Full` validation in `ctest` and by end-of-replay checksum parity. The optional ONNX
+  Runtime backend was not built in that Linux run, so the ONNX replay-loop row is recorded as
+  skipped, not measured;
 - event-log schema v1 is stable for the checked-in fixtures and guarded by manifest/tests, but
   Asterion does not yet ship a general multi-version migration framework. Breaking schema changes
   must bump the version, update `docs/event_log_schema.md`, regenerate affected fixtures and
