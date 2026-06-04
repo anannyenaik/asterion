@@ -143,6 +143,11 @@ portable performance claim.
 The pooled-book allocation experiment is reported in
 `reports/allocation_optimisation_report_2026_05_31.md`.
 
+For a single cross-report view of all performance/allocation evidence — what it proves, what it does
+not, one top-level evidence table, methodology and before/after summaries — see
+[reports/performance_evidence_summary_2026_06_01.md](reports/performance_evidence_summary_2026_06_01.md).
+It transcribes existing measured results only; it adds no new benchmark numbers.
+
 The benchmark runner is not extended with performance claims for shared replay, persistent audit
 logging/rotation/manifests, sliding-window rate limiting, replace-risk checks, simulated
 broker/session lifecycle, simulated portfolio risk, cancel-on-kill or cancel-on-disconnect. Those

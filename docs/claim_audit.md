@@ -54,6 +54,7 @@ Evidence shorthand: C++ tests live in [`tests/unit/`](../tests/unit), Python tes
 | PooledOrderBook allocation reduction after warm-up | Implemented but optional + benchmarked (local) | `tests/unit/test_pooled_order_book.cpp` ("…allocation-free after explicit warm-up", "matches stable book…"); [reports/allocation_optimisation_report_2026_05_31.md](../reports/allocation_optimisation_report_2026_05_31.md), [reports/pooled_order_book_stress_report_2026_05_31.md](../reports/pooled_order_book_stress_report_2026_05_31.md). Opt-in; correctness-first `OrderBook` is the default. |
 | Per-stage latency-budget accounting (deterministic config checksum, machine-dependent ns) | Implemented + tested | `tests/unit/test_latency_budget.cpp`; demo emits latency JSON |
 | Larger-corpus standard-vs-pooled evaluation + Linux perf helper | Implemented but optional + benchmarked (local) | [reports/linux_performance_evaluation_2026_05_31.md](../reports/linux_performance_evaluation_2026_05_31.md); corpora are git-ignored |
+| Top-level performance evidence summary (cross-report index; no new numbers) | Implemented + benchmarked (local) | [reports/performance_evidence_summary_2026_06_01.md](../reports/performance_evidence_summary_2026_06_01.md); transcribes existing reports only, preserves all claim boundaries |
 
 ## Concurrency claims (SPSC)
 

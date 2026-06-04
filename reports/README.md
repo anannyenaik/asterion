@@ -10,6 +10,7 @@ for reproduction commands, see [docs/evidence_index.md](../docs/evidence_index.m
 
 | Report | What it covers | Results | Optional deps | Key limitation |
 | --- | --- | --- | --- | --- |
+| [performance_evidence_summary_2026_06_01.md](performance_evidence_summary_2026_06_01.md) | **Top-level summary**: what the benchmark/allocation evidence proves and does not prove, one cross-report evidence table, methodology, before/after | Local representative (index of existing reports) | **ONNX Runtime** only for the ChronosLOB row | No new numbers; transcribes existing reports; Linux perf deferred |
 | [benchmark_report_2026_05_31.md](benchmark_report_2026_05_31.md) | Hot-path benchmark: binary replay → L3 update → reusable L2 → strategy → risk; core + inference benchmark categories | Local representative | None | Machine-dependent; not portable; not production-HFT |
 | [allocation_optimisation_report_2026_05_31.md](allocation_optimisation_report_2026_05_31.md) | Before/after allocation comparison for the opt-in pooled L3 path | Local representative | None (pooled path is opt-in) | Zero-alloc only after warm-up in disclosed paths; opt-in |
 | [pooled_order_book_stress_report_2026_05_31.md](pooled_order_book_stress_report_2026_05_31.md) | PooledOrderBook under generated stress corpora; parity vs correctness-first book | Local representative | None | Opt-in; single-symbol at book layer; not production-HFT |

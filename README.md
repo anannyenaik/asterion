@@ -424,6 +424,11 @@ cmake --build build-gbench --target asterion_google_benchmarks
 See [BENCHMARKS.md](BENCHMARKS.md), [docs/profiling.md](docs/profiling.md) and
 [reports/benchmark_report_2026_05_31.md](reports/benchmark_report_2026_05_31.md) for methodology.
 
+For a single cross-report view of the performance/allocation evidence — what it proves, what it does
+not, one top-level evidence table and before/after summaries — see
+[reports/performance_evidence_summary_2026_06_01.md](reports/performance_evidence_summary_2026_06_01.md)
+(representative local measurements only; no new numbers).
+
 For a larger-corpus standard-vs-pooled evaluation, deterministic 100k/1M replay corpora and a
 ready-to-run Linux `perf` path, use `scripts/run_perf_evaluation.py` and
 `scripts/run_linux_perf_profile.sh`; the curated results are in

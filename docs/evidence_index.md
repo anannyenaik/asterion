@@ -58,6 +58,13 @@ Conventions:
 
 ## Allocation and performance
 
+**Q: Where is the one-page summary of all performance/allocation evidence?**
+- Answer: a top-level index of what the benchmarks prove and do not prove, with one cross-report
+  evidence table, methodology and before/after summaries. It transcribes existing measured results
+  only — no new numbers.
+- Report: [performance_evidence_summary](../reports/performance_evidence_summary_2026_06_01.md).
+- Caveat: representative local measurements only; Linux perf deferred (firmware virtualization).
+
 **Q: Where are allocation results?**
 - Answer: scoped, warmed allocation tests + local before/after reports.
 - Tests: `tests/unit/test_allocation_tracking.cpp`, `test_hot_path.cpp`, `test_pooled_order_book.cpp`, `test_telemetry_inference.cpp` (caller-owned buffer).
