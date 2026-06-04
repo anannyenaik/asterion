@@ -11,7 +11,9 @@ Binance public order-book depth is normalised into Asterion's event schema.
 | --- | --- | --- | --- |
 | Capture | [`tools/capture_binance_depth.py`](../tools/capture_binance_depth.py) | yes (opt-in, manual) | Public REST `GET /api/v3/depth` only; no keys. Never runs in CI. |
 | Fixture | [`data/samples/binance_depth_sample.raw.jsonl`](../data/samples/binance_depth_sample.raw.jsonl) | no | Tiny hand-curated sample for deterministic CI. |
+| Larger fixture | [`data/samples/binance_depth_larger_sample.raw.jsonl`](../data/samples/binance_depth_larger_sample.raw.jsonl) | no | Compact recorded public REST depth snapshot sample captured manually; CI replays the fixture only. |
 | Fixture guard | [`data/samples/binance_depth_sample.expected.json`](../data/samples/binance_depth_sample.expected.json) | no | Checked-in manifest for regeneration, schema and replay checksum drift tests. |
+| Larger fixture guard | [`data/samples/binance_depth_larger_sample.expected.json`](../data/samples/binance_depth_larger_sample.expected.json) | no | Checked-in manifest for raw counts, update IDs, CSV/binary equivalence, replay checksums and grouped/shared parity. |
 | Normalise | [`tools/normalise_binance_depth_to_asterion.py`](../tools/normalise_binance_depth_to_asterion.py) | no | Pure-Python core; writes CSV/binary via the `asterion` event-log writer. |
 | Replay | `build/asterion_replay`, `scripts/asterion_inspect.py` | no | Existing deterministic replay/diagnostics pipeline. |
 
@@ -43,6 +45,16 @@ normalisation from the raw JSONL, compares regenerated CSV lines with the
 committed CSV, checks binary event-log properties semantically, validates replay
 checksums, and verifies CSV/binary event tuple equivalence against
 `data/samples/binance_depth_sample.expected.json`.
+
+The larger recorded public fixture is checked in as
+`data/samples/binance_depth_larger_sample.raw.jsonl`, with golden
+`data/samples/binance_depth_larger_sample.normalised.{csv,bin}` outputs and
+`data/samples/binance_depth_larger_sample.expected.json`. It records 9 public
+REST depth snapshots at 10 bid and 10 ask levels per message, yielding 198
+snapshot events. The guard verifies raw/update-id counts, normaliser checksums,
+CSV/binary tuple equivalence, replay diagnostics/checksums and grouped/shared
+parity. See
+[`reports/binance_larger_replay_case_study_2026_06_01.md`](../reports/binance_larger_replay_case_study_2026_06_01.md).
 
 ## Capturing your own public sample (manual, optional)
 

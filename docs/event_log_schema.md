@@ -165,10 +165,17 @@ PYTHONPATH=build/python python tools/normalise_binance_depth_to_asterion.py \
   --csv-output data/samples/binance_depth_sample.normalised.csv \
   --binary-output data/samples/binance_depth_sample.normalised.bin \
   --json
+
+PYTHONPATH=build/python python tools/normalise_binance_depth_to_asterion.py \
+  --input data/samples/binance_depth_larger_sample.raw.jsonl \
+  --csv-output data/samples/binance_depth_larger_sample.normalised.csv \
+  --binary-output data/samples/binance_depth_larger_sample.normalised.bin \
+  --json
 ```
 
-Then update `data/samples/binance_depth_sample.expected.json` only after reviewing
-the normaliser report, event checksums and replay checksums.
+Then update the corresponding `data/samples/binance_depth*_sample.expected.json`
+manifest only after reviewing the normaliser report, event checksums, replay
+checksums and grouped/shared parity fields.
 
 ## Interpreting Schema-Drift Failures
 

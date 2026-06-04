@@ -325,6 +325,8 @@ check binary semantic properties and replay checksums, and assert CSV/binary
 event tuple equivalence without network access.
 See [docs/market_data.md](docs/market_data.md) and the case-study report
 [reports/binance_replay_case_study_2026_05_31.md](reports/binance_replay_case_study_2026_05_31.md).
+A larger compact recorded public L2 snapshot fixture and checksum/parity report are in
+[reports/binance_larger_replay_case_study_2026_06_01.md](reports/binance_larger_replay_case_study_2026_06_01.md).
 
 ## Opt-In Concurrent Replay Pipeline (SPSC)
 

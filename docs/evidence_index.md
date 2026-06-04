@@ -123,9 +123,16 @@ Conventions:
 
 **Q: Where is the Binance case study?**
 - Files: `tools/normalise_binance_depth_to_asterion.py`, `data/samples/binance_depth_sample.raw.jsonl`, [docs/market_data.md](market_data.md).
-- Tests: `python/tests/test_binance_normalise.py`. Report: [binance_replay_case_study](../reports/binance_replay_case_study_2026_05_31.md).
+- Tests: `python/tests/test_binance_normalise.py`. Reports: [binance_replay_case_study](../reports/binance_replay_case_study_2026_05_31.md), [binance_larger_replay_case_study](../reports/binance_larger_replay_case_study_2026_06_01.md).
 - Reproduce: normalise the fixture to CSV/binary, then `./build/asterion_replay --input build/binance_sample.bin --format binary` (see README "Recorded Binance Public Depth Case Study").
 - Caveat: recorded public depth demo; not live trading, not authenticated, not equities-market realism.
+
+**Q: Where is the larger recorded public crypto L2 replay evidence?**
+- Files: `data/samples/binance_depth_larger_sample.raw.jsonl`, `data/samples/binance_depth_larger_sample.expected.json`, `data/samples/binance_depth_larger_sample.normalised.csv`, `data/samples/binance_depth_larger_sample.normalised.bin`.
+- Tests: `python/tests/test_binance_normalise.py::test_larger_fixture_regeneration_guard_matches_expected_manifest`, plus the parametrized CSV/binary replay and grouped/shared parity tests in the same file.
+- Report: [binance_larger_replay_case_study](../reports/binance_larger_replay_case_study_2026_06_01.md).
+- Reproduce: `PYTHONPATH=build/python python -m pytest python/tests/test_binance_normalise.py -v`.
+- Caveat: recorded public Binance crypto L2 snapshots with deterministic synthetic order IDs; no L3/equities/live/authenticated/profitability/production claim.
 
 ## Scope and limitations
 

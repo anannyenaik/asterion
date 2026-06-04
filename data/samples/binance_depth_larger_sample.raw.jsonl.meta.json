@@ -1,0 +1,18 @@
+{
+  "_meta": "Recorded Binance PUBLIC depth capture (not live trading, not authenticated).",
+  "capture_end_iso": "2026-06-04T04:12:39Z",
+  "capture_end_ns": 1780546359844217700,
+  "capture_start_iso": "2026-06-04T04:12:31Z",
+  "capture_start_ns": 1780546351247595800,
+  "captured_messages": 9,
+  "depth_limit": 10,
+  "endpoint_path": "/api/v3/depth",
+  "error_count": 0,
+  "git_commit": "022f4989ef41",
+  "output": "data\\samples\\binance_depth_larger_sample.raw.jsonl",
+  "source": "https://api.binance.com",
+  "stream_type": "rest_depth_snapshot_poll",
+  "symbol": "BTCUSDT",
+  "tool": "capture_binance_depth.py",
+  "tool_version": "1.0.0"
+}

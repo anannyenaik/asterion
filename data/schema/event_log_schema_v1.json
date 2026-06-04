@@ -221,6 +221,18 @@
       "format": "binary",
       "event_count": 11,
       "event_checksum": 9673906315134520083
+    },
+    {
+      "path": "data/samples/binance_depth_larger_sample.normalised.csv",
+      "format": "csv",
+      "event_count": 198,
+      "event_checksum": 16969322721924544686
+    },
+    {
+      "path": "data/samples/binance_depth_larger_sample.normalised.bin",
+      "format": "binary",
+      "event_count": 198,
+      "event_checksum": 16969322721924544686
     }
   ]
 }

@@ -1,0 +1,114 @@
+{
+  "aggregate": {
+    "aggregate_checksum": 1312278323814029705,
+    "combined_book_checksum": 4174707875873495323,
+    "error": "",
+    "path": "grouped",
+    "symbol_count": 1,
+    "total_events": 198
+  },
+  "binary_event_checksum": 16969322721924544686,
+  "binary_header_size": 16,
+  "binary_magic": "ASTITCH1",
+  "binary_record_count": 198,
+  "binary_record_size": 58,
+  "binary_version": 1,
+  "capture": {
+    "capture_end_iso": "2026-06-04T04:12:39Z",
+    "capture_end_ns": 1780546359844217700,
+    "capture_start_iso": "2026-06-04T04:12:31Z",
+    "capture_start_ns": 1780546351247595800,
+    "captured_messages": 9,
+    "depth_limit": 10,
+    "endpoint_path": "/api/v3/depth",
+    "error_count": 0,
+    "git_commit": "022f4989ef41",
+    "source": "https://api.binance.com",
+    "stream_type": "rest_depth_snapshot_poll",
+    "symbol": "BTCUSDT"
+  },
+  "committed_binary_event_checksum": 16969322721924544686,
+  "committed_csv_event_checksum": 16969322721924544686,
+  "csv_binary_event_tuple_equivalence": true,
+  "csv_event_checksum": 16969322721924544686,
+  "data_source": "recorded_public_binance_rest_depth_snapshot_poll",
+  "diagnostics_by_reason": {},
+  "diagnostics_by_severity": {},
+  "diagnostics_count": 0,
+  "event_type_counts": {
+    "snapshot": 198
+  },
+  "first_captured_at_ns": 1780546352192403700,
+  "first_sequence": 1,
+  "first_timestamp_ns": 1780546352192403700,
+  "first_update_id": 94843248537,
+  "grouped_shared_parity": {
+    "aggregate_checksum_match": true,
+    "combined_book_checksum_match": true,
+    "grouped_aggregate_checksum": 1312278323814029705,
+    "grouped_combined_book_checksum": 4174707875873495323,
+    "matched": true,
+    "mismatch_count": 0,
+    "shared_aggregate_checksum": 1312278323814029705,
+    "shared_combined_book_checksum": 4174707875873495323,
+    "symbol_count_grouped": 1,
+    "symbol_count_shared": 1
+  },
+  "jsonl_line_count": 10,
+  "last_captured_at_ns": 1780546359343295100,
+  "last_sequence": 198,
+  "last_timestamp_ns": 1780546359343295100,
+  "last_update_id": 94843253413,
+  "levels_per_message": {
+    "ask_levels": 10,
+    "bid_levels": 10,
+    "max": 20,
+    "min": 20
+  },
+  "max_update_id": 94843253413,
+  "metadata": "data/samples/binance_depth_larger_sample.raw.jsonl.meta.json",
+  "metadata_line_count": 1,
+  "min_update_id": 94843248537,
+  "normalised_binary": "data/samples/binance_depth_larger_sample.normalised.bin",
+  "normalised_csv": "data/samples/binance_depth_larger_sample.normalised.csv",
+  "normalised_event_count": 198,
+  "normaliser": "tools/normalise_binance_depth_to_asterion.py",
+  "normaliser_diagnostics_checksum": 14695981039346656037,
+  "normaliser_events_checksum": 16969322721924544686,
+  "raw_line_count": 9,
+  "raw_message_count": 9,
+  "raw_message_shapes": [
+    "rest_depth_snapshot_envelope"
+  ],
+  "raw_update_id_field": "lastUpdateId",
+  "replay": {
+    "csv_binary_replay_equivalence": true,
+    "diagnostic_error_count": 0,
+    "diagnostic_warning_count": 0,
+    "diagnostics_checksum": 14695981039346656037,
+    "error": "",
+    "event_log_checksum": 16969322721924544686,
+    "events_processed": 198,
+    "execution_report_checksum": 14695981039346656037,
+    "final_book_checksum": 8948256044359602305,
+    "sequence_valid": true,
+    "symbol_id": 1
+  },
+  "schema_version": 1,
+  "shared_aggregate": {
+    "aggregate_checksum": 1312278323814029705,
+    "combined_book_checksum": 4174707875873495323,
+    "error": "",
+    "path": "shared",
+    "symbol_count": 1,
+    "total_events": 198
+  },
+  "source": "data/samples/binance_depth_larger_sample.raw.jsonl",
+  "symbol_ids": {
+    "BTCUSDT": 1
+  },
+  "symbols": [
+    "BTCUSDT"
+  ],
+  "tool_version": "1.0.0"
+}
