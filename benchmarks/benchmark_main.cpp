@@ -1232,6 +1232,137 @@ BenchmarkResult benchmark_feature_buffer_policy_gate_overhead() {
   return result;
 }
 
+// Event-loop inference cost: the standard correctness-first hot path with a
+// research-style inference stage inserted after the reusable L2 view is built —
+// caller-owned feature extraction -> LinearModel score -> MeasuredInferenceEngine
+// timeout/late-signal policy accounting — running alongside the existing strategy
+// and risk path. It measures the *added systems cost* of putting synchronous
+// inference into the deterministic event loop. The model score and policy decision
+// are folded into the guard checksum so the stage is not optimised away, but they
+// never alter order flow: no predictive, decisioning, alpha or profitability
+// behaviour is implied. The inference stage is caller-owned and allocation-free in
+// steady state, so this row's allocation count tracks the inference-free hot-path
+// row; the node-based book's Add/Replace allocations are unchanged and reported,
+// not hidden. With a 1 ms timeout and no max-signal-age the steady-state decision
+// is Accept, i.e. the synchronous-inference measured baseline.
+BenchmarkResult benchmark_hot_path_inference_pipeline(const Options& options, std::string name) {
+  constexpr std::size_t kDepth = 5;
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load hot-path dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("hot-path dataset is empty: " + options.dataset_path.string());
+  }
+
+  const std::size_t event_count = log.events.size() * options.hot_path_iterations;
+  const std::size_t reserve_risk_checks =
+      log.events.size() * (options.hot_path_iterations + options.warmup_iterations + 1U);
+  HotPathContext<OrderBook> context(log.events.front().symbol_id, kDepth, log.events.size(),
+                                    reserve_risk_checks);
+
+  FeatureExtractor extractor;
+  LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
+  MeasuredInferenceEngine inference(model, InferencePolicy{1'000'000, 0, true, true});
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+
+  const auto replay_once = [&](std::vector<std::uint64_t>* samples) {
+    context.book.clear();
+    context.book.reserve_order_capacity(log.events.size());
+    std::uint64_t activity_checksum = kFnvOffsetBasis;
+    for (const MarketDataEvent& event : log.events) {
+      const auto sample_start = std::chrono::steady_clock::now();
+      const bool applied = apply_hot_path_event(event, context.book, activity_checksum);
+      context.book.fill_l2_view(kDepth, context.l2);
+
+      // Inference stage inserted into the event loop, after the L2 view is built.
+      const FeatureExtractionStatus feature_status =
+          extractor.extract_into(context.l2, feature_buffer);
+      const InferenceResult inference_result =
+          feature_status == FeatureExtractionStatus::Ok
+              ? inference.score(feature_buffer.used(), event.timestamp_ns, event.timestamp_ns)
+              : InferenceResult{};
+
+      const PriceTicks reference_price = reference_price_from_view(context.l2, event);
+      context.risk.on_market_data(event.symbol_id, reference_price, event.timestamp_ns);
+      const StrategyDecisionBatch decisions = context.strategy.on_l2_update_fixed(context.l2);
+      for (const StrategyDecision& decision : decisions) {
+        const RiskResult risk_result = context.risk.check_new_order(
+            NewOrderRequest{context.next_client_order_id, event.symbol_id, decision.side,
+                            decision.order_type, decision.price_ticks, decision.quantity,
+                            event.timestamp_ns, 1},
+            event.timestamp_ns);
+        context.guard = checksum_append(context.guard, context.next_client_order_id);
+        context.guard = checksum_append(context.guard, risk_result.accepted ? 1U : 0U);
+        context.guard = checksum_append(context.guard, risk_result.reject_reason);
+        ++context.next_client_order_id;
+        ++context.risk_checks;
+      }
+      context.guard = checksum_append(context.guard, applied ? 1U : 0U);
+      context.guard =
+          checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.bids.size()));
+      context.guard =
+          checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.asks.size()));
+      context.guard = checksum_append(context.guard, activity_checksum);
+      // Fold the inference outputs into the guard so the stage is observable and is
+      // not eliminated; this does not change matching, strategy or risk behaviour.
+      context.guard = checksum_append(
+          context.guard, static_cast<std::uint64_t>(inference_result.score * 1000.0));
+      context.guard = checksum_append(context.guard, inference_result.accepted ? 1U : 0U);
+      context.guard = checksum_append(
+          context.guard, feature_status == FeatureExtractionStatus::Ok ? 1U : 0U);
+      const auto sample_end = std::chrono::steady_clock::now();
+      if (samples != nullptr) {
+        samples->push_back(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(sample_end - sample_start)
+                .count()));
+      }
+    }
+    context.guard = checksum_append(context.guard, context.book.checksum());
+  };
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    replay_once(nullptr);
+  }
+
+  std::vector<std::uint64_t> samples;
+  samples.reserve(event_count);
+  const std::size_t risk_checks_before = context.risk_checks;
+  context.guard = kFnvOffsetBasis;
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  for (std::size_t i = 0; i < options.hot_path_iterations; ++i) {
+    replay_once(&samples);
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = std::move(name);
+  result.iterations = options.hot_path_iterations;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = options.hot_path_iterations;
+  result.event_count = event_count;
+  result.risk_check_count = context.risk_checks - risk_checks_before;
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "per-event";
+  result.total_ns = total_ns;
+  result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
+  result.guard = context.guard ^ log.event_checksum;
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  tag_inference(result, "linear", "linear_w4_policy", "1x4", "1x1");
+  return result;
+}
+
 #if defined(ASTERION_HAVE_ONNXRUNTIME)
 InferenceBackendConfig make_chronoslob_onnx_config(const std::filesystem::path& model_path,
                                                    const ModelMetadata& metadata) {
@@ -1702,6 +1833,10 @@ int main(int argc, char** argv) {
     inference_results.push_back(benchmark_feature_buffer_measured_linear_inference());
     inference_results.push_back(benchmark_inference_policy_overhead());
     inference_results.push_back(benchmark_feature_buffer_policy_gate_overhead());
+    // Full event-loop inference path: replay -> L3 book -> reusable L2 -> caller-owned
+    // feature extraction -> LinearModel -> measured policy gate, alongside strategy + risk.
+    inference_results.push_back(benchmark_hot_path_inference_pipeline(
+        options, "hot_path_binary_replay_l3_l2_inference_strategy_risk"));
 #if defined(ASTERION_HAVE_ONNXRUNTIME)
     // The ONNX benchmarks only build/run when the opt-in dependency is present.
     // Two checked-in artefacts are exercised so their cost can be compared: the

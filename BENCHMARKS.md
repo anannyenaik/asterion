@@ -86,6 +86,18 @@ row carries a real p50/p95/p99/p99.9/max distribution):
 - event-loop policy-gate overhead with injected timings (`inference_policy_overhead`);
 - caller-owned-buffer feature extraction + policy-gate overhead
   (`feature_buffer_policy_gate_overhead`);
+- full event-loop inference path: binary replay → L3 book update → reusable L2 view →
+  caller-owned feature extraction → LinearModel → measured timeout/late-signal policy
+  gate, alongside the existing strategy + risk path
+  (`hot_path_binary_replay_l3_l2_inference_strategy_risk`). This is a per-event row
+  (`timing_mode = per-event`) on the hot-path dataset; it measures the *added systems
+  cost* of inserting synchronous inference into the deterministic event loop. The
+  model score and policy decision are folded into the guard checksum so the stage is
+  not optimised away, but they never alter matching, strategy or risk behaviour — no
+  decisioning, alpha or profitability claim. The caller-owned inference stage adds
+  **0** steady-state allocations on top of the node-based book, so this row's
+  allocation count matches the inference-free `hot_path_binary_replay_l3_l2_strategy_risk`
+  row. See [reports/inference_event_loop_cost_report_2026_06_01.md](reports/inference_event_loop_cost_report_2026_06_01.md);
 - ChronosLOB ONNX suites — **only when built with ONNX Runtime** — emitted twice,
   once for the legacy `Gemm` fixture (`chronoslob_fixture` label) and once for the
   real trained `DeepLOBModel` (`chronoslob_real` label):

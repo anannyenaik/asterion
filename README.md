@@ -413,6 +413,11 @@ feature extraction only, LinearModel inference only, feature extraction + Linear
 measured-engine path, event-loop policy-gate overhead, and — only when built with ONNX Runtime — ONNX
 inference only and feature extraction + ONNX. Inference rows use per-call timing so they report a real
 p50/p95/p99/p99.9/max distribution along with backend, model name, input shape and allocation count.
+The `inference` category also includes a full event-loop row
+(`hot_path_binary_replay_l3_l2_inference_strategy_risk`) that inserts caller-owned feature extraction +
+LinearModel + a measured policy gate into the replay hot path; on this machine it added 0 steady-state
+allocations versus the inference-free hot path (plumbing only, no profitability claim) — see
+[reports/inference_event_loop_cost_report_2026_06_01.md](reports/inference_event_loop_cost_report_2026_06_01.md).
 Google Benchmark integration is optional:
 
 ```bash

@@ -86,6 +86,7 @@ rows as noted in each source report.
 | zero-alloc feature extraction | caller-owned `FeatureBuffer` vs vector-returning | L2 features 1×4, 200k iters | Win/MSYS2 | 100 ns | 300 ns | 300 ns | 6,983,411 op/s | **0** (vs 200,000 for vector path) | unit-tested 0-alloc after warm-up | [inference_feature_buffer](inference_feature_buffer_report_2026_05_31.md) | p50 at timer granularity; plumbing only |
 | LinearModel inference | `linear_inference_only` | 1×4 input, 200k iters | Win/MSYS2 | 100 ns | 200 ns | 300 ns | 7,708,080 op/s (aggregate ≈ 5 ns/call, ~190M/s) | 0 | unit-tested 0-alloc | [inference_report](inference_report_2026_05_31.md) | per-call p50 dominated by timer; no predictive claim |
 | real ChronosLOB ONNX | `chronoslob_real_onnx_inference_only` | 1×1×4→1×3 DeepLOB, 50k iters | Win/MSYS2 + ONNX RT 1.20.1 | 29.0 µs | 65.7 µs | 100.6 µs | ≈ 33.5k inf/s | ~2 / call (load 20 one-time) | deterministic test vector verified | [chronoslob_real_model_bridge](chronoslob_real_model_bridge_report_2026_06_01.md) | optional ONNX; toy model; not alloc-free; plumbing only |
+| event-loop inference | replay hot path + feature + LinearModel + measured policy gate (vs inference-free hot path) | `sample_hot_path_replay.bin` (12 events, 10k iters) | Win/MSYS2 | 1,600 ns (base 800 ns) | 6,300 ns | 28,200 ns | 280,467 ev/s (base 487,639) | 210,000 (= base; inference adds **0**) | guard `17484014929127736293` | [inference_event_loop_cost](inference_event_loop_cost_report_2026_06_01.md) | new run; plumbing only; +~800 ns p50, +0 allocs; tiny 12-event fixture, local only |
 | SPSC steady-state replay | single-thread vs steady SPSC, `Light` validation | balanced/replace-heavy/deep-book 10k–1M | Win/MSYS2 | n/a (aggregate run) | n/a | n/a | single 0.49M–1.60M ev/s; SPSC 0.37M–1.54M ev/s | dominated by correctness-first book storage | checksum parity: true (6/6); dropped 0 | [spsc_steady_state](spsc_steady_state_report_2026_05_31.md) | absolute numbers dominated by validation cost; ratio is the signal |
 | Binance replay case study | normalise → deterministic replay | tiny hand-curated public-depth fixture (11 events) | Win/MSYS2 | not measured | n/a | n/a | not measured | n/a | `final_book_checksum 2539005926052284398`; 0 diagnostics | [binance_replay_case_study](binance_replay_case_study_2026_05_31.md) | correctness checksums, **not** performance; L2→synthetic IDs |
 | large generated replay | standard vs pooled hot path | 100k + seven 1M corpora | Win/MSYS2 | std 1,000–1,500 ns; pooled 800–1,200 ns | std 4,100–7,500 ns; pooled 2,800–5,400 ns | see source | std 0.35M–0.87M ev/s; pooled 0.54M–1.16M ev/s | std 4.2M–54M → pooled **0** | guard parity: yes (7/7) | [linux_performance_evaluation](linux_performance_evaluation_2026_05_31.md) | Windows/MSYS2, not native Linux; corpora git-ignored |
@@ -239,9 +240,12 @@ the absolute number (see
 
 ## Recommended next work
 
-- An **inference event-loop cost report**: the per-call inference rows exist, but
-  the cost of the policy gate inside a full replay event loop (end-to-end, with
-  the model wired into `asterion_replay`) is not yet a dedicated report.
+- **Done (2026-06-01): inference event-loop cost report.** The cost of inserting
+  caller-owned feature extraction + `LinearModel` + the measured timeout/late-signal
+  policy gate into a full replay event loop is now a dedicated report backed by a new
+  measured `hot_path_binary_replay_l3_l2_inference_strategy_risk` benchmark row
+  (0 added steady-state allocations vs the inference-free hot path; plumbing only).
+  See [inference_event_loop_cost_report_2026_06_01.md](inference_event_loop_cost_report_2026_06_01.md).
 - A **larger market-data case study**: extend the recorded public-depth path
   beyond the tiny hand-curated fixture (still public, still recorded, still no
   profitability/realism claim) for a richer normalise→replay demonstration.
