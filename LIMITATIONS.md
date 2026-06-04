@@ -90,14 +90,18 @@ Explicit limitations:
 - the larger-corpus Linux performance-evaluation path is manual/non-blocking and produces
   representative measurements for the stated machine/environment only; if `perf` counters are
   unavailable locally, on HPC allocations or on GitHub-hosted runners, the blocker is documented and
-  no counter values are fabricated. A WSL2 `perf` pass was collected on 2026-06-01
-  (`reports/linux_performance_evaluation_2026_06_01.md`): it is **WSL2, one laptop, a virtualized
-  PMU** (no `LLC` cache events, time-multiplexed counters, uncontrolled CPU turbo) - representative
-  WSL2 measurements only, not native/cloud Linux and not portable. A Durham Hamilton8 HPC pass was
-  collected on 2026-06-04 (`reports/durham_hpc_performance_evaluation_2026_06_04.md`): it is **one
-  shared Slurm compute-node allocation** (Rocky Linux/GCC, no `LLC` events, no root control over
-  governor/turbo, GCC evidence only, one inference hotspot report OOM-killed) - representative HPC
-  measurements only, not portable. Because per-run `Full`-validation replay is O(resting-book size)
+  no counter values are fabricated. The **primary** performance context is the Durham Hamilton8 HPC
+  pass collected on 2026-06-04 (`reports/durham_hpc_performance_evaluation_2026_06_04.md`): it is
+  **one shared Slurm compute-node allocation** (Rocky Linux/GCC, no `LLC` events, no root control
+  over governor/turbo, GCC evidence only, one inference hotspot report OOM-killed) - a representative
+  shared-HPC measurement only, not portable, not production-HFT. The earlier WSL2 `perf` pass
+  collected on 2026-06-01 (`reports/linux_performance_evaluation_2026_06_01.md`) and the original
+  Windows/MSYS2 laptop run are retained as **historical / local development** baselines: the WSL2 run
+  is **one laptop, a virtualized PMU** (no `LLC` cache events, time-multiplexed counters, uncontrolled
+  CPU turbo), representative WSL2 measurements only, not native/cloud Linux and not portable. Durham
+  supersedes the laptop/WSL context only for the paths it actually measured; not every old result was
+  re-run on Hamilton and cross-machine comparison is not meaningful. Because per-run
+  `Full`-validation replay is O(resting-book size)
   per event, the 1M Linux rows use `--steady-state-validation-mode light`, a throughput-evaluation
   mode; correctness stays covered by the default `Full` validation in `ctest` and by end-of-replay
   checksum parity. The optional ONNX Runtime backend was not built in those Linux runs, so the ONNX

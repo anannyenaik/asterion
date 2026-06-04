@@ -12,17 +12,136 @@ row. For per-claim classification see [docs/claim_audit.md](../docs/claim_audit.
 for reproduction commands see [docs/evidence_index.md](../docs/evidence_index.md)
 and [BENCHMARKS.md](../BENCHMARKS.md).
 
-## 2026-06-04 update: Durham HPC compute-node pass
+**Reading order.** The **primary** performance context is now the Durham
+Hamilton8 HPC compute-node pass (Section: *Primary performance evidence*). The
+older Lenovo Windows/MSYS2 laptop and WSL2 laptop passes are retained as
+**historical / local development** baselines (Section: *Historical / local
+development evidence*); they are not silently replaced or relabelled, but they
+are no longer the headline performance context for the paths Durham measured.
+Cross-machine comparison of these numbers is not meaningful.
 
-The latest Linux evidence is the Durham Hamilton8 HPC Slurm compute-node pass in
+## Primary performance evidence: Durham Hamilton8 HPC compute-node pass
+
+The primary performance context is the 2026-06-04 Durham University Hamilton8 HPC
+Slurm compute-node pass in
 [durham_hpc_performance_evaluation_2026_06_04.md](durham_hpc_performance_evaluation_2026_06_04.md).
-It adds GCC Release build/test evidence on Rocky Linux, 1M hot-path and SPSC
-latency distributions, LinearModel replay-loop inference cost, explicit Linux
-`perf stat` counters and completed `perf record` hotspot reports under one
-disclosed Slurm allocation. It is still representative local/HPC evidence only:
-one shared compute-node allocation, no LLC events, no root control over
-governor/turbo, GCC evidence only, ONNX skipped and one inference hotspot report
-incomplete because `perf report --stdio` was OOM-killed.
+It is the only pass run on a non-WSL Linux compute node (Rocky Linux 8.10, AMD
+EPYC 7702, GCC 13.2 Release, one shared Slurm allocation on
+`cn025.ham8.dur.ac.uk`, source commit `216f473`). It supersedes the older
+laptop/WSL context **for the paths it actually measured** — the 1M
+high-cancellation standard-vs-pooled hot path, the small stress
+standard-vs-pooled hot path, the six 1M steady-state SPSC corpora, the
+balanced-10k LinearModel replay-loop inference cost, and the explicit Linux
+`perf stat` counters / completed `perf record` hotspots. It does **not** recompute
+every older row; rows it did not measure (see the comprehensive table below)
+remain laptop/WSL evidence.
+
+It is still a **representative shared-HPC measurement**, not a portable or
+production-HFT claim: one shared compute-node allocation, no LLC events, no root
+control over governor/turbo, GCC evidence only, the optional ONNX backend not
+built (ONNX replay-loop row skipped), and one inference `perf report --stdio`
+conversion OOM-killed (that hotspot report is incomplete and not interpreted).
+
+### Durham Hamilton8 primary evidence table
+
+Numbers transcribed from
+[durham_hpc_performance_evaluation_2026_06_04.md](durham_hpc_performance_evaluation_2026_06_04.md);
+nothing is recomputed or invented. Environment: Rocky Linux 8.10, AMD EPYC 7702,
+GCC 13.2 Release, one Slurm allocation, CPU affinity 121.
+
+| path measured | dataset / workload | p50 (std / pooled or base / loop) | p99 | throughput | allocations | checksum / parity | caveat |
+| --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| std vs pooled hot path | `high_cancellation_1m` (1M, 5 iters) | 281 ns / 291 ns | 631 ns / 681 ns | 2.88M / 2.82M ev/s | std 7,340,580 → pooled **0** | guard `14180005740461440914` (match) | allocation removal under parity is the signal, not the latency tie |
+| std vs pooled stress hot path | 8 small stress corpora (20k–40k ev each) | 180–491 ns std / pooled | 311–882 ns | see source | std 28,125–51,895 → pooled **0** | guard parity 8/8 | single-symbol book layer; `stress_multi_symbol_style` skipped |
+| 1M steady-state SPSC | six 1M corpora, `Light` validation | n/a (aggregate) | n/a | single 1.01M–3.75M / SPSC 0.82M–4.63M ev/s | node-book storage 1.47M–2.55M/run (not pooled) | parity true 6/6; dropped **0**; max depth 4096 | bounded queue saturates; ratio is the signal |
+| LinearModel inference replay-loop | `balanced_10k` (500k events) | base 371 ns / loop 511 ns | base 601 / loop 792 ns | base 2.13M / loop 1.65M ev/s | base 703,450; inference adds **0** | guard `1442857765714779360` | +≈140 ns p50; plumbing only; ONNX row skipped (not built) |
+| `perf stat` counters | whole benchmark processes | n/a | n/a | IPC 0.91–2.02; cache-miss 5.45–43.71% of refs; branch-miss ≤1.20% | n/a | n/a | LLC events unsupported; some grouped events multiplexed |
+| `perf record` hotspots | high-cancellation hot path + baseline SPSC | n/a | n/a | top: `append_to_checksum`, `fnv1a_append_byte`, `operator new`, hashtable find/insert | n/a | n/a | `-O3` partial call graphs; inference hotspot OOM-killed, not used |
+
+## Historical / local development evidence
+
+The rows below are retained as **historical / local development baselines** from
+**one Lenovo i7-7700HQ laptop**. They are not superseded line-for-line by Durham
+— only the specific paths Durham re-ran on Hamilton8 (above) have a newer primary
+context. They are kept because they are the original optimisation evidence and
+because several rows (the Windows/MSYS2 inference, ONNX bridge and Binance
+case-study rows) were never re-run on Hamilton at all.
+
+- **Lenovo Windows 10 / MSYS2 laptop pass** — the original hot-path, allocation,
+  pooled-stress, inference, feature-buffer, ONNX bridge, SPSC and Binance
+  case-study reports. These are the bulk of the comprehensive table below and the
+  only source for the ONNX/inference-cost and Binance rows.
+- **WSL2 laptop pass** — the same laptop under WSL2 (Ubuntu 24.04.4, kernel
+  `6.6.114.1-microsoft-standard-WSL2`, GCC 13.3.0 Release, virtualized PMU). It
+  was the first Linux `perf` evidence and predates Hamilton8. It is a virtualized
+  PMU with no LLC events and uncontrolled turbo — kept as the laptop-Linux
+  baseline, not a primary context.
+
+### Was every old result recomputed on Hamilton?
+
+**No.** Only the documented Durham paths above were measured on Hamilton8. The
+older laptop/WSL rows are retained verbatim as historical/local development
+evidence; their numbers are unchanged and clearly attributed to their own
+environments in the comprehensive table.
+
+## What Hamilton measured
+
+- GCC Release configure/build and `ctest` (100% passed) on a Rocky Linux compute
+  node.
+- 1M high-cancellation standard-vs-pooled hot path: pooled reached **0 measured
+  allocations** with guard-checksum parity against the standard book.
+- Eight small stress corpora standard-vs-pooled: pooled **0 allocations** with
+  guard parity 8/8.
+- Six 1M steady-state SPSC corpora: lossless (**0 dropped**), checksum parity
+  6/6, bounded queue saturated at depth 4096.
+- Balanced-10k LinearModel replay-loop inference: **+≈140 ns p50, 0 added
+  allocations** over the inference-free node book.
+- Explicit Linux `perf stat` counters (cycles/instructions/branch/cache/L1) and
+  completed `perf record` hotspots for the high-cancellation hot path and
+  baseline SPSC process.
+
+## What Hamilton did not measure
+
+- No portable or cross-node/cross-cluster claim — one shared Slurm allocation.
+- No LLC cache events (unsupported for this user allocation); some grouped
+  `perf stat -d` events were multiplexed, so explicit event lists are used.
+- No root control over CPU governor/turbo, NMI watchdog or PMU scheduling.
+- No Clang evidence accepted (one allocation-tracker assertion failed; later
+  Clang benchmark attempts missed `libc++.so.1`).
+- No optional ONNX Runtime backend (not built; ONNX replay-loop row skipped, not
+  timed through a fallback).
+- The balanced-10k inference `perf report --stdio` conversion was OOM-killed, so
+  that one hotspot report is incomplete and is not interpreted.
+- No Windows/MSYS2-only rows (the convenience ONNX bridge, larger Binance
+  case study, etc.) were re-run on Hamilton.
+
+## Why old laptop/WSL rows are retained
+
+- They are the **original optimisation evidence** (before/after allocation
+  story) and document methodology that the Hamilton pass reuses.
+- Several rows — the ONNX ChronosLOB bridge, the inference event-loop ONNX row,
+  the Binance public-depth case study — were **never measured on Hamilton** and
+  exist only as laptop evidence.
+- Deleting them would hide history; relabelling them as Hamilton results would be
+  dishonest. They stay, clearly attributed to their own Windows/MSYS2 or WSL2
+  environment, with the explicit note that cross-machine comparison is not
+  meaningful.
+
+## Claim boundaries (apply to every row above and below)
+
+- All numbers are **representative measurements on the stated host** (Durham
+  Hamilton8 shared HPC node, Windows/MSYS2 laptop, or WSL2 laptop), **not
+  portable** and **not production-HFT** performance claims.
+- No live trading, no authenticated exchange/broker connectivity, no order
+  placement.
+- No profitability, alpha, signal value or predictive-quality claim — the
+  inference path measures **plumbing only**, and the ChronosLOB toy model is
+  trained on synthetic toy data with no market meaning.
+- No production model-serving claim; ONNX Runtime is opt-in and absent from
+  default CI and from the Durham pass.
+- Binance data remains **public crypto L2 only** with synthetic order IDs.
+- The correctness-first `OrderBook` and single-thread replay remain the
+  **defaults**; the pooled book, SPSC pipeline and `Light` validation are opt-in.
 
 ## What this evidence proves
 
@@ -105,7 +224,14 @@ the per-call p50 is dominated by timer resolution, not the operation, so
 aggregate throughput is the better estimate of raw op cost (see the inference
 report).
 
-## Top-level benchmark evidence table
+## Comprehensive cross-report evidence table
+
+This is the full cross-report table covering **every** environment. The Durham
+Hamilton8 rows summarised in the primary table above appear here in their full
+form (last row); the remaining rows are the **historical / local development**
+Windows/MSYS2 and WSL2 laptop evidence, kept verbatim and attributed to their own
+environment in the `environment` column. Cross-machine comparison of these
+numbers is not meaningful.
 
 Numbers are transcribed from the source report named in the last column. Latency
 is per-call for inference rows and per-event/per-run/aggregate for the replay

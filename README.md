@@ -437,16 +437,19 @@ not, one top-level evidence table and before/after summaries — see
 [reports/performance_evidence_summary_2026_06_01.md](reports/performance_evidence_summary_2026_06_01.md)
 (representative local measurements only; no new numbers).
 
-For a larger-corpus standard-vs-pooled evaluation, deterministic 100k/1M replay corpora and a
-ready-to-run Linux `perf` path, use `scripts/run_perf_evaluation.py` and
-`scripts/run_linux_perf_profile.sh`; the curated results are in
-[reports/linux_performance_evaluation_2026_05_31.md](reports/linux_performance_evaluation_2026_05_31.md)
-(Windows/MSYS2) and, with **WSL2 Linux `perf` hardware counters** (cycles/IPC/branch/cache,
-hotspots), [reports/linux_performance_evaluation_2026_06_01.md](reports/linux_performance_evaluation_2026_06_01.md).
-The follow-up **Durham Hamilton8 HPC** Slurm compute-node run is in
-[reports/durham_hpc_performance_evaluation_2026_06_04.md](reports/durham_hpc_performance_evaluation_2026_06_04.md).
-These are representative local/HPC measurements (WSL2 uses a virtualized PMU; Durham is one shared
-allocation with no LLC events and no root governor/turbo control), not portable performance claims.
+The **primary curated performance evidence** is now the **Durham Hamilton8 HPC** Slurm compute-node
+run (Rocky Linux, GCC Release, one shared allocation),
+[reports/durham_hpc_performance_evaluation_2026_06_04.md](reports/durham_hpc_performance_evaluation_2026_06_04.md):
+1M standard-vs-pooled hot path, six 1M SPSC steady-state rows, LinearModel replay-loop inference and
+explicit Linux `perf` counters/hotspots. The older Windows/MSYS2 Lenovo-laptop run
+([reports/linux_performance_evaluation_2026_05_31.md](reports/linux_performance_evaluation_2026_05_31.md))
+and the WSL2-laptop `perf` run
+([reports/linux_performance_evaluation_2026_06_01.md](reports/linux_performance_evaluation_2026_06_01.md))
+are retained as **local development baselines**. To regenerate corpora and run the path yourself, use
+`scripts/run_perf_evaluation.py` and `scripts/run_linux_perf_profile.sh`. None of these numbers are
+portable or production-HFT claims; each is a representative measurement on its own host (WSL2 uses a
+virtualized PMU; Durham is one shared allocation with no LLC events and no root governor/turbo
+control), and cross-machine comparison is not meaningful.
 
 ## Latency Budget
 

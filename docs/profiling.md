@@ -2,6 +2,14 @@
 
 Profiling results are hardware, kernel, compiler and power-policy dependent. Keep raw outputs local unless they are clearly labelled with environment metadata.
 
+> **Primary Linux performance context:** the **Durham Hamilton8 HPC** compute-node
+> pass (Rocky Linux, GCC Release, one shared Slurm allocation) is the primary
+> curated Linux performance report — see *Durham Hamilton8 HPC perf run* below and
+> [reports/durham_hpc_performance_evaluation_2026_06_04.md](../reports/durham_hpc_performance_evaluation_2026_06_04.md).
+> The **WSL2 laptop** run below is retained as a historical / local development
+> baseline. Durham supersedes the laptop/WSL context only for the paths it
+> actually measured, and cross-machine comparison is not meaningful.
+
 ## Linux perf
 
 Build Release first:

@@ -58,6 +58,27 @@ Conventions:
 
 ## Allocation and performance
 
+**Q: Where is the primary performance evidence?**
+- Answer: the **Durham Hamilton8 HPC** Slurm compute-node pass (Rocky Linux, GCC
+  Release, one shared allocation) is the primary curated performance context.
+- Report: [durham_hpc_performance_evaluation_2026_06_04.md](../reports/durham_hpc_performance_evaluation_2026_06_04.md).
+- Which results were measured on Hamilton: GCC Release build/`ctest`, the 1M
+  high-cancellation standard-vs-pooled hot path, eight small stress
+  standard-vs-pooled corpora, six 1M steady-state SPSC corpora, the balanced-10k
+  LinearModel replay-loop inference, and explicit `perf stat` counters +
+  completed `perf record` hotspots for two targets.
+- Which results remain laptop/WSL only: the Windows/MSYS2 ONNX ChronosLOB bridge,
+  the optional inference event-loop ONNX row, the inference feature-buffer rows,
+  the Binance public-depth case studies, and the original Windows/MSYS2 and WSL2
+  hot-path/SPSC/inference passes (the latter is a virtualized-PMU laptop run).
+- Was every old result recomputed on Hamilton? **No** — only the documented
+  Hamilton paths above. The older laptop/WSL rows are retained verbatim as
+  historical/local development evidence, attributed to their own environments.
+  Cross-machine comparison is not meaningful.
+- Caveat: Hamilton is a representative shared-HPC measurement (no LLC events, no
+  root governor/turbo control, GCC only, ONNX not built, one inference hotspot
+  OOM-killed); not portable, not production-HFT.
+
 **Q: Where is the one-page summary of all performance/allocation evidence?**
 - Answer: a top-level index of what the benchmarks prove and do not prove, with one cross-report
   evidence table, methodology and before/after summaries. It transcribes existing measured results
