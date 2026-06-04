@@ -29,6 +29,9 @@ The JSON schema is stable and includes:
   `output_shape`, optional `feature_count` and `feature_version`, iterations, warm-up iterations, measured
   iterations, event count, validation mode, thread lifecycle mode, optional p50/p95/p99/p99.9/max
   latency fields, throughput, replay checksums, guard checksum and allocation counters.
+- optional `skipped_benchmarks`: name, category, requested backend, model name and reason for
+  optional benchmark rows that were unavailable in the current build/environment. Skipped rows are
+  not numeric measurements and are intentionally outside the `benchmarks` array.
 
 Benchmarks are split into two categories so inference timings are never folded into the trading hot
 path. The text output prints a `# core` group and a `# inference` group; the JSON tags every row with
@@ -106,6 +109,14 @@ row carries a real p50/p95/p99/p99.9/max distribution):
   - `feature_extraction_plus_<label>_onnx_vector_returning`,
   - `feature_extraction_plus_<label>_onnx_caller_owned_buffer`,
   - `feature_buffer_measured_<label>_onnx_inference` (policy-gated path).
+- optional full replay-loop + real ChronosLOB ONNX row:
+  `hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk`.
+  This row is emitted only when the active backend is actually ONNX. Default
+  builds report it under `skipped_benchmarks` instead of silently timing the
+  `LinearModel` fallback under an ONNX name. It measures replay -> L3/L2 update
+  -> caller-owned feature extraction -> real tiny ChronosLOB ONNX scoring ->
+  measured policy gate -> strategy/risk/replay accounting, with model load/setup
+  measured separately by `chronoslob_real_onnx_model_load`.
 
 Each inference row records its `backend` (`linear`, `onnx`, or `n/a`), `model_name`, `input_shape`
 and `output_shape` (`1x4`/`1x1` for the fixture, `1x1x4`/`1x3` for the real DeepLOB), and feature

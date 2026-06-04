@@ -51,6 +51,28 @@ def test_summarise_benchmarks_from_dict() -> None:
     json.loads(json.dumps(as_dict))
 
 
+def test_skipped_benchmarks_are_not_numeric_measurements() -> None:
+    data = {
+        "schema_version": 1,
+        "benchmarks": [_benchmark("hot_path_binary_replay_l3_l2_inference_strategy_risk", 100)],
+        "skipped_benchmarks": [
+            {
+                "name": "hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk",
+                "category": "inference",
+                "requested_backend": "onnx",
+                "model_name": "chronoslob_tiny_real",
+                "reason": "onnx runtime not compiled in",
+            }
+        ],
+    }
+
+    summary = regression.summarise_benchmarks(data)
+    metrics = regression.load_benchmark_metrics(data)
+
+    assert summary.benchmark_count == 1
+    assert list(metrics) == ["hot_path_binary_replay_l3_l2_inference_strategy_risk"]
+
+
 def test_compare_benchmarks_detects_regression_improvement_new_missing() -> None:
     baseline = {
         "benchmarks": [

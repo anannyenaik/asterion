@@ -413,7 +413,8 @@ reusable L2 view -> strategy callback -> risk check path plus add, cancel, repla
 L2 snapshot, replay and risk-check paths. The `inference` category is measured separately and covers
 feature extraction only, LinearModel inference only, feature extraction + LinearModel, the
 measured-engine path, event-loop policy-gate overhead, and — only when built with ONNX Runtime — ONNX
-inference only and feature extraction + ONNX. Inference rows use per-call timing so they report a real
+inference only, feature extraction + ONNX, and the optional real ChronosLOB ONNX replay-loop row.
+Inference rows use per-call timing so they report a real
 p50/p95/p99/p99.9/max distribution along with backend, model name, input shape and allocation count.
 The `inference` category also includes a full event-loop row
 (`hot_path_binary_replay_l3_l2_inference_strategy_risk`) that inserts caller-owned feature extraction +
@@ -560,8 +561,10 @@ the real backend and runs the artefacts. Neither lane runs in default CI.
 
 When built with ONNX Runtime, the inference benchmark runner additionally emits `chronoslob_fixture`
 and `chronoslob_real` ONNX suites (model load, inference only, and feature-extraction + ChronosLOB
-ONNX rows); ONNX inference allocations are measured and reported honestly (model-load is measured
-separately from steady-state) and are not claimed to be allocation-free. See
+ONNX rows) plus an optional real ChronosLOB ONNX replay-loop row. Default builds record that replay
+row as skipped/unavailable, and ONNX fallback is not counted as ONNX evidence. ONNX inference
+allocations are measured and reported honestly (model-load is measured separately from steady-state)
+and are not claimed to be allocation-free. See
 [docs/chronoslob_bridge.md](docs/chronoslob_bridge.md), the fixture report
 [reports/chronoslob_onnx_bridge_report_2026_05_31.md](reports/chronoslob_onnx_bridge_report_2026_05_31.md)
 and the real-model report

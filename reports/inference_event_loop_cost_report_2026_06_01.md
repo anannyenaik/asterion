@@ -13,9 +13,9 @@ This report builds on the existing per-component inference evidence
 ([inference_report_2026_05_31.md](inference_report_2026_05_31.md),
 [inference_feature_buffer_report_2026_05_31.md](inference_feature_buffer_report_2026_05_31.md),
 [chronoslob_real_model_bridge_report_2026_06_01.md](chronoslob_real_model_bridge_report_2026_06_01.md))
-and adds one **new measured row**: the standard correctness-first hot path with a
-research-style inference stage inserted into the event loop, measured back-to-back
-against the same hot path without inference on the same run.
+and adds measured event-loop rows for the standard `LinearModel` path and, when
+ONNX Runtime is available, the real tiny ChronosLOB ONNX backend inside the same
+deterministic replay-loop inference pipeline.
 
 ## Executive summary
 
@@ -34,11 +34,17 @@ against the same hot path without inference on the same run.
 - The inference-free hot-path row reproduced its previously published guard
   checksum **`18052214259513584877`** exactly, confirming the new benchmark row is
   purely additive and did not perturb the existing path.
-- The **optional ONNX path** is 3–4 orders of magnitude more expensive per call
-  (real ChronosLOB DeepLOB ≈ **29 µs p50**, ≈ 33.5k inf/s, **~2 allocations/call**
-  from ONNX Runtime) and is **not** allocation-free. Those numbers come from the
-  existing optional ONNX lane; ONNX Runtime is not installed in this default-build
-  run and the full replay-loop-with-ONNX row is **not measured**.
+- The **optional replay-loop + ChronosLOB ONNX path** is now measured in an
+  ONNX-enabled build as systems-cost evidence for putting a tiny exported
+  ChronosLOB-style model into Asterion's deterministic replay loop. The row
+  `hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk`
+  reported **61.0 us p50 / 262.2 us p99 / 811.3 us p99.9**, **~13.1k ev/s** and
+  **570,000 allocations / 19,440,000 bytes** over 120,000 replay events on this
+  local run. This is optional ONNX Runtime plumbing evidence only.
+- The ONNX replay-loop row is emitted only when the active backend is actually
+  ONNX. In the default no-ONNX build it is recorded under `skipped_benchmarks`
+  with an unavailable reason; it does not silently fall back to `LinearModel` and
+  count those timings as ONNX evidence.
 - The model score is folded into the benchmark guard checksum so the stage cannot
   be optimised away, but it **never alters order flow** in this benchmark: no
   decisioning, alpha or profitability behaviour is implied or measured.
@@ -56,16 +62,19 @@ against the same hot path without inference on the same run.
   policy-gate accounting), transcribed from the existing curated reports.
 - The optional real/fixture ChronosLOB ONNX per-call latency and allocation split,
   transcribed from the existing optional ONNX lane report.
+- The optional **full replay event loop with the real ChronosLOB ONNX backend** in
+  an ONNX-enabled local build: replay -> L3/L2 book update -> caller-owned feature
+  extraction -> real tiny ChronosLOB ONNX scoring -> measured policy gate ->
+  strategy/risk/replay accounting.
 
 ## What is not measured
 
 - **Model quality of any kind** — no predictive value, alpha, signal value or
   profitability. The ChronosLOB toy model is trained on synthetic toy data and the
   Asterion-side score is plumbing only.
-- **The full replay event loop with the ONNX backend wired in.** ONNX Runtime is
-  opt-in and absent from this default build; the combined "replay loop + ONNX +
-  policy" row is marked `not measured`. The optional lane measures ONNX
-  *inference-only* and *feature+ONNX+policy* on a static L2 view, not inside replay.
+- **Default-build ONNX replay-loop timing.** ONNX Runtime is opt-in and absent
+  from default builds/CI; in that lane the combined "replay loop + ONNX + policy"
+  row is reported under `skipped_benchmarks`, not as a numeric benchmark row.
 - **Portable or cross-machine latency.** Every nanosecond figure here is from one
   Windows 10 / MSYS2 laptop and is not comparable elsewhere.
 - **Native Linux `perf` hardware-counter breakdown.** Deferred — blocked on this
@@ -121,11 +130,19 @@ existing optional-lane report (ONNX Runtime 1.20.1, same machine):
 - one-time model load ≈ **3.33 ms** with ~20 one-time allocations, measured
   separately from steady state.
 
-**This default-build run does not include ONNX Runtime**, so the ONNX rows below
-are transcribed from that report and the replay-loop-with-ONNX combination is
-`not measured`. When ONNX Runtime is unavailable, an ONNX request deterministically
-falls back to `LinearModel` (`fell_back = true`) — see
-[Fallback / late-signal behaviour](#fallback--late-signal-behaviour).
+This update adds one more optional row in an ONNX-enabled build:
+`hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk`.
+It keeps model load/session setup outside the steady-state replay timer, warms
+the path, then measures per-event replay + L3/L2 update + caller-owned feature
+extraction + real ChronosLOB ONNX scoring + policy gate + strategy/risk/replay
+accounting. The model-load row remains separate (`chronoslob_real_onnx_model_load`:
+about 6.6 ms and 20 one-time allocations in this run).
+
+When ONNX Runtime is unavailable, an ONNX request deterministically falls back to
+`LinearModel` (`fell_back = true`) for normal backend selection, but the ONNX
+benchmark rows require an active ONNX backend. If fallback occurs, the replay-loop
+ONNX benchmark is skipped/reported unavailable and is not counted as ONNX evidence.
+See [Fallback / late-signal behaviour](#fallback--late-signal-behaviour).
 
 ## Feature extraction cost
 
@@ -203,7 +220,7 @@ hidden:
 | **Feature extraction (steady state)** | `extract_into` → caller `FeatureBuffer` | **0** (caller-owned); vector-returning path = 1 `std::vector`/call |
 | **Policy-gate (steady state)** | `InferencePolicyGate` / `evaluate_inference_policy` | **0** (integer state, injected-timing checks) |
 | **LinearModel inference (steady state)** | `LinearModel::score` | **0** after construction |
-| **ONNX inference (steady state)** | ONNX Runtime per-run buffers | **~2 allocations/call (≈ 24 B/call)** — **not** allocation-free |
+| **ONNX inference (steady state)** | ONNX Runtime per-run buffers and input/output staging | inference-only **~2 allocations/call**; policy/replay rows showed **~3 allocations/event** on this run — **not** allocation-free |
 | **Event loop, node-based book** | `OrderBook` `Add`/`Replace` nodes | 210,000 / 120k events on this fixture — present with or without inference |
 
 Claim boundaries preserved:
@@ -251,6 +268,57 @@ Reading these honestly:
   inference cost is dominated by fixed per-call overhead; do **not** extrapolate the
   ~2× factor to a larger book, a richer feature set, or another machine.
 
+## Optional ONNX replay-loop evidence
+
+Optional ONNX Runtime evidence for the systems cost of putting a tiny exported
+ChronosLOB-style model into Asterion's deterministic replay loop was collected in
+an ONNX-enabled Release build. This is not model profitability evidence, alpha
+evidence, predictive-quality evidence, production model serving, production-HFT
+performance, or portable latency evidence.
+
+Environment: Windows 10/MSYS2 UCRT64, Intel i7-7700HQ-class CPU string reported
+by the benchmark as `Intel64 Family 6 Model 158 Stepping 9, GenuineIntel`,
+GCC 16.1.0, Release (`-O3 -DNDEBUG`), ONNX Runtime 1.20.1 C++ runtime from
+`build-chronoslob-onnxruntime/onnxruntime`, dataset
+`sample_hot_path_replay.bin` (12 events), 10,000 iterations x 12 events =
+120,000 measured events, 5 warm-up iterations, benchmark JSON
+`build-onnxrt/onnx_replay_loop_benchmark_2026_06_04.json` (generated, ignored).
+
+Model-load/setup is separated from steady state. `chronoslob_real_onnx_model_load`
+reported about **6.6 ms total**, **6.0 ms sampled p50**, **20 one-time
+allocations** and **2,230 bytes** in this process. The replay-loop row constructs
+the ONNX selection before warm-up and resets allocation counters only after
+warm-up, so the per-event numbers below are steady-state replay-loop costs, not
+session creation costs.
+
+| row | backend | p50 | p95 | p99 | p99.9 | max | throughput | allocations | bytes | guard |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `hot_path_binary_replay_l3_l2_strategy_risk` | n/a | 3.0 us | 4.3 us | 5.4 us | 75.8 us | 2.824 ms | 213,462 ev/s | 210,000 | 13,440,000 | `18052214259513584877` |
+| `hot_path_binary_replay_l3_l2_inference_strategy_risk` | LinearModel | 1.3 us | 1.7 us | 2.3 us | 40.7 us | 15.973 ms | 529,457 ev/s | 210,000 | 13,440,000 | `17484014929127736293` |
+| `hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk` | ONNX real ChronosLOB | **61.0 us** | **202.5 us** | **262.2 us** | **811.3 us** | **21.170 ms** | **13,079 ev/s** | **570,000** | **19,440,000** | `7611055767038144338` |
+
+Reading this honestly:
+
+- The ONNX replay-loop row measured replay + L3/L2 update + caller-owned feature
+  extraction + real tiny ChronosLOB ONNX scoring + measured policy gate +
+  strategy/risk/replay accounting. The ONNX score is folded into the guard and
+  does not alter order flow.
+- Allocation split: the same-process no-inference and LinearModel replay rows
+  both reported **210,000 allocations / 13,440,000 bytes**, all from the
+  correctness-first node-based book path on this fixture. The ONNX replay row
+  reported **570,000 allocations / 19,440,000 bytes**, so the ONNX steady-state
+  stage added **360,000 allocations / 6,000,000 bytes** over 120,000 events
+  (**3 allocations/event, 50 bytes/event**) on this run. ONNX is therefore not
+  allocation-free; model-load allocations remain separate.
+- Same-process baseline timings were noisy (the core hot-path p50 was slower than
+  the LinearModel inference row in this particular run). The robust signals are
+  the emitted ONNX row, its backend/model tags, the separated load-vs-steady-state
+  allocation counts and the explicit local environment, not any portable latency
+  ratio.
+- In the default no-ONNX build, the same row is not emitted as a numeric
+  benchmark. It appears in `skipped_benchmarks` with reason
+  `onnx runtime not compiled in...`, preserving the dependency-light default path.
+
 ## Measured evidence table
 
 Columns: path · feature-extraction mode · model/backend · policy behaviour ·
@@ -270,7 +338,7 @@ bound at p50; per-event rows are whole-event latency.
 | feature + ONNX + policy | caller-owned `FeatureBuffer` | real ChronosLOB DeepLOB | Accept | 28.2 µs | 44.9 µs | 66.1 µs | n/m | 341 µs | n/m | ~2/call | [chronoslob_real](chronoslob_real_model_bridge_report_2026_06_01.md) | **optional**; static L2 view, not replay loop |
 | **full event loop, no inference** | n/a | n/a | n/a | **800 ns** | 3,600 ns | 4,300 ns | 12,800 ns | 2,336,100 ns | 487,639 ev/s | 210,000 | **this report (new run)** | node-based book allocs; local only |
 | **full event loop + inference** | caller-owned `FeatureBuffer` | LinearModel | Accept (timeout 1 ms) | **1,600 ns** | 5,400 ns | 6,300 ns | 28,200 ns | 12,950,900 ns | 280,467 ev/s | 210,000 | **this report (new run)** | +0 allocs vs base; +~800 ns p50; local only |
-| full event loop + ONNX | caller-owned `FeatureBuffer` | ONNX | Accept | n/m | n/m | n/m | n/m | n/m | n/m | n/m | n/a | **not measured**: ONNX Runtime not in default build |
+| **full event loop + ONNX** | caller-owned `FeatureBuffer` | real ChronosLOB DeepLOB | Accept | **61.0 us** | 202.5 us | 262.2 us | 811.3 us | 21.170 ms | 13,079 ev/s | 570,000 | **this report (optional ONNX run)** | ONNX Runtime opt-in; +3 allocs/event over base; local only; plumbing only |
 | fallback path (ONNX→LinearModel) | caller-owned `FeatureBuffer` | LinearModel (`fell_back=true`) | n/a | = LinearModel path | n/a | n/a | n/a | n/a | = LinearModel path | **0** | `tests/unit/test_inference_backend.cpp` | behavioural; latency = LinearModel |
 | timeout / late-signal decision | n/a | any | Timeout / LateSignal / disable | n/a | n/a | n/a | n/a | n/a | n/a | **0** | `tests/unit/test_telemetry_inference.cpp` | behavioural; reliability, not alpha |
 
@@ -308,8 +376,9 @@ How the inference policy should be read (documenting only what is implemented):
   extrapolated to larger books, richer features or other machines.
 - The **ChronosLOB toy model is trained on synthetic toy data**; the Asterion-side
   score is **plumbing only** with no predictive or market meaning.
-- **ONNX Runtime is optional** and absent from this default build/CI; the full
-  replay-loop-with-ONNX row is `not measured`, and ONNX inference is **not**
+- **ONNX Runtime is optional** and absent from default build/CI. The full
+  replay-loop-with-ONNX row is measured only in an opt-in ONNX Runtime build; the
+  default build records it as skipped/unavailable, and ONNX inference is **not**
   allocation-free.
 - This is **not** live trading, authenticated exchange/broker connectivity, order
   placement, production model serving or production-HFT infrastructure.
@@ -321,12 +390,11 @@ How the inference policy should be read (documenting only what is implemented):
 
 ## Recommended next work
 
-- A **larger recorded public market-data case study** (still public, still recorded,
-  still no profitability/realism claim) so the event-loop inference cost can be
-  observed over a richer normalise→replay corpus rather than the 12-event fixture.
-- An **opt-in replay-loop-with-ONNX row** behind `ASTERION_HAVE_ONNXRUNTIME`, to
-  measure the full event loop with the real ChronosLOB backend (currently only the
-  static-view ONNX rows exist).
+- A **larger replay-loop inference corpus** (still recorded/simulated, still no
+  profitability or predictive-quality claim) so LinearModel and optional ONNX
+  event-loop costs can be observed beyond the 12-event fixture.
+- The **native Linux perf pass remains last** for performance evidence work; do
+  not fabricate hardware-counter values while native Linux/PMU access is absent.
 - The **technical paper remains deferred** until native Linux `perf` evidence is
   collected, so the microarchitectural section can be written from measured counters
   rather than placeholders.
@@ -342,8 +410,29 @@ cmake --build build --target asterion_benchmarks
 .\build\asterion_benchmarks.exe --json build\event_loop_bench.json --hot-path-iterations 10000
 ```
 
-The new row is `hot_path_binary_replay_l3_l2_inference_strategy_risk` (category
-`inference`); compare it to the core `hot_path_binary_replay_l3_l2_strategy_risk`
-row from the same run. Generated benchmark JSON is git-ignored and not committed.
-The optional ONNX rows are produced only in the opt-in ONNX Runtime build; see
+The LinearModel event-loop row is `hot_path_binary_replay_l3_l2_inference_strategy_risk`
+(category `inference`); compare it to the core
+`hot_path_binary_replay_l3_l2_strategy_risk` row from the same run. In default
+builds, the ONNX replay-loop row appears only under `skipped_benchmarks` because
+ONNX Runtime is not compiled in. Generated benchmark JSON is git-ignored and not
+committed.
+
+Optional ONNX Runtime lane used for the measured ONNX replay-loop row:
+
+```powershell
+$ort = (Resolve-Path 'build-chronoslob-onnxruntime\onnxruntime').Path
+$env:Path = (Join-Path $ort 'lib') + ';C:\msys64\ucrt64\bin;' + $env:Path
+cmake -S . -B build-onnxrt -G Ninja -DCMAKE_BUILD_TYPE=Release `
+  -DASTERION_USE_ONNXRUNTIME=ON "-DONNXRUNTIME_ROOT=$ort"
+cmake --build build-onnxrt --target asterion_tests asterion_benchmarks
+Copy-Item (Join-Path $ort 'lib\onnxruntime.dll') build-onnxrt -Force
+Copy-Item (Join-Path $ort 'lib\onnxruntime_providers_shared.dll') build-onnxrt -Force
+ctest --test-dir build-onnxrt --output-on-failure
+.\build-onnxrt\asterion_benchmarks.exe --json build-onnxrt\onnx_replay_loop_benchmark.json `
+  --no-text --hot-path-iterations 10000
+```
+
+The ONNX replay-loop row is
+`hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk`. The
+older static-view ONNX rows remain documented in
 [chronoslob_real_model_bridge_report_2026_06_01.md](chronoslob_real_model_bridge_report_2026_06_01.md).

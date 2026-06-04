@@ -29,6 +29,10 @@ and [BENCHMARKS.md](../BENCHMARKS.md).
 - The **optional ONNX Runtime backend** loads and scores a real tiny ChronosLOB
   `DeepLOBModel` deterministically, with load cost and per-call allocations
   **measured and reported separately** (no allocation-free claim for ONNX).
+- The **optional replay-loop + real ChronosLOB ONNX row** measures the systems
+  cost of putting that tiny exported ChronosLOB-style model inside Asterion's
+  deterministic replay loop. It is emitted only when the active backend is
+  actually ONNX; default builds record it as skipped/unavailable.
 - The **opt-in bounded SPSC replay pipeline** preserves single-thread checksums
   exactly under concurrency, with lossless blocking backpressure that genuinely
   saturates on large corpora and **zero dropped events**.
@@ -87,6 +91,7 @@ rows as noted in each source report.
 | LinearModel inference | `linear_inference_only` | 1×4 input, 200k iters | Win/MSYS2 | 100 ns | 200 ns | 300 ns | 7,708,080 op/s (aggregate ≈ 5 ns/call, ~190M/s) | 0 | unit-tested 0-alloc | [inference_report](inference_report_2026_05_31.md) | per-call p50 dominated by timer; no predictive claim |
 | real ChronosLOB ONNX | `chronoslob_real_onnx_inference_only` | 1×1×4→1×3 DeepLOB, 50k iters | Win/MSYS2 + ONNX RT 1.20.1 | 29.0 µs | 65.7 µs | 100.6 µs | ≈ 33.5k inf/s | ~2 / call (load 20 one-time) | deterministic test vector verified | [chronoslob_real_model_bridge](chronoslob_real_model_bridge_report_2026_06_01.md) | optional ONNX; toy model; not alloc-free; plumbing only |
 | event-loop inference | replay hot path + feature + LinearModel + measured policy gate (vs inference-free hot path) | `sample_hot_path_replay.bin` (12 events, 10k iters) | Win/MSYS2 | 1,600 ns (base 800 ns) | 6,300 ns | 28,200 ns | 280,467 ev/s (base 487,639) | 210,000 (= base; inference adds **0**) | guard `17484014929127736293` | [inference_event_loop_cost](inference_event_loop_cost_report_2026_06_01.md) | new run; plumbing only; +~800 ns p50, +0 allocs; tiny 12-event fixture, local only |
+| optional event-loop ONNX | replay hot path + feature + real ChronosLOB ONNX + measured policy gate | `sample_hot_path_replay.bin` (12 events, 10k iters) | Win/MSYS2 + ONNX RT 1.20.1 | 61.0 us | 262.2 us | 811.3 us | 13,079 ev/s | 570,000 total (= base book + ~3 ONNX allocs/event) | guard `7611055767038144338` | [inference_event_loop_cost](inference_event_loop_cost_report_2026_06_01.md) | optional ONNX; toy model; plumbing only; not alloc-free; local only |
 | SPSC steady-state replay | single-thread vs steady SPSC, `Light` validation | balanced/replace-heavy/deep-book 10k–1M | Win/MSYS2 | n/a (aggregate run) | n/a | n/a | single 0.49M–1.60M ev/s; SPSC 0.37M–1.54M ev/s | dominated by correctness-first book storage | checksum parity: true (6/6); dropped 0 | [spsc_steady_state](spsc_steady_state_report_2026_05_31.md) | absolute numbers dominated by validation cost; ratio is the signal |
 | Binance replay case study | normalise → deterministic replay | tiny hand-curated public-depth fixture (11 events) | Win/MSYS2 | not measured | n/a | n/a | not measured | n/a | `final_book_checksum 2539005926052284398`; 0 diagnostics | [binance_replay_case_study](binance_replay_case_study_2026_05_31.md) | correctness checksums, **not** performance; L2→synthetic IDs |
 | large generated replay | standard vs pooled hot path | 100k + seven 1M corpora | Win/MSYS2 | std 1,000–1,500 ns; pooled 800–1,200 ns | std 4,100–7,500 ns; pooled 2,800–5,400 ns | see source | std 0.35M–0.87M ev/s; pooled 0.54M–1.16M ev/s | std 4.2M–54M → pooled **0** | guard parity: yes (7/7) | [linux_performance_evaluation](linux_performance_evaluation_2026_05_31.md) | Windows/MSYS2, not native Linux; corpora git-ignored |
@@ -246,9 +251,14 @@ the absolute number (see
   measured `hot_path_binary_replay_l3_l2_inference_strategy_risk` benchmark row
   (0 added steady-state allocations vs the inference-free hot path; plumbing only).
   See [inference_event_loop_cost_report_2026_06_01.md](inference_event_loop_cost_report_2026_06_01.md).
-- A **larger market-data case study**: extend the recorded public-depth path
-  beyond the tiny hand-curated fixture (still public, still recorded, still no
-  profitability/realism claim) for a richer normalise→replay demonstration.
+- **Done (2026-06-04): optional replay-loop ONNX row.** The real tiny ChronosLOB
+  ONNX backend is now measured inside the replay-loop inference pipeline when
+  ONNX Runtime is available; default builds report the row as skipped/unavailable.
+- A **larger replay-loop inference corpus**: use recorded/simulated data beyond
+  the 12-event fixture to observe LinearModel and optional ONNX systems cost
+  without adding profitability, alpha or predictive-quality claims.
+- The **native Linux perf pass remains last** for performance evidence work; do
+  not fabricate hardware-counter values while native Linux/PMU access is absent.
 - The **technical paper** remains deferred until native Linux `perf` evidence is
   collected, so the microarchitectural section can be written from measured
   counters rather than placeholders.

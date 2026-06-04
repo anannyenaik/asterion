@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -53,6 +54,9 @@
 using namespace asterion;
 
 namespace {
+
+constexpr std::string_view kChronoslobRealOnnxReplayLoopRowName =
+    "hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk";
 
 struct Options {
   std::filesystem::path dataset_path{std::filesystem::path(ASTERION_SOURCE_DIR) / "data" /
@@ -94,6 +98,14 @@ struct SpscBenchmarkStats {
   std::uint64_t elapsed_ns{0};
   double throughput_events_per_second{0.0};
   bool checksum_parity{false};
+};
+
+struct SkippedBenchmark {
+  std::string name;
+  std::string category;
+  std::string requested_backend;
+  std::string model_name;
+  std::string reason;
 };
 
 struct BenchmarkResult {
@@ -996,6 +1008,10 @@ inline void record_sample(std::vector<std::uint64_t>& samples,
       std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()));
 }
 
+std::uint64_t score_guard_bits(double score) noexcept {
+  return std::bit_cast<std::uint64_t>(score);
+}
+
 BenchmarkResult benchmark_feature_extraction_vector_returning() {
   constexpr std::size_t kIterations = 200'000;
   const L2View view = make_inference_l2_view();
@@ -1389,6 +1405,134 @@ void tag_from_selection(BenchmarkResult& result, const InferenceBackendSelection
                 metadata.feature_version);
 }
 
+void require_active_onnx(const InferenceBackendSelection& selection, std::string_view name) {
+  if (selection.active == InferenceBackend::Onnx && !selection.fell_back) {
+    return;
+  }
+  throw std::runtime_error(std::string(name) +
+                           " unavailable: requested ONNX backend fell back (" +
+                           selection.detail + ")");
+}
+
+BenchmarkResult benchmark_hot_path_chronoslob_onnx_inference_pipeline(
+    const Options& options, std::string name, const std::filesystem::path& model_path,
+    const ModelMetadata& metadata) {
+  constexpr std::size_t kDepth = 5;
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load hot-path dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("hot-path dataset is empty: " + options.dataset_path.string());
+  }
+
+  InferenceBackendSelection selection =
+      make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
+
+  const std::size_t event_count = log.events.size() * options.hot_path_iterations;
+  const std::size_t reserve_risk_checks =
+      log.events.size() * (options.hot_path_iterations + options.warmup_iterations + 1U);
+  HotPathContext<OrderBook> context(log.events.front().symbol_id, kDepth, log.events.size(),
+                                    reserve_risk_checks);
+
+  FeatureExtractor extractor;
+  MeasuredInferenceEngine inference(*selection.model, InferencePolicy{1'000'000, 0, true, true});
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+
+  const auto replay_once = [&](std::vector<std::uint64_t>* samples) {
+    context.book.clear();
+    context.book.reserve_order_capacity(log.events.size());
+    std::uint64_t activity_checksum = kFnvOffsetBasis;
+    for (const MarketDataEvent& event : log.events) {
+      const auto sample_start = std::chrono::steady_clock::now();
+      const bool applied = apply_hot_path_event(event, context.book, activity_checksum);
+      context.book.fill_l2_view(kDepth, context.l2);
+
+      const FeatureExtractionStatus feature_status =
+          extractor.extract_into(context.l2, feature_buffer);
+      const InferenceResult inference_result =
+          feature_status == FeatureExtractionStatus::Ok
+              ? inference.score(feature_buffer.used(), event.timestamp_ns, event.timestamp_ns)
+              : InferenceResult{};
+
+      const PriceTicks reference_price = reference_price_from_view(context.l2, event);
+      context.risk.on_market_data(event.symbol_id, reference_price, event.timestamp_ns);
+      const StrategyDecisionBatch decisions = context.strategy.on_l2_update_fixed(context.l2);
+      for (const StrategyDecision& decision : decisions) {
+        const RiskResult risk_result = context.risk.check_new_order(
+            NewOrderRequest{context.next_client_order_id, event.symbol_id, decision.side,
+                            decision.order_type, decision.price_ticks, decision.quantity,
+                            event.timestamp_ns, 1},
+            event.timestamp_ns);
+        context.guard = checksum_append(context.guard, context.next_client_order_id);
+        context.guard = checksum_append(context.guard, risk_result.accepted ? 1U : 0U);
+        context.guard = checksum_append(context.guard, risk_result.reject_reason);
+        ++context.next_client_order_id;
+        ++context.risk_checks;
+      }
+      context.guard = checksum_append(context.guard, applied ? 1U : 0U);
+      context.guard =
+          checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.bids.size()));
+      context.guard =
+          checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.asks.size()));
+      context.guard = checksum_append(context.guard, activity_checksum);
+      context.guard = checksum_append(context.guard, score_guard_bits(inference_result.score));
+      context.guard = checksum_append(context.guard, inference_result.accepted ? 1U : 0U);
+      context.guard = checksum_append(
+          context.guard, feature_status == FeatureExtractionStatus::Ok ? 1U : 0U);
+      const auto sample_end = std::chrono::steady_clock::now();
+      if (samples != nullptr) {
+        samples->push_back(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(sample_end - sample_start)
+                .count()));
+      }
+    }
+    context.guard = checksum_append(context.guard, context.book.checksum());
+  };
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    replay_once(nullptr);
+  }
+
+  std::vector<std::uint64_t> samples;
+  samples.reserve(event_count);
+  const std::size_t risk_checks_before = context.risk_checks;
+  context.guard = kFnvOffsetBasis;
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  for (std::size_t i = 0; i < options.hot_path_iterations; ++i) {
+    replay_once(&samples);
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = std::move(name);
+  result.iterations = options.hot_path_iterations;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = options.hot_path_iterations;
+  result.event_count = event_count;
+  result.risk_check_count = context.risk_checks - risk_checks_before;
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "per-event";
+  result.total_ns = total_ns;
+  result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
+  result.guard = context.guard ^ log.event_checksum;
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  tag_from_selection(result, selection, metadata);
+  return result;
+}
+
 BenchmarkResult benchmark_chronoslob_onnx_model_load(const std::string& name,
                                                      const std::filesystem::path& model_path,
                                                      const ModelMetadata& metadata) {
@@ -1399,9 +1543,10 @@ BenchmarkResult benchmark_chronoslob_onnx_model_load(const std::string& name,
                               InferenceBackendSelection selection =
                                   make_inference_backend(make_chronoslob_onnx_config(model_path,
                                                                                      metadata));
+                              require_active_onnx(selection, name);
                               const auto end = std::chrono::steady_clock::now();
                               record_sample(samples, start, end);
-                              return selection.active == InferenceBackend::Onnx ? 1ULL : 0ULL;
+                              return 1ULL;
                             });
   result.timing_mode = "model-load";
   tag_inference(result, "onnx", metadata.model_name, shape_to_string(metadata.input_shape),
@@ -1416,6 +1561,7 @@ BenchmarkResult benchmark_chronoslob_onnx_inference_only(
   constexpr std::size_t kIterations = 50'000;
   InferenceBackendSelection selection =
       make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
   const std::vector<double> features = metadata.expected_test_input;
 
   // Warm up so model-load/session-setup allocations are excluded from the
@@ -1445,6 +1591,7 @@ BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx(
   constexpr std::size_t kIterations = 50'000;
   InferenceBackendSelection selection =
       make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
   const L2View view = make_inference_l2_view();
   FeatureExtractor extractor;
 
@@ -1474,6 +1621,7 @@ BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx_caller_owned_b
   constexpr std::size_t kIterations = 50'000;
   InferenceBackendSelection selection =
       make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
   const L2View view = make_inference_l2_view();
   FeatureExtractor extractor;
   std::array<double, kL2FeatureCount> feature_storage{};
@@ -1508,6 +1656,7 @@ BenchmarkResult benchmark_feature_buffer_measured_chronoslob_onnx_inference(
   constexpr std::size_t kIterations = 50'000;
   InferenceBackendSelection selection =
       make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
   const L2View view = make_inference_l2_view();
   FeatureExtractor extractor;
   MeasuredInferenceEngine inference(*selection.model, InferencePolicy{1'000'000, 0, true, true});
@@ -1600,6 +1749,14 @@ void print_result(const BenchmarkResult& result) {
   std::cout << '\n';
 }
 
+void print_skipped_benchmark(const SkippedBenchmark& skipped) {
+  std::cout << "# skipped_benchmark name=" << skipped.name
+            << ",category=" << skipped.category
+            << ",requested_backend=" << skipped.requested_backend
+            << ",model=" << skipped.model_name
+            << ",reason=" << skipped.reason << '\n';
+}
+
 std::string json_escape(std::string_view value) {
   std::ostringstream output;
   for (const char c : value) {
@@ -1690,7 +1847,8 @@ void write_optional_latency(std::ostream& output, const char* key,
 }
 
 void write_json(const std::filesystem::path& path, const Options& options,
-                const std::vector<BenchmarkResult>& results) {
+                const std::vector<BenchmarkResult>& results,
+                const std::vector<SkippedBenchmark>& skipped_benchmarks) {
   std::ofstream output(path);
   if (!output) {
     throw std::runtime_error("unable to write benchmark JSON: " + path.string());
@@ -1783,7 +1941,25 @@ void write_json(const std::filesystem::path& path, const Options& options,
     }
     output << "    }" << (i + 1U == results.size() ? "\n" : ",\n");
   }
-  output << "  ]\n";
+  output << "  ]";
+  if (!skipped_benchmarks.empty()) {
+    output << ",\n";
+    output << "  \"skipped_benchmarks\": [\n";
+    for (std::size_t i = 0; i < skipped_benchmarks.size(); ++i) {
+      const SkippedBenchmark& skipped = skipped_benchmarks[i];
+      output << "    {\n";
+      output << "      \"name\": \"" << json_escape(skipped.name) << "\",\n";
+      output << "      \"category\": \"" << json_escape(skipped.category) << "\",\n";
+      output << "      \"requested_backend\": \"" << json_escape(skipped.requested_backend)
+             << "\",\n";
+      output << "      \"model_name\": \"" << json_escape(skipped.model_name) << "\",\n";
+      output << "      \"reason\": \"" << json_escape(skipped.reason) << "\"\n";
+      output << "    }" << (i + 1U == skipped_benchmarks.size() ? "\n" : ",\n");
+    }
+    output << "  ]\n";
+  } else {
+    output << "\n";
+  }
   output << "}\n";
 }
 
@@ -1823,6 +1999,7 @@ int main(int argc, char** argv) {
   // Inference benchmarks. Feature extraction and model scoring are measured on
   // their own so inference cost is never folded into the trading hot path.
   std::vector<BenchmarkResult> inference_results;
+  std::vector<SkippedBenchmark> skipped_benchmarks;
   if (!options.only_hot_path && !options.only_steady_state_replay) {
     inference_results.push_back(benchmark_feature_extraction_vector_returning());
     inference_results.push_back(benchmark_feature_extraction_caller_owned_buffer());
@@ -1872,6 +2049,27 @@ int main(int argc, char** argv) {
                    "chronoslob_tiny_fixture.metadata.json");
     run_onnx_suite("chronoslob_real", "chronoslob_tiny_real.onnx",
                    "chronoslob_tiny_real.metadata.json");
+    try {
+      const std::filesystem::path model_dir =
+          std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models";
+      const std::filesystem::path onnx_model_path = model_dir / "chronoslob_tiny_real.onnx";
+      const ModelMetadata metadata =
+          load_model_metadata(model_dir / "chronoslob_tiny_real.metadata.json");
+      inference_results.push_back(benchmark_hot_path_chronoslob_onnx_inference_pipeline(
+          options, std::string(kChronoslobRealOnnxReplayLoopRowName), onnx_model_path, metadata));
+    } catch (const std::exception& ex) {
+      skipped_benchmarks.push_back(SkippedBenchmark{
+          std::string(kChronoslobRealOnnxReplayLoopRowName), "inference", "onnx",
+          "chronoslob_tiny_real", ex.what()});
+      std::cerr << "onnx replay-loop benchmark skipped (chronoslob_real): " << ex.what()
+                << '\n';
+    }
+#else
+    skipped_benchmarks.push_back(SkippedBenchmark{
+        std::string(kChronoslobRealOnnxReplayLoopRowName), "inference", "onnx",
+        "chronoslob_tiny_real",
+        "onnx runtime not compiled in; configure with -DASTERION_USE_ONNXRUNTIME=ON and a "
+        "discoverable ONNX Runtime to measure"});
 #endif
   }
 
@@ -1890,11 +2088,14 @@ int main(int argc, char** argv) {
       for (const BenchmarkResult& result : inference_results) {
         print_result(result);
       }
+      for (const SkippedBenchmark& skipped : skipped_benchmarks) {
+        print_skipped_benchmark(skipped);
+      }
     }
   }
 
   if (options.json_path.has_value()) {
-    write_json(*options.json_path, options, results);
+    write_json(*options.json_path, options, results, skipped_benchmarks);
   }
 
   return 0;

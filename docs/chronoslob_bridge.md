@@ -140,6 +140,13 @@ each artefact, labelled `chronoslob_fixture` and `chronoslob_real`:
 - `feature_extraction_plus_<label>_onnx_vector_returning`
 - `feature_extraction_plus_<label>_onnx_caller_owned_buffer`
 - `feature_buffer_measured_<label>_onnx_inference`
+- `hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk`
+  for the real ChronosLOB artefact only. This optional row measures replay ->
+  L3/L2 update -> caller-owned feature extraction -> real tiny ChronosLOB ONNX
+  scoring -> measured policy gate -> strategy/risk/replay accounting. It is
+  emitted only when the active backend is actually ONNX; default builds report it
+  as skipped/unavailable rather than timing the `LinearModel` fallback under an
+  ONNX name.
 
 The `chronoslob_real` rows exercise the trained `DeepLOBModel`; the
 `chronoslob_fixture` rows exercise the legacy `Gemm` fixture for comparison.

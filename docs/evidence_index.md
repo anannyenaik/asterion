@@ -101,10 +101,10 @@ Conventions:
 - Caveat: fixture is deterministic and **not trained**; the real artefact **is** trained but on **synthetic toy data** with a reduced 4-feature single-timestep simplification — no predictive/profitability/live-trading/production claim; Asterion-side score is plumbing only.
 
 **Q: What does it cost to put inference into the trading event loop?**
-- Answer: a new per-event benchmark row inserts caller-owned feature extraction + `LinearModel` + a measured timeout/late-signal policy gate into the replay hot path, measured against the inference-free hot path on the same run. On this machine the inference stage added **0** steady-state allocations (both rows 210,000 allocs over 120k events) and ≈ +800 ns p50 / lower throughput; plumbing only, no predictive/profitability claim.
-- Row: `hot_path_binary_replay_l3_l2_inference_strategy_risk` vs `hot_path_binary_replay_l3_l2_strategy_risk`.
+- Answer: per-event benchmark rows insert caller-owned feature extraction + model scoring + a measured timeout/late-signal policy gate into the replay hot path, measured against the inference-free hot path. The default `LinearModel` row remains dependency-light and added **0** steady-state allocations in the curated run. An optional ONNX Runtime row now measures the real tiny ChronosLOB backend inside the same replay-loop shape (**61.0 us p50 / 262.2 us p99**, 570,000 total allocations over 120k events in the opt-in local run); plumbing only, no predictive/profitability claim.
+- Rows: `hot_path_binary_replay_l3_l2_inference_strategy_risk`; optional `hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk`; baseline `hot_path_binary_replay_l3_l2_strategy_risk`.
 - Report: [inference_event_loop_cost_report](../reports/inference_event_loop_cost_report_2026_06_01.md). See also [BENCHMARKS.md](../BENCHMARKS.md).
-- Caveat: representative local measurement on a tiny 12-event fixture; not portable; replay-loop-with-ONNX is `not measured` (ONNX optional).
+- Caveat: representative local measurement on a tiny 12-event fixture; not portable; ONNX Runtime is optional and default builds report the ONNX replay row as skipped/unavailable.
 
 ## Concurrency (SPSC)
 
