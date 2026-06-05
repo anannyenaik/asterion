@@ -23,18 +23,16 @@ Order make_order(OrderId order_id, Side side, PriceTicks price, Quantity quantit
 } // namespace
 
 TEST_CASE("Allocation tracker records standard allocations", "[alloc]") {
-#if defined(_WIN32)
   reset_allocation_counters();
   void* pointer = ::operator new(sizeof(int) * 16U);
+  // Make the allocation observable so the optimiser cannot elide the replaceable
+  // operator new/delete pair (C++14 N3664). Without this, an aggressive optimiser
+  // (e.g. Clang at -O3) removes the allocation entirely and the tracker records
+  // nothing, even though the global operator new override is correct.
+  volatile void* sink = pointer;
+  (void)sink;
+  const AllocationSnapshot snapshot = allocation_snapshot();
   ::operator delete(pointer);
-  const AllocationSnapshot snapshot = allocation_snapshot();
-#else
-  std::vector<int> values;
-
-  reset_allocation_counters();
-  values.reserve(16);
-  const AllocationSnapshot snapshot = allocation_snapshot();
-#endif
 
   REQUIRE(snapshot.allocations >= 1);
   REQUIRE(snapshot.bytes_allocated >= sizeof(int) * 16U);

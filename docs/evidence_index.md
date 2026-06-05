@@ -30,15 +30,19 @@ Conventions:
   runs on every push/PR to `main` and is dependency-light. Reviewer-readable jobs:
   - `gcc-release` — C++20 Release build + `ctest` on GCC (strict warnings).
   - `clang-release` — same build + tests on Clang → cross-compiler portability.
-  - `asan-ubsan` — unit/golden/property suite under Address + UndefinedBehaviour
-    sanitizers (Debug); proves no detected memory/UB errors in the tested paths.
   - `python-bindings` — builds the bindings, runs `pytest`, the inspection CLI and the
     one-command demo on a single interpreter.
-- **Manual-only** (never gate `main`): `onnx-fallback-manual` and `onnx-runtime-manual`
-  in the same workflow (dispatch with `onnx_backend=true`); `benchmarks` and
-  `linux-performance` workflows. ONNX Runtime is never installed by default CI.
-- What default CI proves: the project builds clean on two compilers, the C++/Python
-  suites pass, sanitizers are clean on the tested paths, and the reviewer demo runs.
+- **Manual-only** (never gate `main`):
+  - `asan-ubsan` in [.github/workflows/sanitizers.yml](../.github/workflows/sanitizers.yml)
+    — unit/golden/property suite under Address + UndefinedBehaviour sanitizers (Debug).
+    Kept manual because libstdc++ `std::regex` backtracking over the large public-L2
+    metadata array overflows the ASan-inflated stack on hosted runners; the lane raises
+    the stack limit. The non-sanitized lanes pass the same test on the default stack.
+  - `onnx-fallback-manual` and `onnx-runtime-manual` in the `ci` workflow (dispatch with
+    `onnx_backend=true`); ONNX Runtime is never installed by default CI.
+  - `benchmarks` and `linux-performance` workflows (never gate on numbers).
+- What default CI proves: the project builds clean on two compilers, and the C++/Python
+  suites plus the reviewer demo pass on a single interpreter.
 - What it does **not** prove: any performance number (benchmarks are reported, not
   gated), predictive quality, live connectivity or production readiness. Primary
   performance context is the Durham HPC evidence below, not hosted-runner timings.
