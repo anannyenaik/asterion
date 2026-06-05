@@ -5,6 +5,23 @@
 This is the first release candidate of Asterion, a Linux-first C++20 deterministic
 trading systems lab. It is published for review, not for production or live trading.
 
+## Pending v0.1.0 Final Preparation
+
+This pass is **reviewer-facing reproducibility, architecture and
+performance-evidence polish**. The repository now includes final-release
+preparation that is not yet a release:
+
+- a compact top-of-README benchmark evidence table led by Durham Hamilton8 HPC;
+- a one-page [architecture overview](docs/architecture_overview.md);
+- an Ubuntu-based devcontainer and
+  [reproducible development guide](docs/reproducible_dev_environment.md);
+- [GitHub/release metadata guidance](docs/github_release_metadata.md) and an expanded
+  final-release checklist.
+
+The devcontainer definition has not been locally built in the Windows shell used
+for this preparation because Docker was unavailable. No `v0.1.0` tag or GitHub
+release is created by this update.
+
 ## Release Metadata
 
 - Release title: **Asterion v0.1.0-rc1: deterministic trading systems lab release candidate**
@@ -69,8 +86,8 @@ cmake --build build
 - No live exchange, broker or market-data connectivity. The ingestion path is for
   recorded and simulated logs only.
 - No production HFT performance, kernel bypass, FPGA, colocated networking or profitability claim.
-- No portable benchmark or latency numbers. Generated timing JSON is local-machine evidence
-  only; no benchmark results are committed to the repository.
+- No portable benchmark or latency claim. Curated reports contain disclosed
+  environment-specific measurements; generated timing JSON remains local and ignored.
 - No managed audit retention, custody, compliance guarantee or tamper-proof storage. Audit
   signing is opt-in and local-key based.
 - No full portfolio management, market-risk feed or cross-symbol matching engine. The session
@@ -123,5 +140,5 @@ Carried forward from [ROADMAP.md](ROADMAP.md) and deferred items:
 
 ---
 
-This release candidate is for evaluation. It does not trade, connect to any venue, or publish
-performance numbers.
+This release candidate is for evaluation. It does not trade, connect to any venue,
+or claim portable performance.

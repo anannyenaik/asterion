@@ -11,6 +11,24 @@ Conventions:
 
 ## Build, test and demo
 
+**Q: Is there a reproducible Ubuntu development environment?**
+- Answer: yes, a lightweight devcontainer installs GCC, Clang, CMake, Ninja,
+  Python/pytest, git and basic build tools. It installs no ONNX Runtime and runs no
+  build, test or benchmark automatically.
+- Files: [reproducible_dev_environment.md](reproducible_dev_environment.md),
+  [`.devcontainer/Dockerfile`](../.devcontainer/Dockerfile),
+  [`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json).
+- Caveat: the definition was added from a Windows shell without Docker and is
+  explicitly not claimed as locally validated in this change. Its documented
+  commands mirror the default Linux CI paths.
+
+**Q: Where is the one-page architecture view?**
+- Answer: [architecture_overview.md](architecture_overview.md) maps the main
+  replay/book/strategy/risk/matching/report path and the optional SPSC, pooled,
+  ONNX, Python and audit-manifest side paths.
+- Caveat: it is a systems-lab architecture, not a live-trading or production
+  deployment diagram.
+
 **Q: How do I run the 10-minute reviewer demo?**
 - Answer: configure Release, build, run C++ + Python tests, run the demo on checked-in data.
 - Commands (Linux/macOS):

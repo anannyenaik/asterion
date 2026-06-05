@@ -19,6 +19,26 @@ Asterion is a Linux-first C++20 trading systems lab focused on deterministic rep
 
 It does **not** claim to be a real exchange, a live trading system, or a true production HFT stack. The goal is to make the important engineering properties visible: deterministic behavior, testability, clean boundaries and benchmarkability.
 
+## Representative Benchmark Evidence
+
+These are representative measurements under the disclosed source-report conditions,
+not portable latency or production-HFT claims. Durham Hamilton8 HPC is the primary
+performance context; the isolated public-L2 ONNX row is retained as local
+Windows/MSYS2 systems-cost evidence.
+
+| Evidence | Environment | Compiler/build | Dataset/workload | p50 | p95 | p99 | p99.9 | Throughput | Allocations after warm-up | Determinism/checksum | Source |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| Standard L3 hot path | Durham Hamilton8 HPC, Rocky Linux | GCC 13.2, Release `-O3` | high-cancellation, 1M events x 5 | 281 ns | 501 ns | 631 ns | 812 ns | 2,879,594 ev/s | 7,340,580 total | guard `14180005740461440914` | [Durham HPC report](reports/durham_hpc_performance_evaluation_2026_06_04.md#high-cancellation-1m-hot-path) |
+| Opt-in pooled L3 hot path | Durham Hamilton8 HPC, Rocky Linux | GCC 13.2, Release `-O3` | high-cancellation, 1M events x 5 | 291 ns | 491 ns | 681 ns | 832 ns | 2,815,909 ev/s | **0 total** | same guard as standard path | [Durham HPC report](reports/durham_hpc_performance_evaluation_2026_06_04.md#high-cancellation-1m-hot-path) |
+| Opt-in SPSC steady-state replay | Durham Hamilton8 HPC, Rocky Linux | GCC 13.2, Release `-O3` | high-cancellation, 1M events, `Light` validation | not measured | not measured | not measured | not measured | 4,627,770 ev/s | 1,468,122 total | parity true; dropped 0 | [Durham HPC report](reports/durham_hpc_performance_evaluation_2026_06_04.md#1m-steady-state-spsc-replay) |
+| LinearModel replay-loop inference | Durham Hamilton8 HPC, Rocky Linux | GCC 13.2, Release `-O3` | balanced 10k, 500k measured events | 511 ns | 671 ns | 792 ns | 1,002 ns | 1,649,716 ev/s | 703,450 total; inference adds **0** | guard `1442857765714779360` | [Durham HPC report](reports/durham_hpc_performance_evaluation_2026_06_04.md#balanced-10k-inference-replay-loop) |
+| Isolated public-L2 ChronosLOB ONNX inference | Windows 10 / MSYS2 UCRT64, local | GCC 16.1, Release, ONNX Runtime 1.20.1 | recorded-public-L2 `[1,16,40]` contract, 20k calls | 36.9 us | 72.3 us | 108.9 us | 409.7 us | about 23.2k inf/s | 2/call; 40,000 total | expected output reproduced within `1e-3` | [Public-L2 model-bridge report](reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md) |
+
+See [BENCHMARKS.md](BENCHMARKS.md) and the
+[performance evidence summary](reports/performance_evidence_summary_2026_06_01.md)
+for methodology, additional rows and limitations. Windows/MSYS2 and WSL2 results
+remain historical/local development baselines, and ONNX Runtime remains optional.
+
 ## How To Review This Repo In 10 Minutes
 
 ```bash
@@ -44,7 +64,8 @@ Windows PowerShell helpers fall back to an existing MSYS2/MinGW-w64 toolchain
 (`C:\msys64\ucrt64\bin`) when `cmake` is not already on `PATH`.
 
 For a quick reviewer pass, read this README, then skim the supporting docs:
-[DESIGN.md](DESIGN.md), [CORRECTNESS.md](CORRECTNESS.md), [RISK.md](RISK.md),
+[architecture overview](docs/architecture_overview.md), [DESIGN.md](DESIGN.md),
+[CORRECTNESS.md](CORRECTNESS.md), [RISK.md](RISK.md),
 [docs/matching_semantics.md](docs/matching_semantics.md),
 [BENCHMARKS.md](BENCHMARKS.md), [LIMITATIONS.md](LIMITATIONS.md),
 [ROADMAP.md](ROADMAP.md) and [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md). The current
@@ -56,7 +77,7 @@ artifacts under `build/demo/`, which is ignored by git.
 Python test suites pass, and the demo reproduces deterministic checksums (book, execution
 report, diagnostics, audit chain, latency config) on checked-in data — while machine-dependent
 timings vary. **What it does not claim:** any live connectivity, production HFT performance or
-portable/committed benchmark numbers (see [What This Does Not Claim](#what-this-does-not-claim)).
+portable benchmark guarantees (see [What This Does Not Claim](#what-this-does-not-claim)).
 
 **Reviewer shortcuts** — three docs make the audit fast:
 
@@ -115,6 +136,9 @@ CSV / binary / synthetic events
         v
   telemetry + benchmark runner
 ```
+
+See [docs/architecture_overview.md](docs/architecture_overview.md) for the
+one-page pipeline, optional side paths and explicit non-claims.
 
 ## Key Modules
 
@@ -222,6 +246,11 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_BUILD_PYTHON=
 cmake --build build
 PYTHONPATH=build/python python -m pytest python/tests
 ```
+
+For an Ubuntu-based Docker/devcontainer path with Release, Python, demo and
+sanitizer commands, see
+[docs/reproducible_dev_environment.md](docs/reproducible_dev_environment.md).
+ONNX Runtime and heavy benchmarks are deliberately not installed or run by default.
 
 ## Test
 

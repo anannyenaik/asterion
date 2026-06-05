@@ -19,6 +19,9 @@ Asterion includes a local benchmark runner for repeatable experiments. It report
 > measured (1M std-vs-pooled hot path, small stress hot path, 1M SPSC, LinearModel
 > replay-loop inference, `perf` counters/hotspots). Benchmark commands below stay
 > reproducible, but generated benchmark JSON and corpora are never committed.
+> A compact reviewer-facing selection is also near the top of
+> [README.md](README.md#representative-benchmark-evidence); this document and the
+> linked reports remain the source for methodology and limitations.
 
 ## Build
 

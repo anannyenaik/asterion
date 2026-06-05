@@ -48,6 +48,7 @@ Evidence shorthand: C++ tests live in [`tests/unit/`](../tests/unit), Python tes
 
 | Claim | Classification | Primary evidence |
 | --- | --- | --- |
+| Ubuntu-based reproducible devcontainer path for Release, C++ tests, Python tests, demo and sanitizers | Documented reviewer/development path; local Docker validation pending | [reproducible_dev_environment.md](reproducible_dev_environment.md), [`.devcontainer/Dockerfile`](../.devcontainer/Dockerfile), [`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json). Installs no ONNX Runtime and runs no heavy benchmark automatically. Added from a Windows shell without Docker, so no local image-build claim is made. |
 | Default CI builds + tests on GCC and Clang (C++20 Release, strict warnings) | Implemented + tested in default CI | [.github/workflows/ci.yml](../.github/workflows/ci.yml) jobs `gcc-release`, `clang-release` |
 | Python bindings, inspection CLI and one-command demo pass on a single interpreter | Implemented + tested in default CI | `ci.yml` job `python-bindings` |
 | Tested C++ paths are clean under Address + UndefinedBehaviour sanitizers | Implemented + tested in default CI | [.github/workflows/sanitizers.yml](../.github/workflows/sanitizers.yml) job `asan-ubsan` (Debug, `-DASTERION_ENABLE_SANITIZERS=ON`, unit/golden/property suite including the full public-L2 metadata/model-contract fixture). Large numeric arrays use bounded iterative parsing, so the lane gates every push/PR without a raised stack limit. Correctness/memory-UB evidence only; not performance or production-readiness evidence. |
@@ -120,6 +121,11 @@ Evidence shorthand: C++ tests live in [`tests/unit/`](../tests/unit), Python tes
 | Multi-version schema migration framework | Future work (v1 is stable + guarded) |
 | Current Linux `perf` counter evidence | Implemented + benchmarked (local) - **collected 2026-06-01 in WSL2** and **2026-06-04 on Durham Hamilton8 HPC**. WSL2 provides virtualized PMU evidence on one laptop; Durham provides one Slurm compute-node GCC/Rocky Linux run. Both are representative environment-specific measurements, not portable. See [reports/linux_performance_evaluation_2026_06_01.md](../reports/linux_performance_evaluation_2026_06_01.md), [reports/durham_hpc_performance_evaluation_2026_06_04.md](../reports/durham_hpc_performance_evaluation_2026_06_04.md) and [reports/perf_profile.md](../reports/perf_profile.md). |
 | More controlled Linux `perf` (LLC events when available, fixed governor/turbo, frame-pointer flamegraphs) | Future work - the WSL2 run has a virtualized PMU; the Durham run has no LLC events and no root governor/turbo control. A more controlled host/allocation would improve counter completeness and call-graph quality. |
+
+Reviewer-facing architecture and release metadata are indexed in
+[architecture_overview.md](architecture_overview.md) and
+[github_release_metadata.md](github_release_metadata.md). They summarize existing
+evidence and boundaries; they do not introduce implementation or production claims.
 
 ## Auditor's note
 

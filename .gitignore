@@ -2,6 +2,7 @@ build/
 build-*/
 cmake-build-*/
 .cache/
+.pytest_cache/
 .idea/
 .vscode/
 compile_commands.json

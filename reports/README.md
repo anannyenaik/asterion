@@ -7,6 +7,11 @@ shape of the result, not the exact numbers.
 
 For how each report maps to a claim, see [docs/claim_audit.md](../docs/claim_audit.md);
 for reproduction commands, see [docs/evidence_index.md](../docs/evidence_index.md).
+For reviewer navigation before reading individual reports, see the
+[architecture overview](../docs/architecture_overview.md), the
+[reproducible development environment](../docs/reproducible_dev_environment.md)
+and the compact benchmark evidence table near the top of the
+[README](../README.md#representative-benchmark-evidence).
 
 **Primary performance context:** the curated performance report is now the
 **Durham Hamilton8 HPC** Slurm compute-node pass
