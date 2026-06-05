@@ -33,6 +33,23 @@ The complete matching contract, state transitions and reject-vs-cancel table are
 FOK atomicity and price limits, post-only resting/crossing behavior, matching-layer STP for
 limit/market/IOC/FOK/post-only/replace flows, and risk-to-matching composition.
 
+## Independent Reference Matcher
+
+An independent Python reference matcher re-implements the same documented matching and
+order-state semantics from scratch (plain Python bid/ask books, FIFO queues per price and an
+order lookup by exchange id) and acts as a second specification. A cross-check harness replays
+identical order flow into both the C++ `MatchingEngine` (through the Python bindings) and the
+reference, then compares the full execution-report sequence field by field, the final L2 book,
+and the C++ canonical report checksum (recomputed over the reference's reports with the same
+hashing function). Coverage is hand-written golden flows (GTC rest, market/partial/IOC/FOK
+fills, post-only rest/reject, cancel, replace-loses-priority, replace self-cross, STP,
+duplicate/unknown ids) plus 20 fixed-seed random streams that mix multiple prices, bid/ask
+flow, cancels, replaces, IOC/FOK/post-only/market orders and attributed STP clients, with
+deterministic-replay assertions. The reference does not call the C++ matcher internally. This
+is a test oracle for the documented contract, not production-exchange or live-trading
+validation; L3 FIFO is validated indirectly through the trade-report ordering because the
+bindings expose an aggregate L2 view. See [docs/reference_matcher.md](docs/reference_matcher.md).
+
 ## Replay Checksums
 
 Replay validates contiguous sequence numbers and non-decreasing timestamps, then produces
@@ -253,6 +270,8 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - simulated broker/session lifecycle;
 - simulated portfolio-risk accounting checks;
 - deterministic matching report order.
+- independent reference-matcher cross-check of the matching contract (golden + fixed-seed random
+  flows; reports, final L2 and report checksum compared).
 - reusable L2 view correctness, fixed strategy callback equivalence and warmed hot-path allocation
   behavior.
 

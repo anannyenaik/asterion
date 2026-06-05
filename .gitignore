@@ -10,6 +10,9 @@ compile_commands.json
 .env.*
 !.env.example
 Testing/
+# Keep the Python test-oracle package; the CTest "Testing/" rule above also
+# matches it on case-insensitive filesystems (Windows/macOS).
+!python/asterion/testing/
 CTestTestfile.cmake
 _deps/
 *.pyc

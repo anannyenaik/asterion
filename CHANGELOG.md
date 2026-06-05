@@ -10,7 +10,17 @@ representative local measurements only.
 
 ## [Unreleased]
 
-- No changes since `v0.1.0`.
+### Added
+- Independent Python reference matcher (`asterion.testing.reference_matcher`) and a
+  cross-check harness (`asterion.testing.cross_check`) that re-implement Asterion's
+  documented matching semantics from scratch and compare the C++ `MatchingEngine`
+  against them on deterministic golden and fixed-seed random order flows
+  (`python/tests/test_reference_matcher_golden.py`,
+  `python/tests/test_reference_matcher_property.py`). Specification-style reference
+  testing for the documented contract only — not production-exchange, real-exchange
+  completeness or live-trading validation. See [docs/reference_matcher.md](docs/reference_matcher.md).
+- Read-only Python bindings for `MatchingEngine` and `CancelOrderRequest` to enable the
+  cross-check (data/matching surface only; no live or production exchange surface).
 
 ## [0.1.0] - 2026-06-05
 

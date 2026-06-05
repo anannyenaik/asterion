@@ -97,6 +97,23 @@ Conventions:
 - Files: `tests/unit/test_matching_semantics.cpp`, `tests/golden/test_golden_traces.cpp`,
   `tests/property/test_book_properties.cpp`, `tests/unit/test_order_book.cpp`.
 
+**Q: Is the matching engine cross-checked against an independent implementation?**
+- Answer: yes — a small, independent Python reference matcher re-implements the same
+  documented semantics from scratch, and a cross-check harness replays identical golden
+  and fixed-seed random order flow into both the C++ `MatchingEngine` (through the Python
+  bindings) and the reference, comparing the full execution-report sequence, the final L2
+  book and the C++ canonical report checksum.
+- Files: [docs/reference_matcher.md](reference_matcher.md),
+  [`python/asterion/testing/reference_matcher.py`](../python/asterion/testing/reference_matcher.py),
+  [`python/asterion/testing/cross_check.py`](../python/asterion/testing/cross_check.py),
+  `python/tests/test_reference_matcher_golden.py`,
+  `python/tests/test_reference_matcher_property.py`.
+- Reproduce: `PYTHONPATH=build/python python -m pytest python/tests/test_reference_matcher_golden.py python/tests/test_reference_matcher_property.py`.
+- Caveat: a test oracle / second specification for the documented contract; it does not
+  prove production-exchange correctness, real-exchange completeness or live trading. L3
+  FIFO is validated indirectly via the trade-report sequence (bindings expose aggregate
+  L2, not a full per-order FIFO walk).
+
 **Q: Where is the risk gateway / audit trail?**
 - Files: `tests/unit/test_risk_gateway.cpp`, `test_risk_controls.cpp`, `test_risk_audit.cpp`; `python/tests/test_risk_tooling.py`. See [RISK.md](../RISK.md).
 - Reproduce: `PYTHONPATH=build/python python scripts/asterion_inspect.py audit-summary --input data/samples/sample_risk_audit.jsonl --json`.

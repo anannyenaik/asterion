@@ -11,6 +11,7 @@
 #include "asterion/market_data/replay_aggregate.hpp"
 #include "asterion/market_data/spsc_replay.hpp"
 #include "asterion/matching/execution_report.hpp"
+#include "asterion/matching/matching_engine.hpp"
 #include "asterion/risk/audit_manifest.hpp"
 #include "asterion/risk/portfolio_risk.hpp"
 #include "asterion/risk/risk_gateway.hpp"
@@ -429,6 +430,24 @@ PYBIND11_MODULE(_native, module) {
       .def_readwrite("new_price_ticks", &asterion::ReplaceOrderRequest::new_price_ticks)
       .def_readwrite("new_quantity", &asterion::ReplaceOrderRequest::new_quantity)
       .def_readwrite("timestamp_ns", &asterion::ReplaceOrderRequest::timestamp_ns);
+
+  py::class_<asterion::CancelOrderRequest>(module, "CancelOrderRequest")
+      .def(py::init<>())
+      .def_readwrite("client_order_id", &asterion::CancelOrderRequest::client_order_id)
+      .def_readwrite("exchange_order_id", &asterion::CancelOrderRequest::exchange_order_id)
+      .def_readwrite("timestamp_ns", &asterion::CancelOrderRequest::timestamp_ns);
+
+  // Deterministic in-process matching engine. Exposed read-only for
+  // specification-style reference testing against an independent Python model;
+  // this is not a live or production exchange surface.
+  py::class_<asterion::MatchingEngine>(module, "MatchingEngine")
+      .def(py::init<asterion::SymbolId>(), py::arg("symbol_id"))
+      .def("submit_order", &asterion::MatchingEngine::submit_order, py::arg("request"))
+      .def("cancel_order", &asterion::MatchingEngine::cancel_order, py::arg("request"))
+      .def("replace_order", &asterion::MatchingEngine::replace_order, py::arg("request"))
+      .def("book", &asterion::MatchingEngine::book,
+           py::return_value_policy::reference_internal)
+      .def("reports_checksum", &asterion::MatchingEngine::reports_checksum);
 
   py::class_<asterion::RiskLimits>(module, "RiskLimits")
       .def(py::init<>())

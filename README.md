@@ -97,7 +97,9 @@ portable benchmark guarantees (see [What This Does Not Claim](#what-this-does-no
 - Recorded/simulated market-data logs in CSV and a compact ITCH-like binary format.
 - Thin Python bindings and analysis helpers for log conversion, replay and checksum inspection.
 - Price-time-priority matching for limit, market, cancel and replace flows, with explicit
-  IOC, FOK, post-only and deterministic self-trade-prevention semantics.
+  IOC, FOK, post-only and deterministic self-trade-prevention semantics, cross-checked
+  against an independent Python reference matcher on golden and fixed-seed random flows
+  ([docs/reference_matcher.md](docs/reference_matcher.md)).
 - Structured execution reports with deterministic report checksums.
 - Pre-trade risk gateway with quantity, notional, position, exposure, price-band, stale-data,
   duplicate-ID and kill-switch checks, plus opt-in open-order (working) exposure, per-client
