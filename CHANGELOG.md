@@ -10,7 +10,35 @@ representative local measurements only.
 
 ## [Unreleased]
 
-- No changes since `v0.1.0-rc2`.
+- No changes since `v0.1.0`.
+
+## [0.1.0] - 2026-06-05
+
+Final reproducibility, release hygiene and publication pass.
+
+### Added
+- Final reviewer-facing architecture, evidence, matching-semantics and release
+  documentation across the work completed after `v0.1.0-rc2`.
+- Automatic ASan/UBSan push/PR gating, public-L2 ChronosLOB model-contract
+  evidence and the isolated C++ optional-ONNX systems-cost benchmark.
+
+### Changed
+- Re-centred the performance narrative on Durham Hamilton8 HPC evidence while
+  retaining Windows/MSYS2 and WSL2 as historical/local development baselines.
+- Polished matching/order semantics, CI visibility and the reproducible
+  development environment.
+- Corrected the Ubuntu 24.04 Dockerfile to handle an existing UID/GID 1000 and
+  install Clang's sanitizer runtime explicitly.
+
+### Validation
+- Validated the checked-in Dockerfile and documented Docker-only path on one
+  local Docker Desktop Linux-container installation: GCC Release C++, Python
+  bindings/pytest/demo and Clang ASan/UBSan all passed.
+- The Dev Container CLI was unavailable on the validating Windows host, so
+  `devcontainer up` was not separately exercised.
+- No heavy benchmark or default-image ONNX Runtime validation was performed.
+- This validation is reviewer/development reproducibility evidence, not
+  production readiness or a portable benchmark claim.
 
 ## [0.1.0-rc2] — 2026-06-01 (since v0.1.0-rc1)
 

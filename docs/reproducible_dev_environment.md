@@ -1,14 +1,30 @@
 # Reproducible Development Environment
 
 The checked-in devcontainer provides an Ubuntu 24.04 development path with GCC,
-Clang, CMake, Ninja, Python, pytest, git and basic build tools. It deliberately
-does **not** install ONNX Runtime, download model-serving dependencies, run
-benchmarks or build the project automatically.
+Clang and its sanitizer runtime, CMake, Ninja, Python, pytest, git and basic
+build tools. It deliberately does **not** install ONNX Runtime, download
+model-serving dependencies, run benchmarks or build the project automatically.
 
-Validation status: the definition was added from a Windows development shell
-where Docker was not installed, so the image has **not been locally built** in
-this change. Its commands mirror the default Linux CI paths. Final release
-verification should build the image on a Docker-capable host.
+Validation status: the Dockerfile and documented Docker-only path were validated
+on **2026-06-05** using a local Windows Docker Desktop Linux-container
+installation (Docker Desktop 4.76.0, Engine 29.5.2). The built Ubuntu 24.04 image
+used GCC 13.3, Clang 18.1, CMake 3.28, Ninja 1.11, Python 3.12 and pytest 7.4.
+It passed:
+
+- GCC Release configure/build and `ctest`;
+- Python-enabled GCC Release configure/build, `ctest`, pytest
+  (`108 passed, 1 optional ONNX Runtime test skipped`) and the reviewer demo;
+- Clang Debug ASan/UBSan configure/build and `ctest`.
+
+The validation fixed two image-build gaps: Ubuntu 24.04 already reserves
+UID/GID 1000, and Clang's sanitizer runtime is not installed when recommended
+packages are disabled. The Dockerfile now handles both explicitly.
+
+The Dev Container CLI was not installed on the validating Windows host, so
+`devcontainer up` was not separately exercised. `devcontainer.json` uses the
+validated Dockerfile, `vscode` user and `/workspaces/<repo>` layout. This record
+is one local reviewer/development validation, not a portable or production
+deployment guarantee.
 
 ## Open In A Devcontainer
 

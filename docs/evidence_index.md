@@ -18,9 +18,13 @@ Conventions:
 - Files: [reproducible_dev_environment.md](reproducible_dev_environment.md),
   [`.devcontainer/Dockerfile`](../.devcontainer/Dockerfile),
   [`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json).
-- Caveat: the definition was added from a Windows shell without Docker and is
-  explicitly not claimed as locally validated in this change. Its documented
-  commands mirror the default Linux CI paths.
+- Validation: the Dockerfile and documented Docker-only path were built and run
+  on a local Docker Desktop Linux-container installation on 2026-06-05. GCC
+  Release C++, Python/pytest/demo and Clang ASan/UBSan paths passed after fixing
+  UID/GID handling and explicitly installing Clang's sanitizer runtime.
+- Caveat: the Dev Container CLI was unavailable on the validating Windows host,
+  so `devcontainer up` was not separately exercised. This is one local
+  reviewer/development validation, not a portable or production guarantee.
 
 **Q: Where is the one-page architecture view?**
 - Answer: [architecture_overview.md](architecture_overview.md) maps the main

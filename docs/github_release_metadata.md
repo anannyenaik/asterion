@@ -1,7 +1,7 @@
 # GitHub And v0.1.0 Release Metadata
 
-This document prepares owner-side repository metadata and the final `v0.1.0`
-release. It does **not** cut the release or change GitHub settings by itself.
+This document records owner-side repository metadata and the final `v0.1.0`
+release process. Commands remain gated on the verified release commit.
 
 ## Recommended Repository Metadata
 
@@ -59,14 +59,16 @@ GitHub CLI/API session.
 
 - Confirm `main` is clean and up to date.
 - Run [RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md) end to end.
-- Build and test the devcontainer on a Docker-capable host.
+- Confirm the recorded local Docker/devcontainer validation scope in
+  [reproducible_dev_environment.md](reproducible_dev_environment.md).
 - Confirm regular CI and sanitizer CI are green on the exact release commit.
 - Recheck README benchmark values against their linked source reports.
 - Recheck [claim_audit.md](claim_audit.md) and [LIMITATIONS.md](../LIMITATIONS.md).
 - Confirm no generated corpora, benchmark JSON, profiler output, build artifacts,
   caches, secrets or `.env` files are staged.
 - Update final release notes with the verified commit and CI run links.
-- Apply the recommended GitHub description/topics and pinning owner-side.
+- Verify the GitHub description/topics/default branch/visibility; profile pinning
+  remains owner-side.
 - Create the annotated tag only after all checks pass.
 
 ## Later Tag And Release Commands
