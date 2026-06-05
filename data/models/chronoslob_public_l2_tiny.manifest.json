@@ -1,0 +1,32 @@
+{
+  "artefacts": {
+    "chronoslob_public_l2_tiny.expected_input.json": {
+      "bytes": 16199,
+      "sha256": "d347390c732fc686d502b6f753f7db769745a333ea2bbed21f442dd95b4b196a"
+    },
+    "chronoslob_public_l2_tiny.expected_output.json": {
+      "bytes": 221,
+      "sha256": "040d3a6beecbaccf3d5ff316ddf4b3b2755dd380856cada06dc87f9fba5fe0a8"
+    },
+    "chronoslob_public_l2_tiny.metadata.json": {
+      "bytes": 22524,
+      "sha256": "16de8fb2a0b36340b6e2fd3e025ff915cd29e8861b867fb66e5aee310583de50"
+    },
+    "chronoslob_public_l2_tiny.onnx": {
+      "bytes": 10614,
+      "sha256": "26d7df8d5efee1beafc39924308231201ef095841aab1d0e330f53c8c893754d"
+    }
+  },
+  "export_command": "python ../ChronosLOB/chronos-lob/tools/export_asterion_public_l2_onnx.py --dataset data/samples/binance_public_l2_window_sample.jsonl --output data/models/chronoslob_public_l2_tiny.onnx",
+  "generated_by": "tools/export_asterion_public_l2_onnx.py",
+  "model_name": "chronoslob_public_l2_tiny",
+  "seed": 7,
+  "source_commit": "4e8fd562280385ebc713b7b8a13593728e3a10f6",
+  "source_data": {
+    "bytes": 67132,
+    "file": "data/samples/binance_public_l2_window_sample.jsonl",
+    "sha256": "9ca17722baed10103c2a09d388a2f42cdc3f86949a46fbecea249500840cffb8",
+    "snapshots": 96
+  },
+  "source_dirty": false
+}

@@ -147,7 +147,14 @@ ModelMetadata load_model_metadata(const std::filesystem::path& path) {
   metadata.input_shape = extract_int_array(text, "input_shape");
   metadata.output_shape = extract_int_array(text, "output_shape");
   metadata.feature_count = static_cast<std::size_t>(extract_uint(text, "feature_count"));
+  // window_length is optional; legacy single-timestep artefacts omit it.
+  {
+    const double window = extract_double(text, "window_length", false);
+    metadata.window_length = window >= 1.0 ? static_cast<std::size_t>(window) : 1;
+  }
   metadata.feature_version = static_cast<std::uint32_t>(extract_uint(text, "feature_version"));
+  metadata.onnx_sha256 = extract_string(text, "onnx_sha256", false);
+  metadata.source_data_sha256 = extract_string(text, "source_data_sha256", false);
   metadata.expected_test_input = extract_double_array(text, "expected_test_input");
   metadata.expected_test_output = extract_double_array(text, "expected_test_output");
   metadata.reference_weights = extract_double_array(text, "reference_weights", false);
@@ -180,11 +187,14 @@ ModelMetadataValidation validate_model_metadata(const ModelMetadata& metadata) {
                        shape_to_string(metadata.input_shape) +
                        " must have only fixed positive dimensions"};
   }
-  if (input_values != metadata.feature_count) {
+  const std::size_t window_length = metadata.window_length == 0 ? 1 : metadata.window_length;
+  const std::size_t expected_input_values = metadata.feature_count * window_length;
+  if (input_values != expected_input_values) {
     std::ostringstream error;
     error << "unsupported model shape: input_shape " << shape_to_string(metadata.input_shape)
           << " implies " << input_values << " values but feature_count="
-          << metadata.feature_count;
+          << metadata.feature_count << " * window_length=" << window_length << " = "
+          << expected_input_values;
     return {false, error.str()};
   }
   if (shape_value_count(metadata.output_shape) == 0) {
@@ -192,8 +202,8 @@ ModelMetadataValidation validate_model_metadata(const ModelMetadata& metadata) {
                        shape_to_string(metadata.output_shape) +
                        " must have only fixed positive dimensions"};
   }
-  if (metadata.expected_test_input.size() != metadata.feature_count) {
-    return {false, "expected_test_input size does not match feature_count"};
+  if (metadata.expected_test_input.size() != expected_input_values) {
+    return {false, "expected_test_input size does not match input_shape value count"};
   }
   if (metadata.expected_test_output.empty()) {
     return {false, "expected_test_output must not be empty"};
@@ -205,7 +215,8 @@ ModelMetadataValidation validate_model_metadata(const ModelMetadata& metadata) {
   if (!metadata.artefact_type.empty()) {
     const bool known = metadata.artefact_type == "trained_synthetic_smoke" ||
                        metadata.artefact_type == "exported_untrained_architecture" ||
-                       metadata.artefact_type == "deterministic_fixture";
+                       metadata.artefact_type == "deterministic_fixture" ||
+                       metadata.artefact_type == "trained_recorded_public_l2";
     if (!known) {
       return {false, "unsupported artefact_type: " + metadata.artefact_type};
     }
@@ -213,9 +224,11 @@ ModelMetadataValidation validate_model_metadata(const ModelMetadata& metadata) {
       return {false, "artefact_type/trained_model mismatch: trained_model=true but artefact_type="
                          "exported_untrained_architecture"};
     }
-    if (!metadata.trained_model && metadata.artefact_type == "trained_synthetic_smoke") {
-      return {false, "artefact_type/trained_model mismatch: trained_model=false but artefact_type="
-                         "trained_synthetic_smoke"};
+    const bool trained_type = metadata.artefact_type == "trained_synthetic_smoke" ||
+                              metadata.artefact_type == "trained_recorded_public_l2";
+    if (!metadata.trained_model && trained_type) {
+      return {false, "artefact_type/trained_model mismatch: trained_model=false but artefact_type=" +
+                         metadata.artefact_type};
     }
   }
   return {true, {}};

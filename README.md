@@ -562,7 +562,11 @@ path is tested. The fixture is deterministic and not trained; its metadata lives
 (`data/models/chronoslob_tiny_real.onnx`, input `1x1x4`, output `1x3`) — a trained `DeepLOBModel`
 exported from ChronosLOB on **synthetic toy data** — is loaded and validated through the same backend
 when ONNX Runtime is present. It is a systems-integration / inference-latency artefact only, with no
-predictive-quality, profitability, live-trading or production-serving claim. The `ci` workflow has a
+predictive-quality, profitability, live-trading or production-serving claim. The ChronosLOB bridge now
+also includes a recorded-public-L2 model-contract artefact
+(`data/models/chronoslob_public_l2_tiny.onnx`, windowed `1x16x40`→`1x3`, trained on recorded public
+Binance crypto L2 depth), validated as a standalone model contract with no predictive or trading
+claim. The `ci` workflow has a
 manual `onnx_backend` input. When enabled, it runs an opt-in fallback lane with
 `-DASTERION_USE_ONNXRUNTIME=ON` and an opt-in ONNX Runtime lane that downloads the dependency, builds
 the real backend and runs the artefacts. Neither lane runs in default CI.

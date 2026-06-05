@@ -40,6 +40,16 @@ std::filesystem::path chronoslob_real_metadata_path() {
          "chronoslob_tiny_real.metadata.json";
 }
 
+std::filesystem::path chronoslob_public_l2_model_path() {
+  return std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models" /
+         "chronoslob_public_l2_tiny.onnx";
+}
+
+std::filesystem::path chronoslob_public_l2_metadata_path() {
+  return std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models" /
+         "chronoslob_public_l2_tiny.metadata.json";
+}
+
 } // namespace
 
 TEST_CASE("ChronosLOB tiny fixture metadata loads and validates",
@@ -127,6 +137,72 @@ TEST_CASE("Model metadata rejects a trained_model/artefact_type mismatch",
   const ModelMetadataValidation validation = validate_model_metadata(metadata);
   REQUIRE_FALSE(validation.ok);
   REQUIRE(validation.error.find("artefact_type/trained_model mismatch") != std::string::npos);
+}
+
+TEST_CASE("ChronosLOB public-L2 windowed artefact metadata loads and validates",
+          "[inference][backend][metadata][public_l2]") {
+  const ModelMetadata metadata = load_model_metadata(chronoslob_public_l2_metadata_path());
+  const ModelMetadataValidation validation = validate_model_metadata(metadata);
+  REQUIRE(validation.ok);
+  REQUIRE(validation.error.empty());
+  REQUIRE(metadata.model_name == "chronoslob_public_l2_tiny");
+  REQUIRE(metadata.model_class == "DeepLOBModel");
+  REQUIRE(metadata.artefact_type == "trained_recorded_public_l2");
+  REQUIRE(metadata.trained_model == true);
+  REQUIRE(metadata.deterministic_fixture == false);
+  // Multi-timestep window contract: input is [1, 16, 40], output [1, 3].
+  REQUIRE(metadata.window_length == 16U);
+  REQUIRE(metadata.feature_count == 40U);
+  REQUIRE(shape_to_string(metadata.input_shape) == "1x16x40");
+  REQUIRE(shape_to_string(metadata.output_shape) == "1x3");
+  // Flattened input value count is feature_count * window_length.
+  REQUIRE(shape_value_count(metadata.input_shape) == metadata.feature_count * metadata.window_length);
+  REQUIRE(metadata.expected_test_input.size() == metadata.feature_count * metadata.window_length);
+  REQUIRE(metadata.expected_test_output.size() == 3);
+  // A real exported model carries no hand-written linear head.
+  REQUIRE(metadata.reference_weights.empty());
+  // Content hashes are recorded by the exporter.
+  REQUIRE(metadata.onnx_sha256.size() == 64);
+  REQUIRE(metadata.source_data_sha256.size() == 64);
+}
+
+TEST_CASE("Public-L2 windowed model is not Asterion's live 4-feature contract",
+          "[inference][backend][metadata][public_l2]") {
+  // The windowed artefact deliberately has a richer (40-feature x 16-step)
+  // contract than Asterion's live caller-owned L2 buffer, so it must NOT be
+  // accepted as the live-buffer model: feature compatibility fails clearly.
+  const ModelMetadata metadata = load_model_metadata(chronoslob_public_l2_metadata_path());
+  const ModelMetadataValidation compat =
+      validate_feature_compatibility(metadata, kL2FeatureCount, kL2FeatureVersion);
+  REQUIRE_FALSE(compat.ok);
+  REQUIRE(compat.error.find("feature count mismatch") != std::string::npos);
+
+  // An ONNX request that declares the windowed model's feature count against the
+  // live feature buffer falls back to the deterministic LinearModel before any
+  // model load: ONNX-named evidence cannot silently masquerade as the live model.
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = chronoslob_public_l2_model_path();
+  config.model_feature_count = metadata.feature_count; // 40 != kL2FeatureCount (4)
+  config.model_feature_version = metadata.feature_version;
+  config.linear_weights = {1.0, 0.0, 0.0, 0.0};
+  config.linear_bias = 0.0;
+  const InferenceBackendSelection selection = make_inference_backend(config);
+  REQUIRE(selection.model != nullptr);
+  REQUIRE(selection.active == InferenceBackend::Linear);
+  REQUIRE(selection.fell_back);
+  REQUIRE(selection.detail.find("feature count mismatch") != std::string::npos);
+}
+
+TEST_CASE("Windowed metadata shape validation respects window_length",
+          "[inference][backend][metadata][public_l2]") {
+  ModelMetadata metadata = load_model_metadata(chronoslob_public_l2_metadata_path());
+  // Breaking the window_length so feature_count * window_length no longer equals
+  // the flattened input value count must be rejected as an unsupported shape.
+  metadata.window_length = 8; // 40 * 8 = 320 != 640
+  const ModelMetadataValidation validation = validate_model_metadata(metadata);
+  REQUIRE_FALSE(validation.ok);
+  REQUIRE(validation.error.find("unsupported model shape") != std::string::npos);
 }
 
 TEST_CASE("ONNX request for the real model with a mismatched feature count falls back clearly",
@@ -390,6 +466,41 @@ TEST_CASE("Real ChronosLOB ONNX load allocations are separated from steady-state
   REQUIRE(last == Catch::Approx(metadata.expected_test_output.front()).margin(1e-3));
   (void)steady_snapshot;
   (void)load_snapshot;
+}
+
+TEST_CASE("ONNX Runtime loads the public-L2 windowed artefact and reproduces its fixture",
+          "[inference][backend][onnx][public_l2]") {
+  const ModelMetadata metadata = load_model_metadata(chronoslob_public_l2_metadata_path());
+  REQUIRE(validate_model_metadata(metadata).ok);
+  REQUIRE(metadata.trained_model);
+
+  // The windowed artefact is a standalone model-contract artefact (not the live
+  // 4-feature buffer), so it is loaded directly: model_feature_count is left
+  // unset so the live-buffer compatibility gate is skipped and the ONNX model is
+  // loaded. If the model failed to load this would fall back and the REQUIRE on
+  // active == Onnx would fail, so ONNX-named evidence cannot silently degrade.
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = chronoslob_public_l2_model_path();
+  config.linear_weights = {99.0, 99.0, 99.0, 99.0};
+  config.linear_bias = 99.0;
+
+  const InferenceBackendSelection selection = make_inference_backend(config);
+  INFO(selection.detail);
+  REQUIRE(selection.model != nullptr);
+  REQUIRE(selection.active == InferenceBackend::Onnx);
+  REQUIRE_FALSE(selection.fell_back);
+  REQUIRE(selection.model->backend_name() == "onnx");
+  REQUIRE(selection.model->input_shape() == "1x16x40");
+  REQUIRE(selection.model->output_shape() == "1x3");
+
+  // Feed the recorded expected-input window (640 flattened values) and reproduce
+  // the recorded expected output deterministically.
+  const std::vector<double> features = metadata.expected_test_input;
+  const double first_score = selection.model->score(features);
+  const double second_score = selection.model->score(features);
+  REQUIRE(first_score == Catch::Approx(metadata.expected_test_output.front()).margin(1e-3));
+  REQUIRE(first_score == Catch::Approx(second_score));
 }
 #endif
 

@@ -150,6 +150,15 @@ Representative local measurements (this machine/environment), not portable claim
 inference p50 ≈ 29 µs (p99 ≈ 66 µs) vs the fixture `Gemm` ≈ 7 µs, both well above the
 zero-allocation `LinearModel`; ONNX steady-state shows ~2 allocations/call (ONNX Runtime per-run
 buffers), separated from one-time model-load allocations.
+The current **recorded-public-L2 model-contract artefact** (windowed
+`chronoslob_public_l2_tiny`, `[1,16,40]→[1,3]`, trained on recorded public Binance crypto L2 depth)
+is documented in
+[reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md](reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md).
+Because its 40×16 contract differs from the live 4-feature L2 buffer it is **not** wired into the
+C++ replay-loop ONNX rows above; its isolated ONNX Runtime inference latency was instead measured as a
+local Python `onnxruntime` diagnostic via the exporter's `--benchmark` (representative, not portable):
+p50 ≈ 49 µs, p95 ≈ 82 µs, p99 ≈ 112 µs, p99.9 ≈ 161 µs over 20k steady-state iterations. A C++
+optional-lane isolated-latency row for the windowed contract is pending and is not fabricated.
 The feature-buffer-specific report is
 [reports/inference_feature_buffer_report_2026_05_31.md](reports/inference_feature_buffer_report_2026_05_31.md).
 

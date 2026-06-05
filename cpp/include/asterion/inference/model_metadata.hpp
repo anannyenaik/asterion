@@ -12,7 +12,8 @@ struct ModelMetadata {
   std::string model_name;
   std::string model_class;
   // One of: "trained_synthetic_smoke", "exported_untrained_architecture",
-  // "deterministic_fixture". Optional; empty for legacy metadata.
+  // "deterministic_fixture", "trained_recorded_public_l2". Optional; empty for
+  // legacy metadata.
   std::string artefact_type;
   std::string source_repo_path;
   std::string source_commit;
@@ -20,8 +21,18 @@ struct ModelMetadata {
   std::string export_command;
   std::vector<std::int64_t> input_shape;
   std::vector<std::int64_t> output_shape;
+  // Per-timestep feature count. For windowed models the flattened input value
+  // count equals feature_count * window_length.
   std::size_t feature_count{0};
+  // Number of timesteps in the model input window. Optional; defaults to 1 for
+  // single-timestep (legacy) artefacts. Must be >= 1.
+  std::size_t window_length{1};
   std::uint32_t feature_version{0};
+  // Optional content hashes recorded by the exporter. Empty for legacy metadata.
+  // onnx_sha256 covers the model file; source_data_sha256 covers the recorded
+  // dataset the model was trained on (for recorded-data artefacts).
+  std::string onnx_sha256;
+  std::string source_data_sha256;
   std::vector<double> expected_test_input;
   std::vector<double> expected_test_output;
   // Optional deterministic linear head. Present for the hand-written fixture and

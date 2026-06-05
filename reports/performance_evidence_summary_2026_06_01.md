@@ -135,8 +135,14 @@ environments in the comprehensive table.
 - No live trading, no authenticated exchange/broker connectivity, no order
   placement.
 - No profitability, alpha, signal value or predictive-quality claim — the
-  inference path measures **plumbing only**, and the ChronosLOB toy model is
-  trained on synthetic toy data with no market meaning.
+  inference path measures **plumbing only**, the ChronosLOB toy model is
+  trained on synthetic toy data with no market meaning, and the newer
+  recorded-public-L2 ChronosLOB model-contract artefact (windowed `1x16x40`,
+  recorded public Binance crypto L2 depth; see
+  [chronoslob_public_l2_model_bridge_report_2026_06_04.md](chronoslob_public_l2_model_bridge_report_2026_06_04.md))
+  reports accuracy as **diagnostic context only** with no trading significance;
+  its isolated ONNX latency is a local Python `onnxruntime` diagnostic, not the
+  C++ hot path and not portable.
 - No production model-serving claim; ONNX Runtime is opt-in and absent from
   default CI and from the Durham pass.
 - Binance data remains **public crypto L2 only** with synthetic order IDs.

@@ -7,11 +7,17 @@ It does not claim predictive quality, trading profitability, live trading,
 production model serving, production HFT, SOTA modelling or a portable latency
 guarantee.
 
-There are now **two** checked-in artefacts:
+There are now **three** checked-in artefacts:
 
-1. a hand-written deterministic **fixture** (`Gemm` linear head), and
-2. a **real, tiny ChronosLOB model** (a trained `DeepLOBModel`) exported from
-   ChronosLOB code.
+1. a hand-written deterministic **fixture** (`Gemm` linear head),
+2. a **synthetic-toy ChronosLOB model** (a trained `DeepLOBModel`, 4-feature
+   single-timestep) exported from ChronosLOB code, and
+3. a **recorded-public-L2 ChronosLOB model** (a trained windowed `DeepLOBModel`,
+   `[1,16,40]→[1,3]`) trained on recorded public Binance crypto L2 depth — the
+   current **model-contract** artefact (see "Recorded-public-L2 artefact" below).
+
+Artefacts 1 and 2 remain checked in as historical/plumbing context and are not
+deleted; artefact 3 supersedes them only for model-contract evidence.
 
 ## Artefacts
 
@@ -40,6 +46,31 @@ and exported to ONNX (opset 17). It is a systems-integration / inference-latency
 artefact only: no predictive-quality, profitability, live-trading or
 production-serving claim. See the real-model report for the full contract,
 training summary, measured latency/allocation split and reproduction commands.
+
+Recorded-public-L2 artefact (trained on recorded public crypto L2 depth):
+
+- Model: `data/models/chronoslob_public_l2_tiny.onnx` (10,614 bytes)
+- Metadata: `data/models/chronoslob_public_l2_tiny.metadata.json`
+- Fixtures: `data/models/chronoslob_public_l2_tiny.expected_input.json`,
+  `…expected_output.json`
+- Manifest: `data/models/chronoslob_public_l2_tiny.manifest.json`
+- Source dataset: `data/samples/binance_public_l2_window_sample.jsonl`
+- Export script: ChronosLOB `tools/export_asterion_public_l2_onnx.py`
+- Report: `reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md`
+
+This is the current **model-contract** artefact: a windowed `DeepLOBModel`
+(`[1,16,40]→[1,3]`, window length 16, 40-dim DeepLOB-style LOB frame per
+timestep) trained on **recorded public Binance crypto L2 depth** from ChronosLOB
+commit `4e8fd562280385ebc713b7b8a13593728e3a10f6`. It carries explicit
+normalisation metadata (mid-relative + per-feature z-score), a source-data
+checksum and a model checksum. It is a systems/integration artefact only: **no**
+predictive-quality, profitability, alpha, live-trading, production-serving,
+production-HFT, portable-latency, equities-realism or L3-realism claim, and the
+reported accuracy is diagnostic context only. Because its 40×16 contract differs
+from Asterion's live 4-feature L2 buffer, it is validated as a standalone model
+contract and is **not** auto-selected for the live hot path. See the public-L2
+report for the full contract, schema, checksums, ONNX validation and the local
+isolated-latency diagnostic.
 
 ## ChronosLOB Source Status
 
