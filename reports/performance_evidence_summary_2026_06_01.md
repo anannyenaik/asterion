@@ -141,8 +141,9 @@ environments in the comprehensive table.
   recorded public Binance crypto L2 depth; see
   [chronoslob_public_l2_model_bridge_report_2026_06_04.md](chronoslob_public_l2_model_bridge_report_2026_06_04.md))
   reports accuracy as **diagnostic context only** with no trading significance;
-  its isolated ONNX latency is a local Python `onnxruntime` diagnostic, not the
-  C++ hot path and not portable.
+  its isolated ONNX latency is now an optional C++ `public_l2_chronoslob_onnx_inference_only`
+  systems-cost row (with a local Python `onnxruntime` cross-reference), measured
+  locally only — not the C++ hot path and not portable.
 - No production model-serving claim; ONNX Runtime is opt-in and absent from
   default CI and from the Durham pass.
 - Binance data remains **public crypto L2 only** with synthetic order IDs.
@@ -251,6 +252,7 @@ rows as noted in each source report.
 | zero-alloc feature extraction | caller-owned `FeatureBuffer` vs vector-returning | L2 features 1×4, 200k iters | Win/MSYS2 | 100 ns | 300 ns | 300 ns | 6,983,411 op/s | **0** (vs 200,000 for vector path) | unit-tested 0-alloc after warm-up | [inference_feature_buffer](inference_feature_buffer_report_2026_05_31.md) | p50 at timer granularity; plumbing only |
 | LinearModel inference | `linear_inference_only` | 1×4 input, 200k iters | Win/MSYS2 | 100 ns | 200 ns | 300 ns | 7,708,080 op/s (aggregate ≈ 5 ns/call, ~190M/s) | 0 | unit-tested 0-alloc | [inference_report](inference_report_2026_05_31.md) | per-call p50 dominated by timer; no predictive claim |
 | real ChronosLOB ONNX | `chronoslob_real_onnx_inference_only` | 1×1×4→1×3 DeepLOB, 50k iters | Win/MSYS2 + ONNX RT 1.20.1 | 29.0 µs | 65.7 µs | 100.6 µs | ≈ 33.5k inf/s | ~2 / call (load 20 one-time) | deterministic test vector verified | [chronoslob_real_model_bridge](chronoslob_real_model_bridge_report_2026_06_01.md) | optional ONNX; toy model; not alloc-free; plumbing only |
+| isolated public-L2 ONNX | `public_l2_chronoslob_onnx_inference_only` | 1×16×40→1×3 DeepLOB window, 20k iters | Win/MSYS2 + ONNX RT 1.20.1 | 36.9 µs | 108.9 µs | 409.7 µs | ≈ 23.2k inf/s | ~2 / call (load 20 one-time; ≈ 2.5 KB/call windowed input) | recorded expected output reproduced (≤ 1e-3) before timing | [chronoslob_public_l2_model_bridge](chronoslob_public_l2_model_bridge_report_2026_06_04.md) | optional ONNX; recorded public-L2 model contract; systems cost only; not alloc-free; not portable |
 | event-loop inference | replay hot path + feature + LinearModel + measured policy gate (vs inference-free hot path) | `sample_hot_path_replay.bin` (12 events, 10k iters) | Win/MSYS2 | 1,600 ns (base 800 ns) | 6,300 ns | 28,200 ns | 280,467 ev/s (base 487,639) | 210,000 (= base; inference adds **0**) | guard `17484014929127736293` | [inference_event_loop_cost](inference_event_loop_cost_report_2026_06_01.md) | new run; plumbing only; +~800 ns p50, +0 allocs; tiny 12-event fixture, local only |
 | optional event-loop ONNX | replay hot path + feature + real ChronosLOB ONNX + measured policy gate | `sample_hot_path_replay.bin` (12 events, 10k iters) | Win/MSYS2 + ONNX RT 1.20.1 | 61.0 us | 262.2 us | 811.3 us | 13,079 ev/s | 570,000 total (= base book + ~3 ONNX allocs/event) | guard `7611055767038144338` | [inference_event_loop_cost](inference_event_loop_cost_report_2026_06_01.md) | optional ONNX; toy model; plumbing only; not alloc-free; local only |
 | SPSC steady-state replay | single-thread vs steady SPSC, `Light` validation | balanced/replace-heavy/deep-book 10k–1M | Win/MSYS2 | n/a (aggregate run) | n/a | n/a | single 0.49M–1.60M ev/s; SPSC 0.37M–1.54M ev/s | dominated by correctness-first book storage | checksum parity: true (6/6); dropped 0 | [spsc_steady_state](spsc_steady_state_report_2026_05_31.md) | absolute numbers dominated by validation cost; ratio is the signal |

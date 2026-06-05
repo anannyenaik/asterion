@@ -185,6 +185,25 @@ each artefact, labelled `chronoslob_fixture` and `chronoslob_real`:
 The `chronoslob_real` rows exercise the trained `DeepLOBModel`; the
 `chronoslob_fixture` rows exercise the legacy `Gemm` fixture for comparison.
 
+For the recorded-public-L2 `[1,16,40]→[1,3]` artefact (`chronoslob_public_l2_tiny`)
+the benchmark target also emits two **isolated** rows when built with ONNX Runtime:
+
+- `public_l2_chronoslob_onnx_model_load` (one-time session/graph setup), and
+- `public_l2_chronoslob_onnx_inference_only` (steady-state, 20k iters after warm-up).
+
+These load the artefact as a standalone windowed model contract (the live
+4-feature buffer gate is deliberately skipped) and **reproduce the recorded
+`expected_test_output[0]` within `1e-3` before any timing**. They are standalone
+systems-cost evidence for scoring the windowed artefact, **not** the live
+4-feature replay-loop contract and **not** wired into the replay-loop row above.
+Like the other ONNX rows they are emitted only when the active backend is actually
+ONNX; default builds report `public_l2_chronoslob_onnx_inference_only` as
+skipped/unavailable rather than timing the `LinearModel` fallback under an ONNX
+name. Representative local measurement (Win10 / MSYS2 UCRT64 GCC, Release, ONNX
+Runtime 1.20.1, not portable): p50 ≈ 37 µs, p99 ≈ 109 µs, ≈ 23.2k inf/s, ~2
+allocations/call; see the public-L2 report for the full table and a Python
+cross-reference.
+
 Each inference row reports p50, p95, p99, p99.9, max, throughput, allocation
 count, allocation bytes, backend name, model name, input shape, output shape,
 feature count and feature version.
@@ -243,7 +262,11 @@ ONNX Runtime build is reproduced in the manual `onnx-runtime-manual` job of
 (triggered by dispatching the `ci` workflow with `onnx_backend=true`): it downloads
 ONNX Runtime 1.20.1, builds the real backend and runs `ctest`, asserting the
 ChronosLOB fixture, the real tiny model and the recorded-public-L2 model-contract
-artefact all load and score deterministically. The companion `onnx-fallback-manual`
+artefact all load and score deterministically. That job also smoke-tests the
+isolated `public_l2_chronoslob_onnx_inference_only` benchmark row, asserting it is
+present (not in `skipped_benchmarks`), reports `backend=onnx` and carries the
+`1x16x40`/`1x3` windowed shapes — without collecting heavy benchmark numbers. The
+companion `onnx-fallback-manual`
 job builds with `-DASTERION_USE_ONNXRUNTIME=ON` while the dependency is **absent**,
 proving the deterministic `LinearModel` fallback still builds and passes. This is
 **model-contract / systems-integration** evidence only — no predictive-quality,

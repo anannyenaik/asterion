@@ -239,3 +239,31 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/build-onnxrt/python
           LD_LIBRARY_PATH: ${{ github.workspace }}/onnxruntime/lib
         run: python3 -m pytest python/tests
+
+      # Smoke-test (not a benchmark collection) the optional ISOLATED C++ ONNX row
+      # for the recorded-public-L2 [1,16,40] artefact: assert the row is present,
+      # is NOT in skipped_benchmarks, reports backend=onnx and the windowed
+      # contract shapes. Heavy replay corpora are kept light (--hot-path-iterations);
+      # this only proves the row is wired and selected when ONNX Runtime is present.
+      - name: Smoke-test public-L2 isolated ONNX benchmark row
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/onnxruntime/lib
+        run: |
+          set -euo pipefail
+          ./build-onnxrt/asterion_benchmarks --no-text \
+            --hot-path-iterations 50 --warmup-iterations 2 \
+            --json build-onnxrt/public_l2_onnx_smoke.json
+          python3 - <<'PY'
+          import json
+          data = json.load(open("build-onnxrt/public_l2_onnx_smoke.json"))
+          names = {b["name"] for b in data["benchmarks"]}
+          skipped = {s["name"] for s in data.get("skipped_benchmarks", [])}
+          row = "public_l2_chronoslob_onnx_inference_only"
+          assert row in names, f"{row} missing from benchmark rows; skipped={sorted(skipped)}"
+          assert row not in skipped, f"{row} unexpectedly reported skipped"
+          b = next(b for b in data["benchmarks"] if b["name"] == row)
+          assert b["backend"] == "onnx", b
+          assert b["input_shape"] == "1x16x40", b
+          assert b["output_shape"] == "1x3", b
+          print(f"public-L2 isolated ONNX row present: p50={b['p50_ns']} ns, p99={b['p99_ns']} ns")
+          PY

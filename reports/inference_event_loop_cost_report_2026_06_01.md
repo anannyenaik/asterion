@@ -17,6 +17,14 @@ and adds measured event-loop rows for the standard `LinearModel` path and, when
 ONNX Runtime is available, the real tiny ChronosLOB ONNX backend inside the same
 deterministic replay-loop inference pipeline.
 
+> **Scope note.** This report covers the *replay-loop* inference path on the live
+> 4-feature contract. The recorded-public-L2 `[1,16,40]` ChronosLOB artefact is a
+> different, windowed contract that is **not** wired into this event loop; its
+> isolated systems cost is measured separately by the optional
+> `public_l2_chronoslob_onnx_inference_only` row (see
+> [chronoslob_public_l2_model_bridge_report_2026_06_04.md](chronoslob_public_l2_model_bridge_report_2026_06_04.md)),
+> not here.
+
 ## Executive summary
 
 - Adding **synchronous inference** (caller-owned feature extraction → `LinearModel`

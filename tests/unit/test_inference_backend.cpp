@@ -234,6 +234,49 @@ TEST_CASE("Public-L2 windowed model is not Asterion's live 4-feature contract",
   REQUIRE(selection.model->score(features) == Catch::Approx(5.0));
 }
 
+TEST_CASE("Public-L2 isolated ONNX benchmark config selects ONNX or is detectably skipped",
+          "[inference][backend][onnx][public_l2]") {
+  // Mirrors the config used by the optional isolated C++ ONNX benchmark row
+  // (public_l2_chronoslob_onnx_inference_only): the standalone windowed artefact
+  // is loaded directly with model_feature_count left UNSET so the live 4-feature
+  // buffer gate is skipped. The benchmark requires active == Onnx (no fallback)
+  // before timing, so this is the invariant that decides whether the row is
+  // measured or reported skipped. It is asserted in BOTH build configurations.
+  const ModelMetadata metadata = load_model_metadata(chronoslob_public_l2_metadata_path());
+  REQUIRE(validate_model_metadata(metadata).ok);
+
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = chronoslob_public_l2_model_path();
+  // model_feature_count deliberately unset: standalone windowed model contract.
+  config.linear_weights = {1.0, 0.0, 0.0, 0.0};
+  config.linear_bias = 0.0;
+
+  const InferenceBackendSelection selection = make_inference_backend(config);
+  REQUIRE(selection.model != nullptr);
+  REQUIRE(selection.requested == InferenceBackend::Onnx);
+
+  if (kOnnxRuntimeAvailable) {
+    // ONNX present: the benchmark times genuine ONNX scoring of the [1,16,40]
+    // artefact and reproduces the recorded expected output before timing.
+    REQUIRE(selection.active == InferenceBackend::Onnx);
+    REQUIRE_FALSE(selection.fell_back);
+    REQUIRE(selection.model->backend_name() == "onnx");
+    REQUIRE(selection.model->input_shape() == "1x16x40");
+    REQUIRE(selection.model->output_shape() == "1x3");
+    const double score = selection.model->score(metadata.expected_test_input);
+    REQUIRE(score == Catch::Approx(metadata.expected_test_output.front()).margin(1e-3));
+  } else {
+    // ONNX absent: selection falls back to the LinearModel and is flagged
+    // fell_back. That flag is exactly what makes the benchmark report the row as
+    // skipped/unavailable instead of fabricating public-L2 ONNX timing: the
+    // LinearModel fallback cannot masquerade as public-L2 ONNX evidence.
+    REQUIRE(selection.active == InferenceBackend::Linear);
+    REQUIRE(selection.fell_back);
+    REQUIRE(selection.model->backend_name() == "linear");
+  }
+}
+
 TEST_CASE("Windowed metadata shape validation respects window_length",
           "[inference][backend][metadata][public_l2]") {
   ModelMetadata metadata = load_model_metadata(chronoslob_public_l2_metadata_path());

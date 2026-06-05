@@ -184,25 +184,59 @@ source dataset; `python/tests/test_chronoslob_public_l2_bridge.py` re-checks the
 
 ## Inference benchmark (local, isolated, diagnostic)
 
-Isolated ONNX Runtime inference latency for this artefact, measured locally via
-`--benchmark` (Python `onnxruntime` 1.20.1, CPU EP, single process, 20,000
-steady-state iterations after warm-up):
+This is the **systems cost of scoring** the recorded-public-L2 model-contract
+artefact through Asterion's optional C++ ONNX path — *not* replay-loop
+integration, *not* predictive-quality, alpha or profitability evidence.
 
-| metric | value |
-|---|---|
-| p50 | 49.2 µs |
-| p95 | 82.3 µs |
-| p99 | 111.5 µs |
-| p99.9 | 160.7 µs |
-| max | 323.9 µs |
-| throughput | ~18.8k inferences/s |
+### C++ optional ONNX Runtime row (isolated, measured)
 
-This is a **local Python ONNX Runtime diagnostic**, not the C++ hot path and not
-portable. The C++ optional-lane replay-loop ONNX rows in
-`benchmarks/benchmark_main.cpp` exercise the **live 4-feature** contract; this
-windowed 40×16 artefact has a different input contract and is **not** wired into
-those rows. A C++ optional-lane isolated-latency row for the windowed contract is
-**pending** and is not fabricated here.
+`benchmarks/benchmark_main.cpp` emits two optional rows for this artefact — only
+when built with ONNX Runtime (`-DASTERION_USE_ONNXRUNTIME=ON`). They load
+`chronoslob_public_l2_tiny.onnx` as a standalone `[1,16,40] → [1,3]` contract
+(the live 4-feature buffer gate is deliberately skipped), feed the recorded
+640-value window and **reproduce `expected_test_output[0]` within `1e-3` before
+any timing**. If ONNX Runtime is absent — or the model cannot load and reproduce
+the recorded output — the row is recorded under `skipped_benchmarks` with a
+reason; the deterministic `LinearModel` fallback is **never** timed under the
+ONNX-named row.
+
+Toolchain: Windows 10, MinGW UCRT64 GCC 16.1.0, Release, ONNX Runtime 1.20.1
+(C++), CPU EP, single process, Intel Core (Kaby Lake, Family 6 Model 158).
+Steady-state row is 20,000 iterations after a warm-up.
+
+| row | timing | p50 | p95 | p99 | p99.9 | max |
+|---|---|---|---|---|---|---|
+| `public_l2_chronoslob_onnx_inference_only` | per-call | 36.9 µs | 72.3 µs | 108.9 µs | 409.7 µs | 1.19 ms |
+| `public_l2_chronoslob_onnx_model_load` | model-load | 3.26 ms | — | — | — | 3.26 ms |
+
+Throughput ≈ **23.2k inferences/s**. Allocation split (load vs steady-state):
+
+| row | allocations | per call | bytes |
+|---|---|---|---|
+| `public_l2_chronoslob_onnx_model_load` | 20 (one-time) | — | 2,315 B (one-time) |
+| `public_l2_chronoslob_onnx_inference_only` | 40,000 / 20k | 2 | ≈ 2,568 B/call |
+
+Model-load (session/graph setup) is measured separately and not folded into
+per-call latency. Steady-state inference shows ~2 allocations/call from ONNX
+Runtime's per-run buffers; the larger ≈ 2.5 KB/call (vs ~24 B for the single-step
+real artefact) is dominated by the 640-element windowed `float` input buffer.
+**No allocation-free claim is made for ONNX inference; the counts are measured and
+reported.** These are **representative local measurements on this
+machine/environment, not portable performance claims**; Durham Hamilton8 HPC
+remains Asterion's primary performance context.
+
+### Local Python ONNX Runtime diagnostic (cross-reference)
+
+For comparison, the exporter's `--benchmark` (Python `onnxruntime` 1.20.1, CPU EP,
+single process, 20,000 steady-state iterations after warm-up) reported p50 ≈
+49.2 µs, p95 ≈ 82.3 µs, p99 ≈ 111.5 µs, p99.9 ≈ 160.7 µs, max ≈ 323.9 µs (~18.8k
+inferences/s) on the same machine. The C++ row above is the in-process systems
+cost through Asterion's own optional ONNX backend; both are local diagnostics, not
+the trading hot path and not portable.
+
+The C++ optional-lane **replay-loop** ONNX rows in `benchmarks/benchmark_main.cpp`
+exercise the **live 4-feature** contract; this windowed 40×16 artefact has a
+different input contract and is **not** wired into those rows.
 
 ## Fallback behaviour
 
@@ -238,14 +272,15 @@ those rows. A C++ optional-lane isolated-latency row for the windowed contract i
 
 * Tiny, heavily-overlapping recorded window set; smoke-scale model; no held-out
   validation.
-* Latency is a local Python ONNX Runtime diagnostic, not the C++ hot path and not
-  portable; Durham HPC remains the primary performance context.
-* ONNX Runtime is opt-in; default builds/CI never require it.
+* Latency is an isolated, local diagnostic (C++ optional ONNX row above + a Python
+  cross-reference), not the C++ hot path and not portable; Durham HPC remains the
+  primary performance context.
+* ONNX Runtime is opt-in; default builds/CI never require it (the C++ row reports
+  skipped/unavailable when it is absent).
 * The recorded dataset is a compact public-L2 subset, not a market dataset.
 
 ## Next work
 
-1. CI visibility / matrix polish (surface the optional ONNX lane and the
-   recorded-public-L2 contract checks in the documented matrix).
-2. Matching / order-semantics polish.
-3. A technical paper, only after the above and any final evidence polish.
+1. A technical paper, now that the optional isolated C++ ONNX systems-cost row for
+   the recorded-public-L2 `[1,16,40]` artefact has been added and measured. A final
+   HPC Clang wording clean-up may precede it if desired.

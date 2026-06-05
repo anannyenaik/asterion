@@ -19,6 +19,7 @@
 #include <bit>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -57,6 +58,13 @@ namespace {
 
 constexpr std::string_view kChronoslobRealOnnxReplayLoopRowName =
     "hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk";
+
+// Optional isolated C++ ONNX row for the recorded-public-L2 ChronosLOB [1,16,40]
+// model-contract artefact. This is standalone systems-cost evidence for scoring
+// that artefact; it is deliberately NOT the live 4-feature replay-loop contract
+// and is never wired into the replay-loop rows above.
+constexpr std::string_view kPublicL2OnnxIsolatedRowName =
+    "public_l2_chronoslob_onnx_inference_only";
 
 struct Options {
   std::filesystem::path dataset_path{std::filesystem::path(ASTERION_SOURCE_DIR) / "data" /
@@ -1687,6 +1695,109 @@ BenchmarkResult benchmark_feature_buffer_measured_chronoslob_onnx_inference(
   tag_from_selection(result, selection, metadata);
   return result;
 }
+
+// Config for the standalone windowed public-L2 artefact. Unlike
+// make_chronoslob_onnx_config, model_feature_count/version are deliberately left
+// unset so the live 4-feature buffer contract gate is skipped: this artefact is a
+// standalone [1,16,40] model contract, not Asterion's live L2 buffer model. The
+// model's ONNX input/output shape and the recorded expected fixture are validated
+// directly instead. The linear weights are only a never-counted safety fallback:
+// require_active_onnx below rejects any fallback so a LinearModel can never be
+// timed under this ONNX-named row.
+InferenceBackendConfig make_public_l2_onnx_config(const std::filesystem::path& model_path,
+                                                  const ModelMetadata& metadata) {
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = model_path;
+  config.model_name = metadata.model_name;
+  config.input_shape = shape_to_string(metadata.input_shape);
+  config.output_shape = shape_to_string(metadata.output_shape);
+  config.linear_weights = {0.5, -0.001, 2.0, 0.0001};
+  config.linear_bias = 1.0;
+  return config;
+}
+
+// Reproduce the recorded expected output once before timing. Throws (so the row is
+// recorded as skipped/unavailable rather than timed) if the recorded 640-value
+// window does not score the recorded expected_test_output[0] within tolerance. A
+// mis-scoring or fallback model therefore cannot be presented as public-L2 ONNX
+// evidence.
+void require_public_l2_expected_output(const Model& model, const ModelMetadata& metadata,
+                                       std::string_view name) {
+  if (metadata.expected_test_output.empty()) {
+    throw std::runtime_error(std::string(name) +
+                             " unavailable: metadata has no expected_test_output");
+  }
+  const double score = model.score(metadata.expected_test_input);
+  const double expected = metadata.expected_test_output.front();
+  constexpr double kTolerance = 1e-3;
+  if (std::abs(score - expected) > kTolerance) {
+    std::ostringstream error;
+    error << name << " unavailable: ONNX score " << score << " does not match recorded expected "
+          << expected << " (tolerance " << kTolerance << ")";
+    throw std::runtime_error(error.str());
+  }
+}
+
+// One-time model load/session setup timing for the public-L2 [1,16,40] artefact,
+// kept separate from the steady-state inference row below.
+BenchmarkResult benchmark_public_l2_onnx_model_load(const std::string& name,
+                                                    const std::filesystem::path& model_path,
+                                                    const ModelMetadata& metadata) {
+  BenchmarkResult result =
+      run_sampled_benchmark(name, 1,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              const auto start = std::chrono::steady_clock::now();
+                              InferenceBackendSelection selection = make_inference_backend(
+                                  make_public_l2_onnx_config(model_path, metadata));
+                              require_active_onnx(selection, name);
+                              const auto end = std::chrono::steady_clock::now();
+                              record_sample(samples, start, end);
+                              return 1ULL;
+                            });
+  result.timing_mode = "model-load";
+  tag_inference(result, "onnx", metadata.model_name, shape_to_string(metadata.input_shape),
+                shape_to_string(metadata.output_shape), metadata.feature_count,
+                metadata.feature_version);
+  return result;
+}
+
+// Steady-state isolated ONNX inference cost for the recorded-public-L2 [1,16,40]
+// artefact: feed the recorded 640-value window and score repeatedly. The recorded
+// expected output is reproduced once before timing; model-load/session-setup is
+// warmed out of the steady-state allocation count.
+BenchmarkResult benchmark_public_l2_onnx_inference_only(const std::string& name,
+                                                        const std::filesystem::path& model_path,
+                                                        const ModelMetadata& metadata) {
+  // 20,000 steady-state iterations after warm-up, matching the documented local
+  // Python onnxruntime diagnostic for this artefact so the two are comparable.
+  constexpr std::size_t kIterations = 20'000;
+  InferenceBackendSelection selection =
+      make_inference_backend(make_public_l2_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
+  require_public_l2_expected_output(*selection.model, metadata, name);
+  const std::vector<double> features = metadata.expected_test_input;
+
+  // Warm up so model-load/session-setup allocations are excluded from the
+  // steady-state allocation count captured below.
+  volatile double warm = selection.model->score(features);
+  (void)warm;
+
+  BenchmarkResult result =
+      run_sampled_benchmark(name, kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              double accumulator = 0.0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto start = std::chrono::steady_clock::now();
+                                accumulator += selection.model->score(features);
+                                const auto end = std::chrono::steady_clock::now();
+                                record_sample(samples, start, end);
+                              }
+                              return static_cast<std::uint64_t>(accumulator * 1000.0);
+                            });
+  tag_from_selection(result, selection, metadata);
+  return result;
+}
 #endif // ASTERION_HAVE_ONNXRUNTIME
 
 void print_result(const BenchmarkResult& result) {
@@ -2064,12 +2175,40 @@ int main(int argc, char** argv) {
       std::cerr << "onnx replay-loop benchmark skipped (chronoslob_real): " << ex.what()
                 << '\n';
     }
+    // Optional ISOLATED C++ ONNX evidence for the recorded-public-L2 ChronosLOB
+    // [1,16,40] model-contract artefact. Standalone systems-cost evidence only:
+    // this windowed 40x16 contract is deliberately NOT the live 4-feature
+    // replay-loop contract above and is not wired into it. The recorded expected
+    // output is validated before timing, and the row is recorded as skipped (never
+    // silently timed as the LinearModel fallback) if ONNX Runtime cannot load and
+    // reproduce the artefact.
+    try {
+      const std::filesystem::path model_dir =
+          std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models";
+      const std::filesystem::path onnx_model_path = model_dir / "chronoslob_public_l2_tiny.onnx";
+      const ModelMetadata metadata =
+          load_model_metadata(model_dir / "chronoslob_public_l2_tiny.metadata.json");
+      inference_results.push_back(benchmark_public_l2_onnx_model_load(
+          "public_l2_chronoslob_onnx_model_load", onnx_model_path, metadata));
+      inference_results.push_back(benchmark_public_l2_onnx_inference_only(
+          std::string(kPublicL2OnnxIsolatedRowName), onnx_model_path, metadata));
+    } catch (const std::exception& ex) {
+      skipped_benchmarks.push_back(SkippedBenchmark{std::string(kPublicL2OnnxIsolatedRowName),
+                                                    "inference", "onnx",
+                                                    "chronoslob_public_l2_tiny", ex.what()});
+      std::cerr << "onnx isolated public-L2 benchmark skipped: " << ex.what() << '\n';
+    }
 #else
     skipped_benchmarks.push_back(SkippedBenchmark{
         std::string(kChronoslobRealOnnxReplayLoopRowName), "inference", "onnx",
         "chronoslob_tiny_real",
         "onnx runtime not compiled in; configure with -DASTERION_USE_ONNXRUNTIME=ON and a "
         "discoverable ONNX Runtime to measure"});
+    skipped_benchmarks.push_back(SkippedBenchmark{
+        std::string(kPublicL2OnnxIsolatedRowName), "inference", "onnx",
+        "chronoslob_public_l2_tiny",
+        "onnx runtime not compiled in; configure with -DASTERION_USE_ONNXRUNTIME=ON and a "
+        "discoverable ONNX Runtime to measure the isolated public-L2 [1,16,40] row"});
 #endif
   }
 

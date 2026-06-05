@@ -640,14 +640,21 @@ contract only — not as a predictive-quality, profitability or production-servi
 
 When built with ONNX Runtime, the inference benchmark runner additionally emits `chronoslob_fixture`
 and `chronoslob_real` ONNX suites (model load, inference only, and feature-extraction + ChronosLOB
-ONNX rows) plus an optional real ChronosLOB ONNX replay-loop row. Default builds record that replay
-row as skipped/unavailable, and ONNX fallback is not counted as ONNX evidence. ONNX inference
+ONNX rows) plus an optional real ChronosLOB ONNX replay-loop row, and two **isolated** rows
+(`public_l2_chronoslob_onnx_model_load`, `public_l2_chronoslob_onnx_inference_only`) measuring the
+systems cost of scoring the recorded-public-L2 `1x16x40`→`1x3` model-contract artefact. The isolated
+rows reproduce the recorded expected output within `1e-3` before timing and are standalone systems-cost
+evidence — not the live 4-feature replay-loop contract and not a predictive-quality claim. Default
+builds record the replay row and the isolated public-L2 row as skipped/unavailable, and ONNX fallback
+is not counted as ONNX evidence. ONNX inference
 allocations are measured and reported honestly (model-load is measured separately from steady-state)
 and are not claimed to be allocation-free. See
 [docs/chronoslob_bridge.md](docs/chronoslob_bridge.md), the fixture report
-[reports/chronoslob_onnx_bridge_report_2026_05_31.md](reports/chronoslob_onnx_bridge_report_2026_05_31.md)
-and the real-model report
-[reports/chronoslob_real_model_bridge_report_2026_06_01.md](reports/chronoslob_real_model_bridge_report_2026_06_01.md).
+[reports/chronoslob_onnx_bridge_report_2026_05_31.md](reports/chronoslob_onnx_bridge_report_2026_05_31.md),
+the real-model report
+[reports/chronoslob_real_model_bridge_report_2026_06_01.md](reports/chronoslob_real_model_bridge_report_2026_06_01.md)
+and the recorded-public-L2 report
+[reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md](reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md).
 
 The timeout/late-signal policy can also disable the model after repeated late signals when configured
 (`InferencePolicyGate` with `disable_on_repeated_late_signals` and `max_consecutive_late_signals`);

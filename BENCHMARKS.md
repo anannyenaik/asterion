@@ -135,6 +135,15 @@ row carries a real p50/p95/p99/p99.9/max distribution):
   -> caller-owned feature extraction -> real tiny ChronosLOB ONNX scoring ->
   measured policy gate -> strategy/risk/replay accounting, with model load/setup
   measured separately by `chronoslob_real_onnx_model_load`.
+- optional **isolated** ChronosLOB public-L2 rows for the recorded-public-L2
+  `[1,16,40]→[1,3]` model-contract artefact (`chronoslob_public_l2_tiny`):
+  `public_l2_chronoslob_onnx_model_load` (one-time) and
+  `public_l2_chronoslob_onnx_inference_only` (steady-state). These are **standalone
+  systems-cost** rows for scoring the windowed artefact, deliberately **not** the
+  live 4-feature replay-loop contract. They reproduce the recorded
+  `expected_test_output[0]` within `1e-3` before timing and are emitted only when
+  the active backend is actually ONNX; otherwise the row is recorded under
+  `skipped_benchmarks` (no `LinearModel` fallback under the ONNX name).
 
 Each inference row records its `backend` (`linear`, `onnx`, or `n/a`), `model_name`, `input_shape`
 and `output_shape` (`1x4`/`1x1` for the fixture, `1x1x4`/`1x3` for the real DeepLOB), and feature
@@ -161,10 +170,18 @@ The current **recorded-public-L2 model-contract artefact** (windowed
 is documented in
 [reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md](reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md).
 Because its 40×16 contract differs from the live 4-feature L2 buffer it is **not** wired into the
-C++ replay-loop ONNX rows above; its isolated ONNX Runtime inference latency was instead measured as a
-local Python `onnxruntime` diagnostic via the exporter's `--benchmark` (representative, not portable):
-p50 ≈ 49 µs, p95 ≈ 82 µs, p99 ≈ 112 µs, p99.9 ≈ 161 µs over 20k steady-state iterations. A C++
-optional-lane isolated-latency row for the windowed contract is pending and is not fabricated.
+C++ replay-loop ONNX rows above. Its isolated systems cost is instead measured by two optional C++ ONNX
+rows — `public_l2_chronoslob_onnx_model_load` (one-time) and `public_l2_chronoslob_onnx_inference_only`
+(steady-state) — emitted only when built with ONNX Runtime. They load the artefact as a standalone
+`[1,16,40]→[1,3]` contract and **reproduce the recorded `expected_test_output[0]` within `1e-3` before
+timing**; when ONNX Runtime is absent the row is recorded under `skipped_benchmarks` and the
+deterministic `LinearModel` fallback is **never** timed under the ONNX name. Representative local
+measurement (Win10 / MSYS2 UCRT64 GCC, Release, ONNX Runtime 1.20.1, 20k steady-state iters, **not
+portable**): `public_l2_chronoslob_onnx_inference_only` p50 ≈ 37 µs, p95 ≈ 72 µs, p99 ≈ 109 µs,
+p99.9 ≈ 410 µs, ≈ 23.2k inf/s, ~2 allocations/call (ONNX Runtime per-run buffers; ≈ 2.5 KB/call
+dominated by the 640-element windowed input); model load ≈ 3.26 ms one-time. A local Python
+`onnxruntime` `--benchmark` cross-reference (p50 ≈ 49 µs, p95 ≈ 82 µs, p99 ≈ 112 µs, p99.9 ≈ 161 µs)
+is recorded in the report. No predictive-quality claim; this is plumbing/systems cost only.
 The feature-buffer-specific report is
 [reports/inference_feature_buffer_report_2026_05_31.md](reports/inference_feature_buffer_report_2026_05_31.md).
 
