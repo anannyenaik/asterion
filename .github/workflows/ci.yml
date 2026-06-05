@@ -20,11 +20,9 @@ on:
 # It never installs ONNX Runtime, never runs large benchmarks, and never gates
 # on benchmark numbers. The ONNX lanes below are manual (workflow_dispatch) only.
 #
-# The Address/UndefinedBehaviour sanitizer lane lives in a separate manual
-# workflow (.github/workflows/sanitizers.yml). It is kept out of default CI
-# because libstdc++ std::regex backtracking over the large public-L2 metadata
-# array overflows the (sanitizer-inflated) stack on hosted runners; the manual
-# lane raises the stack limit. See that workflow and docs/claim_audit.md.
+# The default Address/UndefinedBehaviour correctness lane lives in the separate
+# .github/workflows/sanitizers.yml workflow and also runs on every push/PR. It
+# keeps ONNX Runtime and benchmarks disabled.
 
 jobs:
   gcc-release:

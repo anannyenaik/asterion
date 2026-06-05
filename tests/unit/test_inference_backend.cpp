@@ -12,8 +12,11 @@
 #include <array>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <span>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace asterion;
@@ -48,6 +51,41 @@ std::filesystem::path chronoslob_public_l2_model_path() {
 std::filesystem::path chronoslob_public_l2_metadata_path() {
   return std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models" /
          "chronoslob_public_l2_tiny.metadata.json";
+}
+
+class TemporaryMetadataFile {
+public:
+  TemporaryMetadataFile(std::string_view name, std::string_view contents)
+      : path_(std::filesystem::temp_directory_path() /
+              ("asterion_" + std::string(name) + ".metadata.json")) {
+    std::ofstream output(path_);
+    if (!output) {
+      throw std::runtime_error("unable to create temporary metadata file");
+    }
+    output << contents;
+  }
+
+  ~TemporaryMetadataFile() {
+    std::error_code error;
+    std::filesystem::remove(path_, error);
+  }
+
+  TemporaryMetadataFile(const TemporaryMetadataFile&) = delete;
+  TemporaryMetadataFile& operator=(const TemporaryMetadataFile&) = delete;
+
+  [[nodiscard]] const std::filesystem::path& path() const noexcept { return path_; }
+
+private:
+  std::filesystem::path path_;
+};
+
+void require_metadata_load_failure(const std::filesystem::path& path, std::string_view expected) {
+  try {
+    (void)load_model_metadata(path);
+    FAIL("expected metadata load to fail");
+  } catch (const std::exception& exception) {
+    REQUIRE(std::string(exception.what()).find(expected) != std::string::npos);
+  }
 }
 
 } // namespace
@@ -192,6 +230,8 @@ TEST_CASE("Public-L2 windowed model is not Asterion's live 4-feature contract",
   REQUIRE(selection.active == InferenceBackend::Linear);
   REQUIRE(selection.fell_back);
   REQUIRE(selection.detail.find("feature count mismatch") != std::string::npos);
+  const std::array<double, 4> features{5.0, 0.0, 0.0, 0.0};
+  REQUIRE(selection.model->score(features) == Catch::Approx(5.0));
 }
 
 TEST_CASE("Windowed metadata shape validation respects window_length",
@@ -203,6 +243,71 @@ TEST_CASE("Windowed metadata shape validation respects window_length",
   const ModelMetadataValidation validation = validate_model_metadata(metadata);
   REQUIRE_FALSE(validation.ok);
   REQUIRE(validation.error.find("unsupported model shape") != std::string::npos);
+}
+
+TEST_CASE("Public-L2 metadata enforces its windowed input and batched output shapes",
+          "[inference][backend][metadata][public_l2]") {
+  ModelMetadata metadata = load_model_metadata(chronoslob_public_l2_metadata_path());
+  metadata.input_shape = {1, 8, 80}; // same value count, wrong [batch, window, features] layout
+  ModelMetadataValidation validation = validate_model_metadata(metadata);
+  REQUIRE_FALSE(validation.ok);
+  REQUIRE(validation.error.find("unsupported recorded-public-L2 input_shape") != std::string::npos);
+
+  metadata = load_model_metadata(chronoslob_public_l2_metadata_path());
+  metadata.output_shape = {3}; // same value count, missing the public-L2 batch dimension
+  validation = validate_model_metadata(metadata);
+  REQUIRE_FALSE(validation.ok);
+  REQUIRE(validation.error.find("fixed batch dimension") != std::string::npos);
+}
+
+TEST_CASE("Public-L2 metadata rejects zero windows and wrong expected-input lengths",
+          "[inference][backend][metadata][public_l2]") {
+  ModelMetadata metadata = load_model_metadata(chronoslob_public_l2_metadata_path());
+  metadata.window_length = 0;
+  ModelMetadataValidation validation = validate_model_metadata(metadata);
+  REQUIRE_FALSE(validation.ok);
+  REQUIRE(validation.error.find("window_length must be positive") != std::string::npos);
+
+  metadata = load_model_metadata(chronoslob_public_l2_metadata_path());
+  metadata.expected_test_input.pop_back();
+  validation = validate_model_metadata(metadata);
+  REQUIRE_FALSE(validation.ok);
+  REQUIRE(validation.error.find("expected_test_input size") != std::string::npos);
+}
+
+TEST_CASE("Metadata numeric-array parser fails cleanly on malformed, truncated and missing arrays",
+          "[inference][backend][metadata][parser]") {
+  constexpr std::string_view prefix = R"({
+    "model_name": "parser_test",
+    "export_command": "parser_test",
+    "input_shape": [1, 2],
+    "output_shape": [1, 1],
+    "feature_count": 2,
+    "feature_version": 1
+  )";
+  constexpr std::string_view suffix = R"(,
+    "expected_test_output": [0.0],
+    "trained_model": false
+  })";
+
+  SECTION("malformed token") {
+    const TemporaryMetadataFile file(
+        "malformed_array",
+        std::string(prefix) + R"(, "expected_test_input": [1.0, nope])" + std::string(suffix));
+    require_metadata_load_failure(file.path(), "invalid number: expected_test_input");
+  }
+
+  SECTION("truncated array") {
+    const TemporaryMetadataFile file(
+        "truncated_array",
+        std::string(prefix) + R"(, "expected_test_input": [1.0, 2.0)");
+    require_metadata_load_failure(file.path(), "truncated numeric array: expected_test_input");
+  }
+
+  SECTION("missing required array") {
+    const TemporaryMetadataFile file("missing_array", std::string(prefix) + std::string(suffix));
+    require_metadata_load_failure(file.path(), "missing field: expected_test_input");
+  }
 }
 
 TEST_CASE("ONNX request for the real model with a mismatched feature count falls back clearly",

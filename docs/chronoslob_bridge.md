@@ -119,6 +119,9 @@ probability, alpha signal or trading decision.
 `load_model_metadata(...)` reads the fixture metadata, and
 `validate_feature_compatibility(...)` checks the model feature count/version
 against Asterion's current L2 feature schema before ONNX selection is trusted.
+Metadata numeric arrays are parsed by bounded iterative scanning rather than
+regex backtracking. Validation enforces the full public-L2 expected-input length,
+the `[1,16,40]` window layout and the batched `[1,3]` output contract.
 
 If a requested ONNX model declares a mismatched feature count or feature version,
 `make_inference_backend(...)` falls back to `LinearModel` and records a clear
@@ -232,9 +235,11 @@ portable performance claims.
 
 ## CI validation
 
-The artefacts above are not exercised by default CI, which never installs ONNX
-Runtime. The same optional ONNX Runtime build is reproduced in the manual
-`onnx-runtime-manual` job of [.github/workflows/ci.yml](../.github/workflows/ci.yml)
+Default CI loads and validates the full committed public-L2 metadata fixture,
+including its 640-value expected input, under the default-gating `asan-ubsan`
+workflow. It does not install ONNX Runtime or load the ONNX graphs. The optional
+ONNX Runtime build is reproduced in the manual `onnx-runtime-manual` job of
+[.github/workflows/ci.yml](../.github/workflows/ci.yml)
 (triggered by dispatching the `ci` workflow with `onnx_backend=true`): it downloads
 ONNX Runtime 1.20.1, builds the real backend and runs `ctest`, asserting the
 ChronosLOB fixture, the real tiny model and the recorded-public-L2 model-contract
@@ -242,4 +247,5 @@ artefact all load and score deterministically. The companion `onnx-fallback-manu
 job builds with `-DASTERION_USE_ONNXRUNTIME=ON` while the dependency is **absent**,
 proving the deterministic `LinearModel` fallback still builds and passes. This is
 **model-contract / systems-integration** evidence only — no predictive-quality,
-profitability, live-trading or production-serving claim.
+profitability, live-trading or production-serving claim. Sanitizer CI is
+correctness/memory-UB evidence, not performance evidence.

@@ -26,26 +26,26 @@ Conventions:
   compiled extension is ABI-specific (see "Why does pytest fail to import asterion?").
 
 **Q: What does CI run, and what does each lane prove?**
-- Answer: the default `ci` workflow ([.github/workflows/ci.yml](../.github/workflows/ci.yml))
-  runs on every push/PR to `main` and is dependency-light. Reviewer-readable jobs:
+- Answer: the default checks run on every push/PR to `main` and are dependency-light.
+  Reviewer-readable jobs:
   - `gcc-release` — C++20 Release build + `ctest` on GCC (strict warnings).
   - `clang-release` — same build + tests on Clang → cross-compiler portability.
   - `python-bindings` — builds the bindings, runs `pytest`, the inspection CLI and the
     one-command demo on a single interpreter.
-- **Manual-only** (never gate `main`):
   - `asan-ubsan` in [.github/workflows/sanitizers.yml](../.github/workflows/sanitizers.yml)
-    — unit/golden/property suite under Address + UndefinedBehaviour sanitizers (Debug).
-    Kept manual because libstdc++ `std::regex` backtracking over the large public-L2
-    metadata array overflows the ASan-inflated stack on hosted runners; the lane raises
-    the stack limit. The non-sanitized lanes pass the same test on the default stack.
+    — Debug unit/golden/property suite under Address + UndefinedBehaviour sanitizers,
+    including the full public-L2 metadata/model-contract fixture. Numeric arrays use
+    bounded iterative parsing, so the lane needs no raised stack limit.
+- **Manual-only** (never gate `main`):
   - `onnx-fallback-manual` and `onnx-runtime-manual` in the `ci` workflow (dispatch with
     `onnx_backend=true`); ONNX Runtime is never installed by default CI.
   - `benchmarks` and `linux-performance` workflows (never gate on numbers).
-- What default CI proves: the project builds clean on two compilers, and the C++/Python
-  suites plus the reviewer demo pass on a single interpreter.
+- What default CI proves: the project builds clean on two compilers; the C++/Python
+  suites plus the reviewer demo pass; and the tested C++ paths pass ASan/UBSan.
 - What it does **not** prove: any performance number (benchmarks are reported, not
-  gated), predictive quality, live connectivity or production readiness. Primary
-  performance context is the Durham HPC evidence below, not hosted-runner timings.
+  gated), predictive quality, live connectivity, production model serving or production
+  readiness. Primary performance context is the Durham HPC evidence below, not
+  hosted-runner timings.
 - Caveat: the `onnx-runtime-manual` lane is **model-contract / systems** evidence only
   (loads the public-L2 ChronosLOB artefact and asserts deterministic scoring); it is
   not predictive-quality evidence.
@@ -147,7 +147,7 @@ Conventions:
 - Fixture (hand-written): `data/models/chronoslob_tiny_fixture.onnx` (+ `.metadata.json`), `tools/export_chronoslob_tiny_onnx.py`, [docs/chronoslob_bridge.md](chronoslob_bridge.md).
 - Synthetic-toy trained artefact: `data/models/chronoslob_tiny_real.onnx` (+ `.metadata.json`), exported by ChronosLOB `tools/export_tiny_asterion_onnx.py` from pushed commit `2cf2f32148bc38fb1009f1afaa5cb38deaf1f0b7`, a tiny `DeepLOBModel` trained on synthetic toy data (1×1×4→1×3).
 - **Recorded-public-L2 model-contract artefact (current):** `data/models/chronoslob_public_l2_tiny.onnx` (+ `.metadata.json`, `.expected_input.json`, `.expected_output.json`, `.manifest.json`), source dataset `data/samples/binance_public_l2_window_sample.jsonl`, exported by ChronosLOB `tools/export_asterion_public_l2_onnx.py` from pushed commit `4e8fd562280385ebc713b7b8a13593728e3a10f6`. A windowed `DeepLOBModel` (`[1,16,40]→[1,3]`, window length 16, 40-dim LOB frame) trained on recorded public Binance crypto L2 depth, with normalisation metadata, source-data + model checksums and expected fixtures.
-- Tests: `tests/unit/test_inference_backend.cpp` (ChronosLOB fixture + `[real]` + `[public_l2]` cases, incl. ONNX-lane windowed load + fixture reproduction), `python/tests/test_chronoslob_bridge.py` (fixture + real metadata/sha256), `python/tests/test_chronoslob_public_l2_bridge.py` (windowed contract, normalisation, checksums, ONNX reproduction).
+- Tests: `tests/unit/test_inference_backend.cpp` (ChronosLOB fixture + `[real]` + `[public_l2]` cases, including full 640-value metadata parsing, malformed/truncated array rejection, contract shapes, fallback and ONNX-lane fixture reproduction), `python/tests/test_chronoslob_bridge.py` (fixture + real metadata/sha256), `python/tests/test_chronoslob_public_l2_bridge.py` (windowed contract, normalisation, checksums, ONNX reproduction).
 - Reports: [chronoslob_onnx_bridge_report](../reports/chronoslob_onnx_bridge_report_2026_05_31.md) (fixture), [chronoslob_real_model_bridge_report](../reports/chronoslob_real_model_bridge_report_2026_06_01.md) (synthetic-toy model), [chronoslob_public_l2_model_bridge_report](../reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md) (recorded-public-L2 model-contract artefact).
 - Caveat: fixture is deterministic and **not trained**; the synthetic-toy artefact **is** trained but on synthetic toy data (4-feature single-timestep); the recorded-public-L2 artefact **is** trained on recorded public crypto L2 depth with a windowed 40×16 contract but remains a systems/integration artefact — accuracy is diagnostic only, no predictive/profitability/alpha/live-trading/production/portable-latency/L3/equities claim; Asterion-side score is plumbing only.
 

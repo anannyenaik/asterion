@@ -1,21 +1,16 @@
 name: sanitizers
 
-# Manual Address/UndefinedBehaviour sanitizer lane. NOT part of required CI.
-#
-# This lane builds the unit/golden/property suite in Debug with
-# -DASTERION_ENABLE_SANITIZERS=ON (ASan + UBSan) and runs ctest. It is kept
-# manual (workflow_dispatch) rather than gating `main` for one honest reason:
-# libstdc++ std::regex backtracking while parsing the large public-L2 ChronosLOB
-# metadata array (1x16x40 = 640 values) recurses deeply, and ASan inflates each
-# stack frame enough to overflow the default 8 MB stack on hosted runners. The
-# non-sanitized gcc-release / clang-release lanes pass the same test because the
-# recursion fits the default stack. This lane raises the stack limit so the
-# sanitizer run completes; reducing the parser's recursion depth on large arrays
-# is tracked as recommended follow-up work in docs/claim_audit.md.
-#
-# It runs no benchmarks and makes no performance claim.
+# Default Address/UndefinedBehaviour correctness lane. The metadata parser uses
+# bounded iterative scanning, so the full public-L2 model-contract fixture stays
+# covered without a raised stack limit. This workflow does not install ONNX
+# Runtime, build benchmarks, gate on benchmark numbers, or make a performance
+# claim.
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -45,18 +40,14 @@ jobs:
           cmake -S . -B build-san -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
             -DASTERION_ENABLE_WARNINGS=ON \
-            -DASTERION_ENABLE_SANITIZERS=ON
+            -DASTERION_ENABLE_SANITIZERS=ON \
+            -DASTERION_BUILD_BENCHMARKS=OFF
 
       - name: Build tests
         run: cmake --build build-san --target asterion_tests
 
-      # Raise the stack soft limit before running: ASan-inflated frames plus
-      # libstdc++ std::regex recursion over the large public-L2 metadata array
-      # exceed the default 8 MB stack otherwise.
       - name: Test under sanitizers
         env:
           ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: |
-          ulimit -s 131072 || true
-          ctest --test-dir build-san --output-on-failure
+        run: ctest --test-dir build-san --output-on-failure
