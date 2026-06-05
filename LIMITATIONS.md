@@ -7,6 +7,10 @@ Explicit limitations:
 - not a real exchange;
 - no real exchange connectivity;
 - no live trading;
+- matching is a deterministic local research surface with limit/market, IOC, FOK, post-only,
+  cancel, replace and one reject-incoming STP policy; it does not model auctions, hidden/iceberg
+  orders, pegging, stop orders, venue-specific expiry, trade busts or regulatory workflows (see
+  `docs/matching_semantics.md`);
 - simplified network path;
 - simplified market impact model;
 - no kernel bypass;

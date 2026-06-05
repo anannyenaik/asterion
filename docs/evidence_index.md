@@ -70,7 +70,10 @@ Conventions:
 ## Matching, risk and audit
 
 **Q: Where is price-time-priority matching tested?**
-- Files: `tests/unit/test_order_book.cpp`, `tests/unit/test_risk_gateway.cpp`.
+- Answer: [matching_semantics.md](matching_semantics.md) defines limit/market, IOC, FOK,
+  post-only, replace priority, reject-vs-cancel, order states and STP interaction.
+- Files: `tests/unit/test_matching_semantics.cpp`, `tests/golden/test_golden_traces.cpp`,
+  `tests/property/test_book_properties.cpp`, `tests/unit/test_order_book.cpp`.
 
 **Q: Where is the risk gateway / audit trail?**
 - Files: `tests/unit/test_risk_gateway.cpp`, `test_risk_controls.cpp`, `test_risk_audit.cpp`; `python/tests/test_risk_tooling.py`. See [RISK.md](../RISK.md).

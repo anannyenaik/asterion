@@ -17,6 +17,11 @@ std::vector<ExecutionReport> MatchingEngine::submit_order(const NewOrderRequest&
                                        request.timestamp_ns, RejectReason::Unsupported));
     return reports;
   }
+  if (request.order_type != OrderType::Limit && request.order_type != OrderType::Market) {
+    record_report(reports, make_reject(request.client_order_id, request.symbol_id, request.side,
+                                       request.timestamp_ns, RejectReason::Unsupported));
+    return reports;
+  }
   if (request.quantity <= 0) {
     record_report(reports, make_reject(request.client_order_id, request.symbol_id, request.side,
                                        request.timestamp_ns, RejectReason::InvalidQuantity));
@@ -27,10 +32,38 @@ std::vector<ExecutionReport> MatchingEngine::submit_order(const NewOrderRequest&
                                        request.timestamp_ns, RejectReason::InvalidPrice));
     return reports;
   }
+  if (request.time_in_force != TimeInForce::Gtc && request.time_in_force != TimeInForce::Ioc &&
+      request.time_in_force != TimeInForce::Fok) {
+    record_report(reports, make_reject(request.client_order_id, request.symbol_id, request.side,
+                                       request.timestamp_ns, RejectReason::Unsupported));
+    return reports;
+  }
+  if (request.post_only &&
+      (request.order_type != OrderType::Limit || request.time_in_force != TimeInForce::Gtc)) {
+    record_report(reports, make_reject(request.client_order_id, request.symbol_id, request.side,
+                                       request.timestamp_ns, RejectReason::Unsupported));
+    return reports;
+  }
   if (!reserve_client_order_id(request.client_order_id)) {
     record_report(reports,
                   make_reject(request.client_order_id, request.symbol_id, request.side,
                               request.timestamp_ns, RejectReason::DuplicateClientOrderId));
+    return reports;
+  }
+  if (request.post_only && crosses(request.side, request.order_type, request.price_ticks)) {
+    record_report(reports, make_reject(request.client_order_id, request.symbol_id, request.side,
+                                       request.timestamp_ns, RejectReason::PostOnlyWouldCross));
+    return reports;
+  }
+  if (!request.post_only &&
+      would_self_trade(request.side, request.order_type, request.price_ticks, request.client_id)) {
+    record_report(reports, make_reject(request.client_order_id, request.symbol_id, request.side,
+                                       request.timestamp_ns, RejectReason::SelfTradePrevention));
+    return reports;
+  }
+  if (request.time_in_force == TimeInForce::Fok && !can_fully_fill(request)) {
+    record_report(reports, make_reject(request.client_order_id, request.symbol_id, request.side,
+                                       request.timestamp_ns, RejectReason::FokNotFillable));
     return reports;
   }
 
@@ -43,6 +76,7 @@ std::vector<ExecutionReport> MatchingEngine::submit_order(const NewOrderRequest&
   state.order_type = request.order_type;
   state.limit_price_ticks = request.price_ticks;
   state.original_quantity = request.quantity;
+  state.client_id = request.client_id;
   state.timestamp_ns = request.timestamp_ns;
   states_.emplace(exchange_order_id, state);
   client_to_exchange_.emplace(request.client_order_id, exchange_order_id);
@@ -54,7 +88,8 @@ std::vector<ExecutionReport> MatchingEngine::submit_order(const NewOrderRequest&
   Quantity remaining = request.quantity;
   match_against_book(stored_state, remaining, request.timestamp_ns, reports);
 
-  if (remaining > 0 && request.order_type == OrderType::Limit) {
+  if (remaining > 0 && request.order_type == OrderType::Limit &&
+      request.time_in_force == TimeInForce::Gtc) {
     if (stored_state.filled_quantity > 0) {
       stored_state.status = OrderStatus::PartiallyFilled;
     }
@@ -63,7 +98,7 @@ std::vector<ExecutionReport> MatchingEngine::submit_order(const NewOrderRequest&
       record_report(reports, make_report(stored_state, ExecType::Rejected, 0, 0,
                                          request.timestamp_ns, RejectReason::InternalError));
     }
-  } else if (remaining > 0 && request.order_type == OrderType::Market) {
+  } else if (remaining > 0) {
     stored_state.status = OrderStatus::Canceled;
     record_report(reports, make_report(stored_state, ExecType::Canceled, 0, 0,
                                        request.timestamp_ns, RejectReason::None));
@@ -128,6 +163,12 @@ std::vector<ExecutionReport> MatchingEngine::replace_order(const ReplaceOrderReq
   }
 
   OrderState& state = state_it->second;
+  if (would_self_trade(state.side, state.order_type, request.new_price_ticks, state.client_id,
+                       state.exchange_order_id)) {
+    record_report(reports, make_reject(request.client_order_id, symbol_id_, state.side,
+                                       request.timestamp_ns, RejectReason::SelfTradePrevention));
+    return reports;
+  }
   if (!book_.cancel_order(request.exchange_order_id)) {
     state.status = OrderStatus::Rejected;
     record_report(reports, make_report(state, ExecType::Rejected, 0, 0, request.timestamp_ns,
@@ -176,6 +217,46 @@ bool MatchingEngine::crosses(Side incoming_side, OrderType order_type,
     return order_type == OrderType::Market || limit_price_ticks <= *best;
   }
 
+  return false;
+}
+
+bool MatchingEngine::can_fully_fill(const NewOrderRequest& request) const {
+  Quantity required = request.quantity;
+  const L2View view = book_.l2_view(book_.order_count());
+  const auto& levels = request.side == Side::Buy ? view.asks : view.bids;
+  for (const L2Level& level : levels) {
+    const bool executable =
+        request.order_type == OrderType::Market ||
+        (request.side == Side::Buy && level.price_ticks <= request.price_ticks) ||
+        (request.side == Side::Sell && level.price_ticks >= request.price_ticks);
+    if (!executable) {
+      break;
+    }
+    if (level.quantity >= required) {
+      return true;
+    }
+    required -= level.quantity;
+  }
+  return false;
+}
+
+bool MatchingEngine::would_self_trade(Side incoming_side, OrderType order_type,
+                                      PriceTicks limit_price_ticks, ClientId client_id,
+                                      OrderId excluded_order_id) const {
+  if (client_id == 0) {
+    return false;
+  }
+  for (const auto& [order_id, state] : states_) {
+    if (order_id == excluded_order_id || state.client_id != client_id ||
+        state.side != opposite(incoming_side) || book_.find_order(order_id) == nullptr) {
+      continue;
+    }
+    if (order_type == OrderType::Market ||
+        (incoming_side == Side::Buy && limit_price_ticks >= state.limit_price_ticks) ||
+        (incoming_side == Side::Sell && limit_price_ticks <= state.limit_price_ticks)) {
+      return true;
+    }
+  }
   return false;
 }
 

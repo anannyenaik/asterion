@@ -211,6 +211,7 @@ if(ASTERION_BUILD_TESTS)
   add_executable(
     asterion_tests
     tests/unit/test_order_book.cpp
+    tests/unit/test_matching_semantics.cpp
     tests/unit/test_event_log_replay.cpp
     tests/unit/test_snapshot.cpp
     tests/unit/test_multi_symbol.cpp

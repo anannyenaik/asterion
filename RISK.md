@@ -53,6 +53,8 @@ Rejects are returned as structured enum values:
 - `MaxPortfolioNetExposure`
 - `MaxSymbolConcentration`
 - `MaxPortfolioLoss`
+- `PostOnlyWouldCross`
+- `FokNotFillable`
 
 ## Kill Switch
 
@@ -79,11 +81,10 @@ Each symbol has a latest reference price and market-data timestamp. New orders a
 
 ## Working-Order Exposure
 
-When `max_open_order_quantity > 0`, the gateway tracks the total resting (working) limit-order
-quantity per symbol. An accepted limit order is registered as working; market orders are assumed to
-take liquidity and do not contribute. A new order is rejected when the current working quantity plus
-the incoming quantity would exceed the limit. Callers signal completion with
-`RiskGateway::on_execution_report(...)` updates the tracked quantity from partial fills, full fills,
+When `max_open_order_quantity > 0`, the gateway tracks the total resting (working) GTC limit-order
+quantity per symbol. IOC, FOK and market orders cannot rest and do not contribute. A restable new
+order is rejected when the current working quantity plus the incoming quantity would exceed the
+limit. `RiskGateway::on_execution_report(...)` updates the tracked quantity from partial fills, full fills,
 cancels, rejects and replace reports. `RiskGateway::release_order(client_order_id)` remains as a
 manual fallback when a caller has no execution report. Working-order tracking is only active when
 this control or self-trade prevention is enabled, so the default gateway does no extra work.
@@ -122,10 +123,14 @@ default. Sliding-window is opt-in and stores per-client timestamps while enabled
 ## Self-Trade Prevention
 
 When `enable_self_trade_prevention` is set, the gateway tracks each client's resting orders per symbol
-and rejects a new order that would cross the same client's opposite side: a buy at or above the
-client's best resting sell, or a sell at or below the client's best resting buy. Market orders from a
-client that already has an opposite resting order are always rejected. Prevention scope is per-client;
-crossing another client's order is matching's responsibility, not a self-trade.
+and rejects a new normal limit, market, IOC or FOK order that would cross the same client's opposite
+side: a buy at or above the client's best resting sell, or a sell at or below the client's best
+resting buy. Market orders from a client that already has an opposite resting order are always
+rejected. Prevention scope is per-client; crossing another client's order is matching's
+responsibility, not a self-trade. Crossing post-only requests skip the risk STP reject because they
+cannot trade; matching classifies them as `PostOnlyWouldCross` and their reject report releases any
+temporary risk tracking. Matching also has a deterministic reject-incoming STP backstop for
+attributed orders and replace flows. See [`docs/matching_semantics.md`](docs/matching_semantics.md).
 
 ## Audit Trail
 

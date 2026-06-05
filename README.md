@@ -44,6 +44,7 @@ Windows PowerShell helpers fall back to an existing MSYS2/MinGW-w64 toolchain
 
 For a quick reviewer pass, read this README, then skim the supporting docs:
 [DESIGN.md](DESIGN.md), [CORRECTNESS.md](CORRECTNESS.md), [RISK.md](RISK.md),
+[docs/matching_semantics.md](docs/matching_semantics.md),
 [BENCHMARKS.md](BENCHMARKS.md), [LIMITATIONS.md](LIMITATIONS.md),
 [ROADMAP.md](ROADMAP.md) and [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md). The current
 release candidate is described in [RELEASE_NOTES.md](RELEASE_NOTES.md). Then run the demo.
@@ -73,7 +74,8 @@ portable/committed benchmark numbers (see [What This Does Not Claim](#what-this-
 - L3 book reconstruction with order-ID lookup, FIFO queues per price level and deterministic checksums.
 - Recorded/simulated market-data logs in CSV and a compact ITCH-like binary format.
 - Thin Python bindings and analysis helpers for log conversion, replay and checksum inspection.
-- Price-time-priority matching for limit, market, cancel and replace flows.
+- Price-time-priority matching for limit, market, cancel and replace flows, with explicit
+  IOC, FOK, post-only and deterministic self-trade-prevention semantics.
 - Structured execution reports with deterministic report checksums.
 - Pre-trade risk gateway with quantity, notional, position, exposure, price-band, stale-data,
   duplicate-ID and kill-switch checks, plus opt-in open-order (working) exposure, per-client
@@ -118,7 +120,7 @@ CSV / binary / synthetic events
 | Area | Where | Tests |
 | --- | --- | --- |
 | Event log + replay (CSV/binary, diagnostics, checksums) | `cpp/src/market_data/`, `cpp/include/asterion/market_data/` | `tests/unit/test_event_log_replay.cpp`, `test_snapshot.cpp` |
-| L3 order book + matching | `cpp/src/book/`, `cpp/src/matching/` | `tests/unit/test_order_book.cpp` |
+| L3 order book + matching | `cpp/src/book/`, `cpp/src/matching/` | `tests/unit/test_order_book.cpp`, `test_matching_semantics.cpp` |
 | Pre-trade risk + audit | `cpp/src/risk/` | `tests/unit/test_risk_gateway.cpp`, `test_risk_controls.cpp`, `test_risk_audit.cpp`, `test_audit_manifest.cpp` |
 | Inference plumbing + ONNX bridge | `cpp/src/inference/` | `tests/unit/test_inference_backend.cpp`, `test_telemetry_inference.cpp` |
 | Telemetry / latency budget | `cpp/src/telemetry/` | `tests/unit/test_latency_budget.cpp` |
@@ -140,6 +142,7 @@ See [docs/claim_audit.md](docs/claim_audit.md) for the full claim→evidence map
 - Correctness-first L3 book using `std::unordered_map`, `std::map` and FIFO lists.
 - Book invariant checks and deterministic final checksums.
 - Matching engine with partial fills, full fills and resting-price execution.
+- Explicit IOC/FOK/post-only behavior and documented reject-vs-cancel/order-state transitions.
 - Execution report schema with status, execution type, fill fields and reject reason.
 - Risk gateway and kill switch.
 - Deterministic CSV and binary replay, sample replay data and replay diagnostics.

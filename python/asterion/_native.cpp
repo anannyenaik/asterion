@@ -93,6 +93,11 @@ PYBIND11_MODULE(_native, module) {
       .value("Limit", asterion::OrderType::Limit)
       .value("Market", asterion::OrderType::Market);
 
+  py::enum_<asterion::TimeInForce>(module, "TimeInForce")
+      .value("Gtc", asterion::TimeInForce::Gtc)
+      .value("Ioc", asterion::TimeInForce::Ioc)
+      .value("Fok", asterion::TimeInForce::Fok);
+
   py::enum_<asterion::ExecType>(module, "ExecType")
       .value("New", asterion::ExecType::New)
       .value("Trade", asterion::ExecType::Trade)
@@ -122,7 +127,9 @@ PYBIND11_MODULE(_native, module) {
       .value("MaxPortfolioGrossExposure", asterion::RejectReason::MaxPortfolioGrossExposure)
       .value("MaxPortfolioNetExposure", asterion::RejectReason::MaxPortfolioNetExposure)
       .value("MaxSymbolConcentration", asterion::RejectReason::MaxSymbolConcentration)
-      .value("MaxPortfolioLoss", asterion::RejectReason::MaxPortfolioLoss);
+      .value("MaxPortfolioLoss", asterion::RejectReason::MaxPortfolioLoss)
+      .value("PostOnlyWouldCross", asterion::RejectReason::PostOnlyWouldCross)
+      .value("FokNotFillable", asterion::RejectReason::FokNotFillable);
 
   py::enum_<asterion::RateLimitMode>(module, "RateLimitMode")
       .value("FixedWindow", asterion::RateLimitMode::FixedWindow)
@@ -411,7 +418,9 @@ PYBIND11_MODULE(_native, module) {
       .def_readwrite("price_ticks", &asterion::NewOrderRequest::price_ticks)
       .def_readwrite("quantity", &asterion::NewOrderRequest::quantity)
       .def_readwrite("timestamp_ns", &asterion::NewOrderRequest::timestamp_ns)
-      .def_readwrite("client_id", &asterion::NewOrderRequest::client_id);
+      .def_readwrite("client_id", &asterion::NewOrderRequest::client_id)
+      .def_readwrite("time_in_force", &asterion::NewOrderRequest::time_in_force)
+      .def_readwrite("post_only", &asterion::NewOrderRequest::post_only);
 
   py::class_<asterion::ReplaceOrderRequest>(module, "ReplaceOrderRequest")
       .def(py::init<>())

@@ -213,6 +213,20 @@ accounting gate over caller-supplied marks, signed positions and fills, with det
 for gross exposure, net exposure, concentration and mark-to-market loss. Audit recording is opt-in,
 matching the risk gateway's default allocation posture.
 
+### Matching And Order State
+
+`MatchingEngine` is a deterministic exchange-style matching surface for the local research/systems
+lab. It is deliberately smaller than a real venue. Limit GTC, market, cancel and replace behavior
+is extended by explicit IOC, FOK and post-only request semantics. Incoming executions use resting
+prices and price-time priority. IOC and market remainders terminate as `Canceled`; failed FOK and
+crossing post-only requests terminate as `Rejected` before book mutation. Successful replace is
+cancel/reinsert and therefore always loses FIFO priority.
+
+The optional risk STP gate remains the preferred early check. Matching also applies a deterministic
+backstop to attributed (`client_id != 0`) incoming and replace flows so bypassing risk cannot create
+a same-owner trade. Full state transitions, report sequences, policy ordering and limitations are
+documented in [`docs/matching_semantics.md`](docs/matching_semantics.md).
+
 ### Inference In The Measured Path
 
 The inference module is deliberately small. `LinearModel` is deterministic and can run inside an

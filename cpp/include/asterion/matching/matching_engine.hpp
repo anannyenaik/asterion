@@ -18,9 +18,10 @@ struct NewOrderRequest {
   Quantity quantity{0};
   TimestampNs timestamp_ns{0};
   // Originating strategy/client identifier used by message-rate limiting and
-  // self-trade prevention. Defaults to 0 (unattributed) and is ignored by
-  // matching; only the risk gateway reads it.
+  // self-trade prevention. Defaults to 0 (unattributed).
   ClientId client_id{0};
+  TimeInForce time_in_force{TimeInForce::Gtc};
+  bool post_only{false};
 };
 
 struct CancelOrderRequest {
@@ -51,6 +52,10 @@ public:
 private:
   [[nodiscard]] bool crosses(Side incoming_side, OrderType order_type,
                              PriceTicks limit_price_ticks) const;
+  [[nodiscard]] bool can_fully_fill(const NewOrderRequest& request) const;
+  [[nodiscard]] bool would_self_trade(Side incoming_side, OrderType order_type,
+                                      PriceTicks limit_price_ticks, ClientId client_id,
+                                      OrderId excluded_order_id = kInvalidOrderId) const;
   void match_against_book(OrderState& incoming, Quantity& remaining, TimestampNs timestamp_ns,
                           std::vector<ExecutionReport>& reports);
   [[nodiscard]] bool rest_limit_order(const OrderState& state, Quantity remaining,

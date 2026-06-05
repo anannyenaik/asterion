@@ -173,7 +173,7 @@ std::uint64_t RiskGateway::client_symbol_key(ClientId client_id, SymbolId symbol
 void RiskGateway::register_working_order(const NewOrderRequest& request) {
   // Only limit orders rest in the book; market orders are assumed to take
   // liquidity and never contribute to standing open-order exposure.
-  if (request.order_type != OrderType::Limit) {
+  if (request.order_type != OrderType::Limit || request.time_in_force != TimeInForce::Gtc) {
     return;
   }
   const WorkingOrder order{request.client_id, request.symbol_id, request.side, request.price_ticks,
@@ -537,7 +537,8 @@ RiskResult RiskGateway::check_new_order(const NewOrderRequest& request, Timestam
                   RejectReason::SelfTradePrevention, request.price_ticks, opposing_price);
   }
 
-  if (limits_.max_open_order_quantity > 0) {
+  if (limits_.max_open_order_quantity > 0 && request.order_type == OrderType::Limit &&
+      request.time_in_force == TimeInForce::Gtc) {
     const Quantity projected_working = working_quantity(request.symbol_id) + request.quantity;
     if (projected_working > limits_.max_open_order_quantity) {
       return decide(request, now_ns, "max_open_order_quantity", false,
@@ -733,6 +734,9 @@ bool RiskGateway::self_trade_check_allows(const NewOrderRequest& request,
                                           PriceTicks& opposing_price) const noexcept {
   opposing_price = 0;
   if (!limits_.enable_self_trade_prevention) {
+    return true;
+  }
+  if (request.post_only) {
     return true;
   }
   const auto book_it = client_books_.find(client_symbol_key(request.client_id, request.symbol_id));

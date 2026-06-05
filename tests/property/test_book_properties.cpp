@@ -193,6 +193,65 @@ TEST_CASE("Randomized matching streams preserve invariants across crossing flow"
   REQUIRE(checksum_a == checksum_b);
 }
 
+TEST_CASE("Randomized matching-policy rejects preserve atomicity and terminal quantities",
+          "[property][matching][semantics]") {
+  std::mt19937 rng(20260605U);
+  std::uniform_int_distribution<int> qty_dist(1, 100);
+  std::uniform_int_distribution<int> offset_dist(1, 5);
+
+  for (std::size_t i = 0; i < 100; ++i) {
+    const Quantity resting_quantity = static_cast<Quantity>(qty_dist(rng));
+    const PriceTicks ask_price = 1000 + static_cast<PriceTicks>(offset_dist(rng));
+
+    MatchingEngine fok_engine(1);
+    (void)fok_engine.submit_order(NewOrderRequest{
+        1, 1, Side::Sell, OrderType::Limit, ask_price, resting_quantity, 1});
+    const std::uint64_t fok_checksum = fok_engine.book().checksum();
+    NewOrderRequest fok{2, 1, Side::Buy, OrderType::Limit, ask_price, resting_quantity + 1, 2};
+    fok.time_in_force = TimeInForce::Fok;
+    const auto fok_reports = fok_engine.submit_order(fok);
+    REQUIRE(fok_reports.front().reject_reason == RejectReason::FokNotFillable);
+    REQUIRE(fok_engine.book().checksum() == fok_checksum);
+
+    MatchingEngine post_only_engine(1);
+    (void)post_only_engine.submit_order(NewOrderRequest{
+        1, 1, Side::Sell, OrderType::Limit, ask_price, resting_quantity, 1});
+    const std::uint64_t post_only_checksum = post_only_engine.book().checksum();
+    NewOrderRequest post_only{2, 1, Side::Buy, OrderType::Limit, ask_price, resting_quantity, 2};
+    post_only.post_only = true;
+    const auto post_only_reports = post_only_engine.submit_order(post_only);
+    REQUIRE(post_only_reports.front().reject_reason == RejectReason::PostOnlyWouldCross);
+    REQUIRE(post_only_engine.book().checksum() == post_only_checksum);
+
+    MatchingEngine ioc_engine(1);
+    (void)ioc_engine.submit_order(NewOrderRequest{
+        1, 1, Side::Sell, OrderType::Limit, ask_price, resting_quantity, 1});
+    NewOrderRequest ioc{2, 1, Side::Buy, OrderType::Limit, ask_price, resting_quantity + 1, 2};
+    ioc.time_in_force = TimeInForce::Ioc;
+    const auto ioc_reports = ioc_engine.submit_order(ioc);
+    const OrderId ioc_id = ioc_reports.front().exchange_order_id;
+    REQUIRE(ioc_reports.back().order_status == OrderStatus::Canceled);
+    REQUIRE(ioc_engine.book().find_order(ioc_id) == nullptr);
+
+    MatchingEngine stp_engine(1);
+    (void)stp_engine.submit_order(NewOrderRequest{
+        1, 1, Side::Sell, OrderType::Limit, ask_price, resting_quantity, 1, 7});
+    const std::uint64_t stp_checksum = stp_engine.book().checksum();
+    const auto stp_reports = stp_engine.submit_order(NewOrderRequest{
+        2, 1, Side::Buy, OrderType::Limit, ask_price, resting_quantity, 2, 7});
+    REQUIRE(stp_reports.front().reject_reason == RejectReason::SelfTradePrevention);
+    REQUIRE(stp_engine.book().checksum() == stp_checksum);
+
+    for (const auto* reports : {&fok_reports, &post_only_reports, &ioc_reports, &stp_reports}) {
+      for (const ExecutionReport& report : *reports) {
+        REQUIRE(report.filled_quantity >= 0);
+        REQUIRE(report.remaining_quantity >= 0);
+        REQUIRE(report.last_fill_quantity >= 0);
+      }
+    }
+  }
+}
+
 TEST_CASE("Synthetic replay generator modes are deterministic and replayable",
           "[property][replay]") {
   const std::vector<SyntheticFlowMode> single_symbol_modes{

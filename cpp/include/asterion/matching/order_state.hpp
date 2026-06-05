@@ -14,6 +14,7 @@ struct OrderState {
   Quantity original_quantity{0};
   Quantity filled_quantity{0};
   std::int64_t filled_notional_ticks{0};
+  ClientId client_id{0};
   OrderStatus status{OrderStatus::New};
   TimestampNs timestamp_ns{0};
 };

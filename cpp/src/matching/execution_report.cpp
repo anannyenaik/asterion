@@ -14,6 +14,18 @@ std::string_view to_string(OrderType value) noexcept {
   return "Unknown";
 }
 
+std::string_view to_string(TimeInForce value) noexcept {
+  switch (value) {
+  case TimeInForce::Gtc:
+    return "Gtc";
+  case TimeInForce::Ioc:
+    return "Ioc";
+  case TimeInForce::Fok:
+    return "Fok";
+  }
+  return "Unknown";
+}
+
 std::string_view to_string(OrderStatus value) noexcept {
   switch (value) {
   case OrderStatus::New:
@@ -94,6 +106,10 @@ std::string_view to_string(RejectReason value) noexcept {
     return "MaxSymbolConcentration";
   case RejectReason::MaxPortfolioLoss:
     return "MaxPortfolioLoss";
+  case RejectReason::PostOnlyWouldCross:
+    return "PostOnlyWouldCross";
+  case RejectReason::FokNotFillable:
+    return "FokNotFillable";
   }
   return "Unknown";
 }

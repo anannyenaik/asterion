@@ -22,6 +22,16 @@ Golden tests cover exact behavior:
 - Scenario B: a buy order is replaced to a new price before a sell crosses; the trade is deterministic and the final book is empty.
 - Scenario C: duplicate client order ID is rejected by risk.
 - Scenario D: enabled kill switch rejects new orders.
+- Scenario E: IOC partially fills, cancels its remainder and reproduces the same report checksum.
+- Scenario F: failed FOK is atomic and successful FOK fills completely.
+- Scenario G: crossing post-only and same-owner crossing requests reject without book mutation.
+- Scenario H: a same-price replace loses FIFO priority.
+
+The complete matching contract, state transitions and reject-vs-cancel table are in
+[`docs/matching_semantics.md`](docs/matching_semantics.md). Focused unit coverage in
+`tests/unit/test_matching_semantics.cpp` checks IOC full/partial/no-fill/price-limit behavior,
+FOK atomicity and price limits, post-only resting/crossing behavior, matching-layer STP for
+limit/market/IOC/FOK/post-only/replace flows, and risk-to-matching composition.
 
 ## Replay Checksums
 
@@ -203,6 +213,8 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - aggregate quantity equals child order quantity;
 - final checksums match for identical input streams.
 - generated replay corpora are deterministic for fixed seeds.
+- failed FOK, crossing post-only and STP rejects leave the book unchanged;
+- IOC never rests an unfilled remainder and all report quantities remain non-negative.
 
 ## Edge Cases Covered
 

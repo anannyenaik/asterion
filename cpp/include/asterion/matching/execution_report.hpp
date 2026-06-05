@@ -10,6 +10,8 @@ namespace asterion {
 
 enum class OrderType : std::uint8_t { Limit = 1, Market = 2 };
 
+enum class TimeInForce : std::uint8_t { Gtc = 1, Ioc = 2, Fok = 3 };
+
 enum class OrderStatus : std::uint8_t {
   New = 1,
   PartiallyFilled = 2,
@@ -43,7 +45,9 @@ enum class RejectReason : std::uint8_t {
   MaxPortfolioGrossExposure = 18,
   MaxPortfolioNetExposure = 19,
   MaxSymbolConcentration = 20,
-  MaxPortfolioLoss = 21
+  MaxPortfolioLoss = 21,
+  PostOnlyWouldCross = 22,
+  FokNotFillable = 23
 };
 
 struct ExecutionReport {
@@ -66,6 +70,7 @@ struct ExecutionReport {
 };
 
 [[nodiscard]] std::string_view to_string(OrderType value) noexcept;
+[[nodiscard]] std::string_view to_string(TimeInForce value) noexcept;
 [[nodiscard]] std::string_view to_string(OrderStatus value) noexcept;
 [[nodiscard]] std::string_view to_string(ExecType value) noexcept;
 [[nodiscard]] std::string_view to_string(RejectReason value) noexcept;

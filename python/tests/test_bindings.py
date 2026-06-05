@@ -11,6 +11,17 @@ ROOT = Path(__file__).resolve().parents[2]
 SAMPLES = ROOT / "data" / "samples"
 
 
+def test_matching_semantics_bindings_are_exposed() -> None:
+    request = asterion.NewOrderRequest()
+    request.time_in_force = asterion.TimeInForce.Ioc
+    request.post_only = True
+
+    assert request.time_in_force == asterion.TimeInForce.Ioc
+    assert request.post_only
+    assert asterion.RejectReason.PostOnlyWouldCross.name == "PostOnlyWouldCross"
+    assert asterion.RejectReason.FokNotFillable.name == "FokNotFillable"
+
+
 def event(
     sequence: int,
     symbol: int,
