@@ -1,0 +1,2 @@
+timestamp_ns,sequence_number,symbol_id,event_type,side,price_ticks,quantity,order_id
+not-a-timestamp,1,1,Bogus,Sideways,price,quantity,order

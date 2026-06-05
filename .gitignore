@@ -29,6 +29,11 @@ __pycache__/
 *.o
 *.profraw
 *.profdata
+crash-*
+timeout-*
+oom-*
+leak-*
+slow-unit-*
 *.benchmark.json
 benchmarks/results/
 benchmarks/history/

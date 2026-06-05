@@ -59,6 +59,9 @@ Conventions:
     including the full public-L2 metadata/model-contract fixture. Numeric arrays use
     bounded iterative parsing, so the lane needs no raised stack limit.
 - **Manual-only** (never gate `main`):
+  - `fuzz-smoke` in [.github/workflows/fuzz-smoke.yml](../.github/workflows/fuzz-smoke.yml)
+    — bounded Clang/libFuzzer + ASan/UBSan runs over parser/replay/matching/audit
+    targets.
   - `onnx-fallback-manual` and `onnx-runtime-manual` in the `ci` workflow (dispatch with
     `onnx_backend=true`); ONNX Runtime is never installed by default CI.
   - `benchmarks` and `linux-performance` workflows (never gate on numbers).
@@ -73,6 +76,18 @@ Conventions:
   not predictive-quality evidence.
 
 ## Determinism and replay
+
+**Q: Where is fuzz-driven robustness testing?**
+- Answer: [FUZZING.md](../FUZZING.md) documents five opt-in libFuzzer targets,
+  their bounded seed corpora, build/run/reproduction commands and limitations.
+- Files: `cpp/fuzz/`, `cpp/fuzz/corpus/`,
+  [`.github/workflows/fuzz-smoke.yml`](../.github/workflows/fuzz-smoke.yml).
+- Reproduce: configure Clang with `-DASTERION_BUILD_FUZZERS=ON
+  -DASTERION_ENABLE_SANITIZERS=ON`, then run a target against its corpus as shown
+  in `FUZZING.md`.
+- Caveat: manual/opt-in robustness evidence only; not production-safety,
+  real-exchange-correctness, live-trading, security-certification or performance
+  evidence.
 
 **Q: Where is deterministic replay tested?**
 - Answer: replay produces stable book / execution-report / diagnostics / event-log checksums.

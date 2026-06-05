@@ -233,6 +233,23 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - failed FOK, crossing post-only and STP rejects leave the book unchanged;
 - IOC never rests an unfilled remainder and all report quantities remain non-negative.
 
+## Fuzz-Driven Robustness Testing
+
+Opt-in Clang/libFuzzer targets mutate bounded binary logs, CSV logs, replay
+streams, matching requests and audit-manifest text. The replay and matching
+targets assert deterministic outcomes and core book/report invariants; expected
+parse failures, diagnostics and request rejects are normal. Tiny named seed
+corpora cover valid/minimal and malformed parser inputs, sequence gaps,
+timestamp reversals, IOC/FOK/post-only/STP/cancel/replace patterns and audit
+manifest examples.
+
+The targets are disabled by default. The manual `fuzz-smoke` workflow builds
+them with ASan/UBSan and runs short bounded campaigns; default CI and the
+default sanitizer suite remain unchanged. See [FUZZING.md](FUZZING.md).
+Fuzzing complements deterministic tests and the independent Python reference
+matcher. It is robustness evidence, not proof of production safety,
+real-exchange correctness, live-trading validation or security certification.
+
 ## Edge Cases Covered
 
 - full and partial reductions;
@@ -275,4 +292,6 @@ The randomized tests generate add, cancel, replace and crossing streams, apply d
 - reusable L2 view correctness, fixed strategy callback equivalence and warmed hot-path allocation
   behavior.
 
-Large fuzzing campaigns and exchange-specific malformed binary feeds remain out of scope for the current test suite.
+Long-running fuzzing campaigns, automated differential fuzzing against the
+Python reference matcher and exchange-specific malformed binary feeds remain
+future work.

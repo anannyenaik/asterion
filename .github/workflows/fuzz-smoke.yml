@@ -1,0 +1,65 @@
+name: fuzz-smoke
+
+# Manual, bounded robustness smoke test. This is complementary evidence for
+# parser/replay/matching/audit input handling, not a production-safety,
+# real-exchange-correctness, security-certification or performance claim.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  libfuzzer-asan-ubsan:
+    name: libfuzzer-asan-ubsan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CC: clang
+      CXX: clang++
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install Clang and build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build git
+
+      - name: Configure fuzz targets
+        run: |
+          cmake -S . -B build-fuzz -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DASTERION_BUILD_TESTS=OFF \
+            -DASTERION_BUILD_BENCHMARKS=OFF \
+            -DASTERION_BUILD_FUZZERS=ON \
+            -DASTERION_ENABLE_SANITIZERS=ON \
+            -DASTERION_ENABLE_WARNINGS=ON
+
+      - name: Build fuzz targets
+        run: |
+          cmake --build build-fuzz --target \
+            fuzz_binary_event_log \
+            fuzz_csv_event_log \
+            fuzz_replay_engine \
+            fuzz_matching_requests \
+            fuzz_audit_manifest
+
+      - name: Run bounded seed-corpus smoke tests
+        run: |
+          set -euo pipefail
+          mkdir -p build-fuzz/artifacts build-fuzz/corpus
+          for target in binary_event_log csv_event_log replay_engine matching_requests audit_manifest; do
+            mkdir -p build-fuzz/corpus/${target}
+            ./build-fuzz/fuzz_${target} \
+              build-fuzz/corpus/${target} cpp/fuzz/corpus/${target} \
+              -runs=1000 \
+              -max_len=65536 \
+              -timeout=10 \
+              -rss_limit_mb=2048 \
+              -artifact_prefix=build-fuzz/artifacts/${target}-
+          done

@@ -11,6 +11,12 @@ representative local measurements only.
 ## [Unreleased]
 
 ### Added
+- Opt-in Clang/libFuzzer robustness targets for bounded binary/CSV event-log
+  parsing, replay, matching requests and audit-manifest parsing, with tiny
+  curated seed corpora, a manual ASan/UBSan `fuzz-smoke` workflow and
+  [FUZZING.md](FUZZING.md). This is robustness evidence only, not production
+  safety, real-exchange correctness, live-trading validation or security
+  certification.
 - Independent Python reference matcher (`asterion.testing.reference_matcher`) and a
   cross-check harness (`asterion.testing.cross_check`) that re-implement Asterion's
   documented matching semantics from scratch and compare the C++ `MatchingEngine`

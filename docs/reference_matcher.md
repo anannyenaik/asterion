@@ -148,3 +148,12 @@ for op in ops:
 Because `generate_stream(seed, n_ops)` is pure for a given seed, the same seed
 always reproduces the same stream, and the printed `op.describe()` lines are a
 concrete, minimisable repro you can trim down to the smallest failing prefix.
+
+## Future Differential Fuzzing
+
+The native [`fuzz_matching_requests`](../FUZZING.md) target currently checks
+bounded request streams against matching-engine invariants and repeated native
+execution. It deliberately does not embed Python in libFuzzer. A future
+differential-fuzzing bridge could translate minimized native fuzz inputs into
+the existing `cross_check` operation format, then compare them against this
+reference matcher as a separate reproducible step.

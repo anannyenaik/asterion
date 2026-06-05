@@ -17,6 +17,7 @@ option(ASTERION_USE_GOOGLE_BENCHMARK "Build optional Google Benchmark target" OF
 option(ASTERION_USE_ONNXRUNTIME "Build with the optional ONNX Runtime inference backend" OFF)
 option(ASTERION_ENABLE_WARNINGS "Enable strict compiler warnings" ON)
 option(ASTERION_ENABLE_SANITIZERS "Enable Address/Undefined sanitizers" OFF)
+option(ASTERION_BUILD_FUZZERS "Build opt-in libFuzzer robustness targets" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -195,6 +196,47 @@ if(ASTERION_ENABLE_SANITIZERS)
                                                           -fno-omit-frame-pointer)
     target_link_options(asterion_latency_budget PUBLIC -fsanitize=address,undefined)
   endif()
+endif()
+
+if(ASTERION_BUILD_FUZZERS)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR
+            "ASTERION_BUILD_FUZZERS requires Clang with libFuzzer support. "
+            "Configure with CC=clang CXX=clang++.")
+  endif()
+
+  include(CheckCXXSourceCompiles)
+  set(ASTERION_REQUIRED_FLAGS_SAVE "${CMAKE_REQUIRED_FLAGS}")
+  set(ASTERION_REQUIRED_LINK_OPTIONS_SAVE "${CMAKE_REQUIRED_LINK_OPTIONS}")
+  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -fsanitize=fuzzer-no-link")
+  list(APPEND CMAKE_REQUIRED_LINK_OPTIONS -fsanitize=fuzzer)
+  check_cxx_source_compiles(
+    "#include <cstddef>
+     extern \"C\" int LLVMFuzzerTestOneInput(const unsigned char*, std::size_t) { return 0; }"
+    ASTERION_HAS_LIBFUZZER)
+  set(CMAKE_REQUIRED_FLAGS "${ASTERION_REQUIRED_FLAGS_SAVE}")
+  set(CMAKE_REQUIRED_LINK_OPTIONS "${ASTERION_REQUIRED_LINK_OPTIONS_SAVE}")
+  if(NOT ASTERION_HAS_LIBFUZZER)
+    message(FATAL_ERROR
+            "Clang was found, but it does not support -fsanitize=fuzzer-no-link. "
+            "Install a Clang distribution with libFuzzer support.")
+  endif()
+
+  function(asterion_add_fuzzer target source)
+    add_executable(${target} ${source})
+    target_link_libraries(${target} PRIVATE asterion)
+    target_compile_options(${target} PRIVATE -fsanitize=fuzzer-no-link)
+    target_link_options(${target} PRIVATE -fsanitize=fuzzer)
+    if(ASTERION_ENABLE_WARNINGS)
+      target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
+  endfunction()
+
+  asterion_add_fuzzer(fuzz_binary_event_log cpp/fuzz/fuzz_binary_event_log.cpp)
+  asterion_add_fuzzer(fuzz_csv_event_log cpp/fuzz/fuzz_csv_event_log.cpp)
+  asterion_add_fuzzer(fuzz_replay_engine cpp/fuzz/fuzz_replay_engine.cpp)
+  asterion_add_fuzzer(fuzz_matching_requests cpp/fuzz/fuzz_matching_requests.cpp)
+  asterion_add_fuzzer(fuzz_audit_manifest cpp/fuzz/fuzz_audit_manifest.cpp)
 endif()
 
 if(ASTERION_BUILD_TESTS)

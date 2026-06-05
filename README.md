@@ -221,7 +221,7 @@ See [docs/claim_audit.md](docs/claim_audit.md) for the full claim→evidence map
   sample data and ignored generated outputs.
 - GitHub Actions CI with reviewer-readable jobs: `gcc-release`, `clang-release`,
   `python-bindings` (bindings, pytest, inspection-CLI and one-command demo smoke
-  tests) and default-gating `asan-ubsan`, plus manual ONNX/benchmark workflows.
+  tests) and default-gating `asan-ubsan`, plus manual fuzz/ONNX/benchmark workflows.
   The default checks are dependency-light and never gate on performance numbers. See
   [Continuous Integration](#continuous-integration).
 
@@ -238,6 +238,10 @@ Debug build with sanitizers:
 cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DASTERION_ENABLE_SANITIZERS=ON
 cmake --build build-debug
 ```
+
+Opt-in Clang/libFuzzer robustness targets are documented in
+[FUZZING.md](FUZZING.md). They are disabled by default and do not affect the
+normal build or default CI.
 
 Catch2 v3 is used for tests. CMake will use a system package if available or fetch Catch2 during configure.
 
@@ -304,7 +308,8 @@ default CI:
   systems-integration / model-contract evidence only — **no predictive-quality,
   profitability, live-trading or production-serving claim**.
 
-Two further workflows are manual-only and never gate `main`: `benchmarks`
+Three further workflows are manual-only and never gate `main`: `fuzz-smoke`
+(bounded Clang/libFuzzer + ASan/UBSan robustness smoke tests), `benchmarks`
 (emits benchmark JSON; comparisons are informational, with no `--fail-on-regression`)
 and `linux-performance` (best-effort `perf` profiling, honestly recording when a
 hosted runner exposes no hardware counters). **Benchmark numbers are reported, not
