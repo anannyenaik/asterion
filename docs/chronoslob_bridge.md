@@ -229,3 +229,17 @@ ctest --test-dir build-onnxrt --output-on-failure
 
 These are representative local measurements on this machine/environment, not
 portable performance claims.
+
+## CI validation
+
+The artefacts above are not exercised by default CI, which never installs ONNX
+Runtime. The same optional ONNX Runtime build is reproduced in the manual
+`onnx-runtime-manual` job of [.github/workflows/ci.yml](../.github/workflows/ci.yml)
+(triggered by dispatching the `ci` workflow with `onnx_backend=true`): it downloads
+ONNX Runtime 1.20.1, builds the real backend and runs `ctest`, asserting the
+ChronosLOB fixture, the real tiny model and the recorded-public-L2 model-contract
+artefact all load and score deterministically. The companion `onnx-fallback-manual`
+job builds with `-DASTERION_USE_ONNXRUNTIME=ON` while the dependency is **absent**,
+proving the deterministic `LinearModel` fallback still builds and passes. This is
+**model-contract / systems-integration** evidence only — no predictive-quality,
+profitability, live-trading or production-serving claim.

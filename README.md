@@ -1,5 +1,15 @@
 # Asterion
 
+[![ci](https://github.com/anannyenaik/asterion/actions/workflows/ci.yml/badge.svg)](https://github.com/anannyenaik/asterion/actions/workflows/ci.yml)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
+[![Python](https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white)](python/)
+[![platform](https://img.shields.io/badge/platform-Linux--first-555555)](#build)
+
+The `ci` badge tracks the default, dependency-light workflow (GCC/Clang Release
+builds, an Address/UndefinedBehaviour sanitizer lane, Python bindings and demo
+smoke tests). It deliberately excludes the optional ONNX Runtime lanes and all
+benchmark workflows, which are manual and never gate on performance numbers.
+
 **Asterion: Deterministic Low-Latency Trading Systems Lab**
 
 CV title: **C++20 Deterministic Trading Systems Lab with Market Replay, Risk Gateway and Measured Inference**
@@ -179,7 +189,12 @@ See [docs/claim_audit.md](docs/claim_audit.md) for the full claim→evidence map
   text and JSON output.
 - One-command demo scripts for Linux/macOS shell and Windows PowerShell that run only on checked-in
   sample data and ignored generated outputs.
-- GitHub Actions CI for Linux build and test.
+- GitHub Actions CI with reviewer-readable jobs: `gcc-release`, `clang-release`,
+  `asan-ubsan` (Address/UndefinedBehaviour sanitizers over the test suite) and
+  `python-bindings` (bindings, pytest, inspection-CLI and one-command demo smoke
+  tests). The default matrix is dependency-light; ONNX Runtime and benchmark
+  workflows are manual and never gate on performance numbers. See
+  [Continuous Integration](#continuous-integration).
 
 ## Build
 
@@ -216,6 +231,43 @@ Convenience script:
 ```bash
 ./scripts/run_tests.sh
 ```
+
+## Continuous Integration
+
+CI is structured for **reviewer-visible correctness, portability and optional-inference
+verification** — not benchmark gating or production validation. The default `ci`
+workflow runs on every push and pull request to `main` and is intentionally
+dependency-light (no ONNX Runtime, no large benchmarks, no network beyond normal
+package setup). Jobs are named so a reviewer can read the check list directly:
+
+| Job | Proves |
+| --- | --- |
+| `gcc-release` | C++20 Release build + `ctest` on GCC with strict warnings. |
+| `clang-release` | The same build + tests on Clang, i.e. cross-compiler portability. |
+| `asan-ubsan` | The unit/golden/property suite is clean under Address + UndefinedBehaviour sanitizers (Debug). |
+| `python-bindings` | Python bindings build, `pytest`, the inspection CLI and the one-command demo all pass on a single interpreter. |
+
+Two ONNX lanes live in the same workflow but only run on manual
+`workflow_dispatch` with the `onnx_backend` input enabled, and are never part of
+default CI:
+
+- `onnx-fallback-manual` — configures with `-DASTERION_USE_ONNXRUNTIME=ON` while the
+  dependency is **absent**, proving the build still succeeds and inference falls back
+  to the deterministic `LinearModel`.
+- `onnx-runtime-manual` — downloads a real ONNX Runtime, builds the ONNX backend and
+  loads the checked-in ChronosLOB artefacts (hand-written fixture, real tiny trained
+  model, and the recorded-public-L2 model-contract artefact). This is
+  systems-integration / model-contract evidence only — **no predictive-quality,
+  profitability, live-trading or production-serving claim**.
+
+Two further workflows are manual-only and never gate `main`: `benchmarks`
+(emits benchmark JSON; comparisons are informational, with no `--fail-on-regression`)
+and `linux-performance` (best-effort `perf` profiling, honestly recording when a
+hosted runner exposes no hardware counters). **Benchmark numbers are reported, not
+CI-gated.** The primary performance context is the Durham HPC evidence under
+[reports/](reports/), not hosted-runner timings. See
+[docs/evidence_index.md](docs/evidence_index.md) and
+[docs/claim_audit.md](docs/claim_audit.md) for what each lane does and does not prove.
 
 ## Replay And Event Logs
 
@@ -567,9 +619,11 @@ also includes a recorded-public-L2 model-contract artefact
 (`data/models/chronoslob_public_l2_tiny.onnx`, windowed `1x16x40`→`1x3`, trained on recorded public
 Binance crypto L2 depth), validated as a standalone model contract with no predictive or trading
 claim. The `ci` workflow has a
-manual `onnx_backend` input. When enabled, it runs an opt-in fallback lane with
-`-DASTERION_USE_ONNXRUNTIME=ON` and an opt-in ONNX Runtime lane that downloads the dependency, builds
-the real backend and runs the artefacts. Neither lane runs in default CI.
+manual `onnx_backend` input. When enabled, it runs the `onnx-fallback-manual` lane with
+`-DASTERION_USE_ONNXRUNTIME=ON` (dependency absent → deterministic `LinearModel` fallback) and the
+`onnx-runtime-manual` lane that downloads the dependency, builds the real backend and runs the
+artefacts. Neither lane runs in default CI, and the public-L2 artefact is validated as a model
+contract only — not as a predictive-quality, profitability or production-serving claim.
 
 When built with ONNX Runtime, the inference benchmark runner additionally emits `chronoslob_fixture`
 and `chronoslob_real` ONNX suites (model load, inference only, and feature-extraction + ChronosLOB

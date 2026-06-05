@@ -25,6 +25,27 @@ Conventions:
 - Caveat: use **one** Python interpreter for both the build and the tests/demo — the
   compiled extension is ABI-specific (see "Why does pytest fail to import asterion?").
 
+**Q: What does CI run, and what does each lane prove?**
+- Answer: the default `ci` workflow ([.github/workflows/ci.yml](../.github/workflows/ci.yml))
+  runs on every push/PR to `main` and is dependency-light. Reviewer-readable jobs:
+  - `gcc-release` — C++20 Release build + `ctest` on GCC (strict warnings).
+  - `clang-release` — same build + tests on Clang → cross-compiler portability.
+  - `asan-ubsan` — unit/golden/property suite under Address + UndefinedBehaviour
+    sanitizers (Debug); proves no detected memory/UB errors in the tested paths.
+  - `python-bindings` — builds the bindings, runs `pytest`, the inspection CLI and the
+    one-command demo on a single interpreter.
+- **Manual-only** (never gate `main`): `onnx-fallback-manual` and `onnx-runtime-manual`
+  in the same workflow (dispatch with `onnx_backend=true`); `benchmarks` and
+  `linux-performance` workflows. ONNX Runtime is never installed by default CI.
+- What default CI proves: the project builds clean on two compilers, the C++/Python
+  suites pass, sanitizers are clean on the tested paths, and the reviewer demo runs.
+- What it does **not** prove: any performance number (benchmarks are reported, not
+  gated), predictive quality, live connectivity or production readiness. Primary
+  performance context is the Durham HPC evidence below, not hosted-runner timings.
+- Caveat: the `onnx-runtime-manual` lane is **model-contract / systems** evidence only
+  (loads the public-L2 ChronosLOB artefact and asserts deterministic scoring); it is
+  not predictive-quality evidence.
+
 ## Determinism and replay
 
 **Q: Where is deterministic replay tested?**

@@ -44,6 +44,17 @@ Evidence shorthand: C++ tests live in [`tests/unit/`](../tests/unit), Python tes
 | Simulated broker/session lifecycle | Simulated only | `tests/unit/test_broker_session.cpp`; never sends network messages |
 | Simulated portfolio-risk accounting gate | Simulated only | `tests/unit/test_portfolio_risk.cpp` |
 
+## CI verification claims
+
+| Claim | Classification | Primary evidence |
+| --- | --- | --- |
+| Default CI builds + tests on GCC and Clang (C++20 Release, strict warnings) | Implemented + tested in default CI | [.github/workflows/ci.yml](../.github/workflows/ci.yml) jobs `gcc-release`, `clang-release` |
+| Tested paths are clean under Address + UndefinedBehaviour sanitizers | Implemented + tested in default CI | `ci.yml` job `asan-ubsan` (Debug, `-DASTERION_ENABLE_SANITIZERS=ON`, unit/golden/property suite only) |
+| Python bindings, inspection CLI and one-command demo pass on a single interpreter | Implemented + tested in default CI | `ci.yml` job `python-bindings` |
+| Real ONNX Runtime backend loads checked-in ChronosLOB artefacts (fixture, real tiny model, public-L2 model contract) and scores deterministically | Implemented but optional + **manual CI only** | `ci.yml` job `onnx-runtime-manual` (dispatch `onnx_backend=true`). Model-contract / systems evidence; **not** predictive-quality evidence. ONNX Runtime never installed by default CI. |
+| Benchmark / latency numbers as a CI pass-fail gate | **Explicitly not claimed** | `benchmarks` + `linux-performance` are manual `workflow_dispatch` only; comparisons run without `--fail-on-regression`. Numbers are reported, not gated. |
+| CI proves performance, predictive quality or production readiness | **Explicitly not claimed** | CI proves build/correctness/portability/optional-inference plumbing only; performance context is the Durham HPC reports below |
+
 ## Performance / allocation claims
 
 | Claim | Classification | Primary evidence |

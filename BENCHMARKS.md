@@ -2,6 +2,12 @@
 
 Asterion includes a local benchmark runner for repeatable experiments. It reports timings for the current machine only; do not treat results as portable performance claims.
 
+> **Benchmarks are reported, never CI-gated.** The default `ci` workflow does not run
+> benchmarks. The `benchmarks` and `linux-performance` workflows are manual
+> (`workflow_dispatch`) only; the regression-comparison step runs without
+> `--fail-on-regression`, so no performance number is ever a pass/fail gate. See
+> [README → Continuous Integration](README.md#continuous-integration).
+>
 > **Primary curated performance report.** The primary performance context is the
 > **Durham Hamilton8 HPC Slurm compute-node** pass,
 > [reports/durham_hpc_performance_evaluation_2026_06_04.md](reports/durham_hpc_performance_evaluation_2026_06_04.md)
