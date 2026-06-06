@@ -218,6 +218,13 @@ not, one top-level evidence table, methodology and before/after summaries — se
 [reports/performance_evidence_summary_2026_06_01.md](reports/performance_evidence_summary_2026_06_01.md).
 It transcribes existing measured results only; it adds no new benchmark numbers.
 
+For the optimisation narrative behind those numbers — baseline node-based `OrderBook`, the profiled
+hotspots, the opt-in `PooledOrderBook` change, before/after allocation and latency/throughput tables
+(labelled by environment), checksum parity and remaining bottlenecks — see
+[docs/performance_deep_dive.md](docs/performance_deep_dive.md). It is framed as a measured
+performance-engineering case study under disclosed conditions and likewise transcribes existing
+measured results only (no new numbers, no weakened claim boundaries).
+
 The benchmark runner is not extended with performance claims for shared replay, persistent audit
 logging/rotation/manifests, sliding-window rate limiting, replace-risk checks, simulated
 broker/session lifecycle, simulated portfolio risk, cancel-on-kill or cancel-on-disconnect. Those

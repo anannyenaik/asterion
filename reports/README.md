@@ -21,6 +21,14 @@ The Windows/MSYS2 Lenovo-laptop and WSL2-laptop reports are retained as
 context only for the paths it actually measured; not every old result was re-run
 on Hamilton, and cross-machine comparison is not meaningful.
 
+For the optimisation narrative that ties these reports together — baseline
+node-based book, profiled hotspots, the opt-in `PooledOrderBook` change,
+before/after allocation and latency/throughput tables, checksum parity and
+remaining bottlenecks — see
+[docs/performance_deep_dive.md](../docs/performance_deep_dive.md) (a measured
+performance-engineering case study under disclosed conditions; it transcribes
+these reports only and adds no new numbers).
+
 | Report | What it covers | Results | Optional deps | Key limitation |
 | --- | --- | --- | --- | --- |
 | [performance_evidence_summary_2026_06_01.md](performance_evidence_summary_2026_06_01.md) | **Top-level summary**: what the benchmark/allocation evidence proves and does not prove, one cross-report evidence table, methodology, before/after | Local representative (index of existing reports) | **ONNX Runtime** only for the ChronosLOB row | Transcribes curated reports; leads with Durham HPC as the primary performance context, laptop/WSL kept as historical; not portable |

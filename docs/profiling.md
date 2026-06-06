@@ -9,6 +9,11 @@ Profiling results are hardware, kernel, compiler and power-policy dependent. Kee
 > The **WSL2 laptop** run below is retained as a historical / local development
 > baseline. Durham supersedes the laptop/WSL context only for the paths it
 > actually measured, and cross-machine comparison is not meaningful.
+>
+> For the end-to-end optimisation narrative that interprets these profiles
+> (baseline node-based book → hotspots → opt-in pooled book → before/after
+> results, checksum parity and remaining bottlenecks), see
+> [performance_deep_dive.md](performance_deep_dive.md).
 
 ## Linux perf
 

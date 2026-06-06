@@ -34,10 +34,13 @@ Windows/MSYS2 systems-cost evidence.
 | LinearModel replay-loop inference | Durham Hamilton8 HPC, Rocky Linux | GCC 13.2, Release `-O3` | balanced 10k, 500k measured events | 511 ns | 671 ns | 792 ns | 1,002 ns | 1,649,716 ev/s | 703,450 total; inference adds **0** | guard `1442857765714779360` | [Durham HPC report](reports/durham_hpc_performance_evaluation_2026_06_04.md#balanced-10k-inference-replay-loop) |
 | Isolated public-L2 ChronosLOB ONNX inference | Windows 10 / MSYS2 UCRT64, local | GCC 16.1, Release, ONNX Runtime 1.20.1 | recorded-public-L2 `[1,16,40]` contract, 20k calls | 36.9 us | 72.3 us | 108.9 us | 409.7 us | about 23.2k inf/s | 2/call; 40,000 total | expected output reproduced within `1e-3` | [Public-L2 model-bridge report](reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md) |
 
-See [BENCHMARKS.md](BENCHMARKS.md) and the
+See [BENCHMARKS.md](BENCHMARKS.md), the
+[performance deep dive](docs/performance_deep_dive.md) (baseline → hotspot →
+opt-in pooled book → before/after, as a measured case study) and the
 [performance evidence summary](reports/performance_evidence_summary_2026_06_01.md)
-for methodology, additional rows and limitations. Windows/MSYS2 and WSL2 results
-remain historical/local development baselines, and ONNX Runtime remains optional.
+for methodology, the optimisation narrative, additional rows and limitations.
+Windows/MSYS2 and WSL2 results remain historical/local development baselines, and
+ONNX Runtime remains optional.
 
 ## How To Review This Repo In 10 Minutes
 

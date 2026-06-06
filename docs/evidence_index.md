@@ -169,6 +169,17 @@ Conventions:
 - Caveat: representative local/environment measurements only; Linux perf evidence is now collected
   in WSL2 and on Durham Hamilton8 HPC, each with its own disclosed limits.
 
+**Q: Where is the optimisation narrative (baseline → hotspot → pooled book → before/after)?**
+- Answer: a measured performance-engineering case study that walks from the correctness-first
+  node-based `OrderBook`, through the profiled hotspots, to the opt-in `PooledOrderBook` change, with
+  before/after allocation and latency/throughput tables, checksum/parity evidence, the inference-path
+  allocation split, the SPSC note and remaining bottlenecks — each table labelled by environment
+  (Durham HPC / Win-MSYS2 / WSL2).
+- Doc: [performance_deep_dive.md](performance_deep_dive.md). It transcribes existing measured results
+  only; no new numbers.
+- Caveat: representative measurements under disclosed conditions, not portable or production-HFT
+  claims; the pooled book is opt-in and the correctness-first book remains the default.
+
 **Q: Where are allocation results?**
 - Answer: scoped, warmed allocation tests + local before/after reports.
 - Tests: `tests/unit/test_allocation_tracking.cpp`, `test_hot_path.cpp`, `test_pooled_order_book.cpp`, `test_telemetry_inference.cpp` (caller-owned buffer).
