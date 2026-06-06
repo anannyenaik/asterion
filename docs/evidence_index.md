@@ -223,6 +223,16 @@ Conventions:
 - Report: [inference_event_loop_cost_report](../reports/inference_event_loop_cost_report_2026_06_01.md). See also [BENCHMARKS.md](../BENCHMARKS.md).
 - Caveat: representative local measurement on a tiny 12-event fixture; not portable; ONNX Runtime is optional and default builds report the ONNX replay row as skipped/unavailable.
 
+## Shared multi-symbol replay parity
+
+**Q: Where is grouped-vs-shared replay parity tested?**
+- Answer: the opt-in shared multi-symbol path (`replay_shared_by_symbol`) is checked against the default grouped path (`replay_by_symbol`) on a hand-written golden matrix and a fixed-seed random matrix; `compare_replay_parity` returns a structured report and `describe_replay_parity` renders any mismatch.
+- Covered: two/three-symbol interleaving, snapshot begin/end, cancel-after-interleave, replace-heavy, per-symbol sequence gaps, timestamp reversals, invalid events, both order-id duplicate cases (order ids are per-symbol), fixed-seed random corpora, deterministic repeat runs.
+- Files: `tests/unit/test_shared_replay_parity.cpp`, `tests/unit/test_multi_symbol.cpp`; `python/tests/test_shared_replay_parity.py`, `python/tests/test_replay_stability.py`.
+- Contract: [docs/shared_replay_parity.md](shared_replay_parity.md).
+- Reproduce: `./build/asterion_tests "[parity]"`; `PYTHONPATH=build/python python -m pytest python/tests/test_shared_replay_parity.py`.
+- Caveat: grouped replay is the default; shared replay is opt-in; parity coverage is stronger for tested cases, not exhaustively proven for all workloads; not a cross-symbol matching engine.
+
 ## Concurrency (SPSC)
 
 **Q: Where is SPSC parity tested?**

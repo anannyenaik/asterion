@@ -150,8 +150,11 @@ the grouped path on deterministic generated streams, fixed-seed fuzz cases and m
 multi-symbol streams. It is a routing/replay surface, not a cross-symbol matching engine, and
 grouped replay remains the default.
 Structured parity reports compare every per-symbol checksum plus combined-book and aggregate
-checksums. They document coverage for the opt-in shared path; they are not a reason to make shared
-replay the default without exhaustive validation.
+checksums; `describe_replay_parity` renders any mismatch as a reproduction-focused diagnostic, and
+the parity contract, hand-written/fixed-seed fixtures and diagnostic-index normalisation are
+documented in [docs/shared_replay_parity.md](docs/shared_replay_parity.md). They document coverage
+for the opt-in shared path; they are not a reason to make shared replay the default without
+exhaustive validation.
 
 ### L3 Internally, L2 Externally
 

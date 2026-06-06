@@ -3,10 +3,13 @@
 #include "asterion/core/checksum.hpp"
 #include "asterion/market_data/multi_symbol_book.hpp"
 
+#include <algorithm>
 #include <map>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace asterion {
 
@@ -519,6 +522,180 @@ ReplayParityReport compare_replay_parity_file(const std::filesystem::path& path,
     return ReplayParityReport{};
   }
   return compare_replay_parity(read_result.events, config);
+}
+
+namespace {
+
+// Replay one symbol's events through the grouped ReplayEngine and return its top-of-book
+// L2 view. This mirrors replay_by_symbol's per-symbol config so the reconstructed book is
+// the authoritative grouped final state for the symbol. Used only on a parity mismatch.
+[[nodiscard]] L2View grouped_symbol_l2(std::span<const MarketDataEvent> events, SymbolId symbol_id,
+                                       AggregateReplayConfig config, std::size_t depth) {
+  std::vector<MarketDataEvent> symbol_events;
+  for (const MarketDataEvent& event : events) {
+    if (event.symbol_id == symbol_id) {
+      symbol_events.push_back(event);
+    }
+  }
+  ReplayConfig replay_config = config.replay_config;
+  if (!config.validate_per_symbol_sequences) {
+    replay_config.validate_sequence_numbers = false;
+  }
+  ReplayEngine replay(symbol_id, replay_config);
+  (void)replay.replay_events(symbol_events);
+  return replay.book().l2_view(depth);
+}
+
+void append_l2_side(std::ostringstream& out, std::string_view label,
+                    const std::vector<L2Level>& levels) {
+  out << "      " << label << ":";
+  if (levels.empty()) {
+    out << " (empty)";
+  }
+  for (const L2Level& level : levels) {
+    out << " [" << level.price_ticks << "x" << level.quantity << "]";
+  }
+  out << "\n";
+}
+
+void append_first_differing_diagnostic(std::ostringstream& out,
+                                       const std::vector<ReplayDiagnostic>& grouped,
+                                       const std::vector<ReplayDiagnostic>& shared) {
+  const std::size_t count = std::max(grouped.size(), shared.size());
+  for (std::size_t i = 0; i < count; ++i) {
+    const bool has_grouped = i < grouped.size();
+    const bool has_shared = i < shared.size();
+    const bool same = has_grouped && has_shared &&
+                      grouped[i].event_index == shared[i].event_index &&
+                      grouped[i].sequence_number == shared[i].sequence_number &&
+                      grouped[i].severity == shared[i].severity &&
+                      grouped[i].reason == shared[i].reason;
+    if (same) {
+      continue;
+    }
+    out << "      first differing diagnostic at index " << i << ":\n";
+    if (has_grouped) {
+      out << "        grouped: event_index=" << grouped[i].event_index
+          << " seq=" << grouped[i].sequence_number << " severity="
+          << to_string(grouped[i].severity) << " reason=\"" << grouped[i].reason << "\"\n";
+    } else {
+      out << "        grouped: (none)\n";
+    }
+    if (has_shared) {
+      out << "        shared:  event_index=" << shared[i].event_index
+          << " seq=" << shared[i].sequence_number << " severity="
+          << to_string(shared[i].severity) << " reason=\"" << shared[i].reason << "\"\n";
+    } else {
+      out << "        shared:  (none)\n";
+    }
+    return;
+  }
+}
+
+void append_symbol_field_diffs(std::ostringstream& out, const SymbolReplaySummary& g,
+                               const SymbolReplaySummary& s) {
+  const auto field = [&out](std::string_view name, std::uint64_t lhs, std::uint64_t rhs) {
+    if (lhs != rhs) {
+      out << "      " << name << ": grouped=" << lhs << " shared=" << rhs << "\n";
+    }
+  };
+  field("event_count", static_cast<std::uint64_t>(g.event_count),
+        static_cast<std::uint64_t>(s.event_count));
+  field("event_log_checksum", g.event_log_checksum, s.event_log_checksum);
+  field("final_book_checksum", g.final_book_checksum, s.final_book_checksum);
+  field("execution_report_checksum", g.execution_report_checksum, s.execution_report_checksum);
+  field("diagnostics_checksum", g.diagnostics_checksum, s.diagnostics_checksum);
+  field("diagnostic_error_count", static_cast<std::uint64_t>(g.diagnostic_error_count),
+        static_cast<std::uint64_t>(s.diagnostic_error_count));
+  field("diagnostic_warning_count", static_cast<std::uint64_t>(g.diagnostic_warning_count),
+        static_cast<std::uint64_t>(s.diagnostic_warning_count));
+  if (g.error != s.error) {
+    out << "      error: grouped=\"" << g.error << "\" shared=\"" << s.error << "\"\n";
+  }
+}
+
+} // namespace
+
+std::string describe_replay_parity(std::span<const MarketDataEvent> events,
+                                   AggregateReplayConfig config) {
+  const AggregateReplaySummary grouped = replay_by_symbol(events, config);
+  const AggregateReplaySummary shared = replay_shared_by_symbol(events, config);
+
+  std::map<SymbolId, const SymbolReplaySummary*> grouped_by_symbol;
+  std::map<SymbolId, const SymbolReplaySummary*> shared_by_symbol;
+  for (const SymbolReplaySummary& summary : grouped.symbols) {
+    grouped_by_symbol[summary.symbol_id] = &summary;
+  }
+  for (const SymbolReplaySummary& summary : shared.symbols) {
+    shared_by_symbol[summary.symbol_id] = &summary;
+  }
+
+  const bool combined_match = grouped.combined_book_checksum == shared.combined_book_checksum;
+  const bool aggregate_match = grouped.aggregate_checksum == shared.aggregate_checksum;
+
+  std::ostringstream out;
+  out << "grouped-vs-shared replay parity (events=" << events.size()
+      << ", grouped_symbols=" << grouped.symbol_count
+      << ", shared_symbols=" << shared.symbol_count << ")\n";
+
+  bool mismatch = !combined_match || !aggregate_match ||
+                  grouped.symbol_count != shared.symbol_count;
+  if (!combined_match) {
+    out << "  combined_book_checksum MISMATCH grouped=" << grouped.combined_book_checksum
+        << " shared=" << shared.combined_book_checksum << "\n";
+  }
+  if (!aggregate_match) {
+    out << "  aggregate_checksum MISMATCH grouped=" << grouped.aggregate_checksum
+        << " shared=" << shared.aggregate_checksum << "\n";
+  }
+
+  std::map<SymbolId, bool> all_symbols;
+  for (const auto& item : grouped_by_symbol) {
+    all_symbols[item.first] = true;
+  }
+  for (const auto& item : shared_by_symbol) {
+    all_symbols[item.first] = true;
+  }
+
+  for (const auto& item : all_symbols) {
+    const SymbolId symbol_id = item.first;
+    const auto grouped_it = grouped_by_symbol.find(symbol_id);
+    const auto shared_it = shared_by_symbol.find(symbol_id);
+    const bool in_grouped = grouped_it != grouped_by_symbol.end();
+    const bool in_shared = shared_it != shared_by_symbol.end();
+    if (!in_grouped || !in_shared) {
+      mismatch = true;
+      out << "  symbol " << symbol_id << " present_in_grouped=" << in_grouped
+          << " present_in_shared=" << in_shared << "\n";
+      continue;
+    }
+    const SymbolReplaySummary& g = *grouped_it->second;
+    const SymbolReplaySummary& s = *shared_it->second;
+    const bool symbol_match = g.event_log_checksum == s.event_log_checksum &&
+                              g.final_book_checksum == s.final_book_checksum &&
+                              g.execution_report_checksum == s.execution_report_checksum &&
+                              g.diagnostics_checksum == s.diagnostics_checksum;
+    if (symbol_match) {
+      continue;
+    }
+    mismatch = true;
+    out << "  symbol " << symbol_id << " MISMATCH:\n";
+    append_symbol_field_diffs(out, g, s);
+    if (g.diagnostics_checksum != s.diagnostics_checksum) {
+      append_first_differing_diagnostic(out, g.diagnostics, s.diagnostics);
+    }
+    if (g.final_book_checksum != s.final_book_checksum) {
+      const L2View view = grouped_symbol_l2(events, symbol_id, config, 5);
+      out << "      grouped expected final L2 (top 5):\n";
+      append_l2_side(out, "bids", view.bids);
+      append_l2_side(out, "asks", view.asks);
+    }
+  }
+
+  if (!mismatch) {
+    return "replay parity matched";
+  }
+  return out.str();
 }
 
 } // namespace asterion

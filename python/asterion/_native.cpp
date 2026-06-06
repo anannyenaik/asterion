@@ -632,6 +632,14 @@ PYBIND11_MODULE(_native, module) {
   module.def("compare_replay_parity_file", &asterion::compare_replay_parity_file, py::arg("path"),
              py::arg("format") = asterion::EventLogFormat::Auto,
              py::arg_v("config", asterion::AggregateReplayConfig{}, "AggregateReplayConfig()"));
+  module.def(
+      "describe_replay_parity",
+      [](const std::vector<asterion::MarketDataEvent>& events,
+         asterion::AggregateReplayConfig config) {
+        return asterion::describe_replay_parity(events, config);
+      },
+      py::arg("events"),
+      py::arg_v("config", asterion::AggregateReplayConfig{}, "AggregateReplayConfig()"));
 
   module.def(
       "run_spsc_replay",

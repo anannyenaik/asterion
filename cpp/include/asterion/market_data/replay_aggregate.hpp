@@ -83,6 +83,15 @@ struct ReplayParityReport {
     const std::filesystem::path& path, EventLogFormat format = EventLogFormat::Auto,
     AggregateReplayConfig config = {});
 
+// Human-readable, reproduction-focused description of a grouped-vs-shared parity
+// result. Returns "replay parity matched" when the two paths agree. On a mismatch it
+// lists, per affected symbol, the differing checksum fields with both grouped and
+// shared values, the first differing diagnostic, and (when the final book checksum
+// differs) the grouped path's expected top-of-book L2 levels. It re-runs both paths,
+// so it is intended for the failure path of a parity test, not the hot loop.
+[[nodiscard]] std::string describe_replay_parity(std::span<const MarketDataEvent> events,
+                                                 AggregateReplayConfig config = {});
+
 [[nodiscard]] AggregateReplaySummary replay_by_symbol(
     std::span<const MarketDataEvent> events, AggregateReplayConfig config = {});
 [[nodiscard]] AggregateReplaySummary replay_file_by_symbol(

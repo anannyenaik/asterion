@@ -257,6 +257,7 @@ if(ASTERION_BUILD_TESTS)
     tests/unit/test_event_log_replay.cpp
     tests/unit/test_snapshot.cpp
     tests/unit/test_multi_symbol.cpp
+    tests/unit/test_shared_replay_parity.cpp
     tests/unit/test_risk_gateway.cpp
     tests/unit/test_risk_audit.cpp
     tests/unit/test_risk_controls.cpp

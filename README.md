@@ -382,10 +382,13 @@ book checksum. Tests assert parity with grouped replay for deterministic generat
 path implements cross-symbol matching.
 
 `compare_replay_parity(...)` returns a structured grouped-vs-shared parity report with per-symbol
-checksum agreement, combined-book agreement and aggregate checksum agreement. Deterministic
-shared-replay fuzz summaries are exposed through Python and the inspection CLI. They are parity
-fixtures for the opt-in shared path; grouped replay remains the default unless shared replay parity
-is exhaustively validated and documented.
+checksum agreement, combined-book agreement and aggregate checksum agreement, and
+`describe_replay_parity(...)` renders any mismatch for reproduction. Deterministic shared-replay fuzz
+summaries are exposed through Python and the inspection CLI. They are parity fixtures for the opt-in
+shared path; grouped replay remains the default unless shared replay parity is exhaustively validated
+and documented. The parity contract, hand-written/fixed-seed fixtures and diagnostic-index
+normalisation are in [docs/shared_replay_parity.md](docs/shared_replay_parity.md); parity coverage is
+stronger for tested cases, not exhaustively proven for all workloads.
 
 ## Recorded Binance Public Depth Case Study
 

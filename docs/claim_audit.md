@@ -109,7 +109,7 @@ Evidence shorthand: C++ tests live in [`tests/unit/`](../tests/unit), Python tes
 | Live capture is public REST `/api/v3/depth` only, no keys, no order placement | Recorded-data demo only | `tools/capture_binance_depth.py`; `test_capture_module_imports_without_network` |
 | Real L3 order identity / per-level FIFO depth / true order lifetimes from Binance | **Explicitly not claimed** | Binance depth is L2; normaliser uses synthetic order IDs + level-replacement (stated in LIMITATIONS) |
 | Equities-market realism | **Explicitly not claimed** | Stated in README + case-study header |
-| Opt-in shared multi-symbol replay (`MultiSymbolBookSet`) with grouped-vs-shared parity | Implemented but optional + tested | `tests/unit/test_multi_symbol.cpp`, `python/tests/test_replay_stability.py`; grouped replay is the default; not a cross-symbol matching engine |
+| Opt-in shared multi-symbol replay (`MultiSymbolBookSet`) with grouped-vs-shared parity | Implemented but optional + tested | `tests/unit/test_multi_symbol.cpp`, `tests/unit/test_shared_replay_parity.cpp`, `python/tests/test_shared_replay_parity.py`, `python/tests/test_replay_stability.py`; contract in [docs/shared_replay_parity.md](shared_replay_parity.md); grouped replay is the default; not a cross-symbol matching engine; parity coverage is stronger for tested cases, not exhaustively proven for all workloads |
 
 ## Boundary claims (deliberately out of scope)
 

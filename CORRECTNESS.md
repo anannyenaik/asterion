@@ -96,8 +96,16 @@ symbol-local gaps. The opt-in shared replay path routes the same interleaved str
 multi-symbol streams, fixed-seed fuzz streams, malformed multi-symbol diagnostics, snapshot bursts,
 cancels and replaces, including combined book checksums and strict sequence diagnostics.
 `compare_replay_parity(...)` exposes this as a structured report with per-symbol checksum agreement,
-combined-book agreement and aggregate-checksum agreement. The report is a validation surface for the
-opt-in shared path; grouped replay remains the default.
+combined-book agreement and aggregate-checksum agreement, and `describe_replay_parity(...)` renders a
+reproduction-focused description of any mismatch (differing fields with both values, the first
+differing diagnostic and the grouped expected L2). The hand-written golden matrix and fixed-seed
+random matrix in `tests/unit/test_shared_replay_parity.cpp` and
+`python/tests/test_shared_replay_parity.py` cover two- and three-symbol interleaving, snapshot
+begin/end, cancel-after-interleave, replace-heavy flows, per-symbol sequence gaps, timestamp
+reversals, invalid events and both order-id duplicate cases (order ids are per-symbol). The report is
+a validation surface for the opt-in shared path; grouped replay remains the default. Parity coverage
+is stronger for tested cases, not exhaustively proven for all workloads; the contract is documented
+in [docs/shared_replay_parity.md](docs/shared_replay_parity.md).
 
 ## Inference Accounting
 
@@ -194,7 +202,9 @@ by the caller, so the tests validate simulated accounting behavior rather than l
 `MultiSymbolBookSet` is tested for per-symbol routing of an interleaved stream (each book matches an
 independently built single-symbol book), a deterministic combined checksum, rejecting an unknown
 cancel without corrupting state, and parity between the shared replay path and the grouped replay
-path for deterministic generated multi-symbol streams.
+path for deterministic generated multi-symbol streams. The grouped-vs-shared parity contract, the
+hand-written golden cases, the fixed-seed random matrix and the diagnostic-normalisation rules are
+described in [docs/shared_replay_parity.md](docs/shared_replay_parity.md).
 
 ## Replay Output Stability
 
