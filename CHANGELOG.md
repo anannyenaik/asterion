@@ -28,6 +28,16 @@ representative local measurements only.
 - Read-only Python bindings for `MatchingEngine` and `CancelOrderRequest` to enable the
   cross-check (data/matching surface only; no live or production exchange surface).
 
+### Validation
+- Exercised the documented Dev Container CLI workflow on 2026-06-06 (Dev Container
+  CLI 0.87.0, Docker Desktop Engine 29.5.2): `devcontainer up` plus
+  `devcontainer exec` ran the documented Release C++ build/`ctest`, the Python
+  build/pytest (`157 passed, 1 optional ONNX Runtime test skipped`), the reviewer
+  demo and the Clang ASan/UBSan build/`ctest`, all passing. Updated the
+  reproducibility docs accordingly; the earlier "`devcontainer up` not separately
+  exercised" caveat no longer applies to the current evidence. ONNX Runtime and
+  heavy benchmarks remained optional and were not part of this validation.
+
 ## [0.1.0] - 2026-06-05
 
 Final reproducibility, release hygiene and publication pass.

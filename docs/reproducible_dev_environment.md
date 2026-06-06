@@ -20,11 +20,26 @@ The validation fixed two image-build gaps: Ubuntu 24.04 already reserves
 UID/GID 1000, and Clang's sanitizer runtime is not installed when recommended
 packages are disabled. The Dockerfile now handles both explicitly.
 
-The Dev Container CLI was not installed on the validating Windows host, so
-`devcontainer up` was not separately exercised. `devcontainer.json` uses the
-validated Dockerfile, `vscode` user and `/workspaces/<repo>` layout. This record
-is one local reviewer/development validation, not a portable or production
-deployment guarantee.
+The Dev Container CLI path was subsequently exercised on **2026-06-06** on the
+same host (Dev Container CLI 0.87.0 on Node.js 24.15.0, Docker Desktop Engine
+29.5.2). `devcontainer up --workspace-folder .` built and started the container
+(`remoteUser` `vscode`, workspace `/workspaces/Asterion`), and the documented
+checks were run inside it via
+`devcontainer exec --workspace-folder . bash -lc '<command>'`:
+
+- Release C++ configure/build and `ctest` (passed);
+- Python-enabled configure/build and pytest
+  (`157 passed, 1 optional ONNX Runtime test skipped`);
+- the reviewer demo (`scripts/run_demo.sh --skip-build`);
+- Clang Debug ASan/UBSan configure/build and `ctest` (passed).
+
+These were the documented commands run verbatim except that container-local build
+directories (`build-dc`, `build-dc-python`, `build-dc-sanitize`) were used, so the
+bind-mounted workspace's pre-existing native host build tree was left untouched.
+ONNX Runtime and heavy benchmarks remained optional and were not part of this
+validation. `devcontainer.json` uses the validated Dockerfile, `vscode` user and
+`/workspaces/<repo>` layout. This record is one local reviewer/development
+validation, not a portable or production deployment guarantee.
 
 ## Open In A Devcontainer
 

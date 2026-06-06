@@ -19,12 +19,16 @@ Conventions:
   [`.devcontainer/Dockerfile`](../.devcontainer/Dockerfile),
   [`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json).
 - Validation: the Dockerfile and documented Docker-only path were built and run
-  on a local Docker Desktop Linux-container installation on 2026-06-05. GCC
-  Release C++, Python/pytest/demo and Clang ASan/UBSan paths passed after fixing
-  UID/GID handling and explicitly installing Clang's sanitizer runtime.
-- Caveat: the Dev Container CLI was unavailable on the validating Windows host,
-  so `devcontainer up` was not separately exercised. This is one local
-  reviewer/development validation, not a portable or production guarantee.
+  on a local Docker Desktop Linux-container installation on 2026-06-05 (GCC
+  Release C++, Python/pytest/demo and Clang ASan/UBSan passed after fixing
+  UID/GID handling and explicitly installing Clang's sanitizer runtime). On
+  2026-06-06 the Dev Container CLI path itself (CLI 0.87.0) was exercised on the
+  same host: `devcontainer up` then `devcontainer exec` ran the documented
+  Release C++ build/`ctest`, Python build/pytest (`157 passed, 1 ONNX skipped`),
+  the reviewer demo and the Clang ASan/UBSan build/`ctest`, all passing.
+- Caveat: this is one local reviewer/development validation, not a portable or
+  production guarantee. ONNX Runtime and heavy benchmarks remain optional and
+  were not part of it.
 
 **Q: Where is the one-page architecture view?**
 - Answer: [architecture_overview.md](architecture_overview.md) maps the main
