@@ -430,7 +430,7 @@ TEST_CASE("spsc replay opt-in drop policy sheds events under overload",
   // NOT correctness-preserving for order-book replay and would deterministically
   // halt on the first such diagnostic. It is exercised here on a non-lifecycle
   // Heartbeat stream with order/sequence validation disabled, which is the only
-  // regime where shedding is well defined. This documents the policy honestly:
+  // regime where shedding is well defined. This documents the policy precisely:
   // produced + dropped accounts for every input event, and every event the
   // producer admitted is consumed in order.
   std::vector<MarketDataEvent> events;

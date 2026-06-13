@@ -1,13 +1,14 @@
-# Reviewer Evidence Index
+# Evidence Index
 
-This maps common reviewer questions to the file or command that answers them. Pair it
-with [claim_audit.md](claim_audit.md), which classifies the strength of each claim.
+This index maps common technical questions to the file or command that answers
+them. Pair it with [claim_audit.md](claim_audit.md), which classifies the
+strength and scope of each claim.
 
 Conventions:
 - C++ tests: [`tests/unit/`](../tests/unit), run via `ctest --test-dir build --output-on-failure`.
 - Python tests: [`python/tests/`](../python/tests), run via `PYTHONPATH=build/python python -m pytest python/tests`.
 - Reports: [`reports/`](../reports) — every report is **representative local measurement**, not portable.
-- "Local-only / optional" caveats are flagged per row.
+- Local and optional scope is identified per row.
 
 ## Build, test and demo
 
@@ -25,8 +26,8 @@ Conventions:
   2026-06-06 the Dev Container CLI path itself (CLI 0.87.0) was exercised on the
   same host: `devcontainer up` then `devcontainer exec` ran the documented
   Release C++ build/`ctest`, Python build/pytest (`157 passed, 1 ONNX skipped`),
-  the reviewer demo and the Clang ASan/UBSan build/`ctest`, all passing.
-- Caveat: this is one local reviewer/development validation, not a portable or
+  the evaluation demo and the Clang ASan/UBSan build/`ctest`, all passing.
+- Scope: this is one local development validation, not a portable or
   production guarantee. ONNX Runtime and heavy benchmarks remain optional and
   were not part of it.
 
@@ -34,10 +35,10 @@ Conventions:
 - Answer: [architecture_overview.md](architecture_overview.md) maps the main
   replay/book/strategy/risk/matching/report path and the optional SPSC, pooled,
   ONNX, Python and audit-manifest side paths.
-- Caveat: it is a systems-lab architecture, not a live-trading or production
+- Scope: it is a systems-lab architecture, not a live-trading or production
   deployment diagram.
 
-**Q: How do I run the 10-minute reviewer demo?**
+**Q: How do I run the ten-minute evaluation?**
 - Answer: configure Release, build, run C++ + Python tests, run the demo on checked-in data.
 - Commands (Linux/macOS):
   ```bash
@@ -48,12 +49,12 @@ Conventions:
   ./scripts/run_demo.sh --skip-build
   ```
 - Windows PowerShell: `.\scripts\configure_release.ps1`; `cmake --build build`; `.\scripts\run_demo.ps1 -SkipBuild`.
-- Caveat: use **one** Python interpreter for both the build and the tests/demo — the
+- Scope: use **one** Python interpreter for both the build and the tests/demo — the
   compiled extension is ABI-specific (see "Why does pytest fail to import asterion?").
 
 **Q: What does CI run, and what does each lane prove?**
 - Answer: the default checks run on every push/PR to `main` and are dependency-light.
-  Reviewer-readable jobs:
+  Clearly scoped jobs:
   - `gcc-release` — C++20 Release build + `ctest` on GCC (strict warnings).
   - `clang-release` — same build + tests on Clang → cross-compiler portability.
   - `python-bindings` — builds the bindings, runs `pytest`, the inspection CLI and the
@@ -70,12 +71,12 @@ Conventions:
     `onnx_backend=true`); ONNX Runtime is never installed by default CI.
   - `benchmarks` and `linux-performance` workflows (never gate on numbers).
 - What default CI proves: the project builds clean on two compilers; the C++/Python
-  suites plus the reviewer demo pass; and the tested C++ paths pass ASan/UBSan.
+  suites plus the evaluation demo pass; and the tested C++ paths pass ASan/UBSan.
 - What it does **not** prove: any performance number (benchmarks are reported, not
   gated), predictive quality, live connectivity, production model serving or production
   readiness. Primary performance context is the Durham HPC evidence below, not
   hosted-runner timings.
-- Caveat: the `onnx-runtime-manual` lane is **model-contract / systems** evidence only
+- Scope: the `onnx-runtime-manual` lane is **model-contract / systems** evidence only
   (loads the public-L2 ChronosLOB artefact and asserts deterministic scoring); it is
   not predictive-quality evidence.
 
@@ -89,7 +90,7 @@ Conventions:
 - Reproduce: configure Clang with `-DASTERION_BUILD_FUZZERS=ON
   -DASTERION_ENABLE_SANITIZERS=ON`, then run a target against its corpus as shown
   in `FUZZING.md`.
-- Caveat: manual/opt-in robustness evidence only; not production-safety,
+- Scope: manual/opt-in robustness evidence only; not production-safety,
   real-exchange-correctness, live-trading, security-certification or performance
   evidence.
 
@@ -128,7 +129,7 @@ Conventions:
   `python/tests/test_reference_matcher_golden.py`,
   `python/tests/test_reference_matcher_property.py`.
 - Reproduce: `PYTHONPATH=build/python python -m pytest python/tests/test_reference_matcher_golden.py python/tests/test_reference_matcher_property.py`.
-- Caveat: a test oracle / second specification for the documented contract; it does not
+- Scope: a test oracle / second specification for the documented contract; it does not
   prove production-exchange correctness, real-exchange completeness or live trading. L3
   FIFO is validated indirectly via the trade-report sequence (bindings expose aggregate
   L2, not a full per-order FIFO walk).
@@ -140,7 +141,7 @@ Conventions:
 **Q: Where are audit manifests / tamper-evidence tested?**
 - Files: `tests/unit/test_audit_manifest.cpp` (detects truncated/edited/missing/reordered files; HMAC RFC vector).
 - Reproduce: `PYTHONPATH=build/python python scripts/asterion_inspect.py audit-manifest --input data/samples/sample_risk_audit.jsonl --output build/m.jsonl --json` then `audit-manifest-verify`.
-- Caveat: signing is opt-in, local-key only; not managed retention/custody.
+- Scope: signing is opt-in, local-key only; not managed retention/custody.
 
 ## Allocation and performance
 
@@ -161,7 +162,7 @@ Conventions:
   Hamilton paths above. The older laptop/WSL rows are retained verbatim as
   historical/local development evidence, attributed to their own environments.
   Cross-machine comparison is not meaningful.
-- Caveat: Hamilton is a representative shared-HPC measurement (no LLC events, no
+- Scope: Hamilton is a representative shared-HPC measurement (no LLC events, no
   root governor/turbo control, GCC only, ONNX not built, one inference hotspot
   OOM-killed); not portable, not production-HFT.
 
@@ -170,7 +171,7 @@ Conventions:
   evidence table, methodology and before/after summaries. It transcribes existing measured results
   only — no new numbers.
 - Report: [performance_evidence_summary](../reports/performance_evidence_summary_2026_06_01.md).
-- Caveat: representative local/environment measurements only; Linux perf evidence is now collected
+- Scope: representative local/environment measurements only; Linux perf evidence is now collected
   in WSL2 and on Durham Hamilton8 HPC, each with its own disclosed limits.
 
 **Q: Where is the optimisation narrative (baseline → hotspot → pooled book → before/after)?**
@@ -181,19 +182,19 @@ Conventions:
   (Durham HPC / Win-MSYS2 / WSL2).
 - Doc: [performance_deep_dive.md](performance_deep_dive.md). It transcribes existing measured results
   only; no new numbers.
-- Caveat: representative measurements under disclosed conditions, not portable or production-HFT
+- Scope: representative measurements under disclosed conditions, not portable or production-HFT
   claims; the pooled book is opt-in and the correctness-first book remains the default.
 
 **Q: Where are allocation results?**
 - Answer: scoped, warmed allocation tests + local before/after reports.
 - Tests: `tests/unit/test_allocation_tracking.cpp`, `test_hot_path.cpp`, `test_pooled_order_book.cpp`, `test_telemetry_inference.cpp` (caller-owned buffer).
 - Reports: [allocation_optimisation_report](../reports/allocation_optimisation_report_2026_05_31.md), [pooled_order_book_stress_report](../reports/pooled_order_book_stress_report_2026_05_31.md), [inference_feature_buffer_report](../reports/inference_feature_buffer_report_2026_05_31.md).
-- Caveat: zero-allocation claims apply only after explicit warm-up in the disclosed paths; numbers are local.
+- Scope: zero-allocation claims apply only after explicit warm-up in the disclosed paths; numbers are local.
 
 **Q: Where are the benchmarks / how do I regenerate JSON?**
 - Build + run: `cmake --build build --target asterion_benchmarks`; `./build/asterion_benchmarks --json build/asterion_benchmark.json --no-text`.
 - Report: [benchmark_report](../reports/benchmark_report_2026_05_31.md). See [BENCHMARKS.md](../BENCHMARKS.md).
-- Caveat: machine-dependent; no benchmark JSON is committed.
+- Scope: machine-dependent; no benchmark JSON is committed.
 
 **Q: Which JSON output fields are stable vs machine-dependent?**
 - Answer: see [docs/json_outputs.md](json_outputs.md) — each stable JSON output mapped to its
@@ -202,7 +203,7 @@ Conventions:
 
 **Q: Where is the PooledOrderBook result?**
 - Tests: `tests/unit/test_pooled_order_book.cpp`. Reports: allocation_optimisation + pooled_order_book_stress.
-- Caveat: opt-in; correctness-first `OrderBook` is the default.
+- Scope: opt-in; correctness-first `OrderBook` is the default.
 
 ## Inference / ONNX
 
@@ -210,7 +211,7 @@ Conventions:
 - Files: `tests/unit/test_inference_backend.cpp` (fallback always tested; real backend behind `ASTERION_HAVE_ONNXRUNTIME`).
 - Reproduce fallback (default build): `ctest --test-dir build -R asterion_tests`.
 - Reproduce real backend: configure with `-DASTERION_USE_ONNXRUNTIME=ON` (requires ONNX Runtime).
-- Caveat: optional; not in default CI.
+- Scope: optional; not in default CI.
 
 **Q: Where is the ChronosLOB bridge?**
 - Fixture (hand-written): `data/models/chronoslob_tiny_fixture.onnx` (+ `.metadata.json`), `tools/export_chronoslob_tiny_onnx.py`, [docs/chronoslob_bridge.md](chronoslob_bridge.md).
@@ -219,13 +220,13 @@ Conventions:
 - Tests: `tests/unit/test_inference_backend.cpp` (ChronosLOB fixture + `[real]` + `[public_l2]` cases, including full 640-value metadata parsing, malformed/truncated array rejection, contract shapes, fallback, the isolated-benchmark config select-ONNX-or-detectably-skip guard and ONNX-lane fixture reproduction), `python/tests/test_chronoslob_bridge.py` (fixture + real metadata/sha256), `python/tests/test_chronoslob_public_l2_bridge.py` (windowed contract, normalisation, checksums, ONNX reproduction).
 - Isolated C++ ONNX systems-cost rows (optional, ONNX-only): `public_l2_chronoslob_onnx_model_load` + `public_l2_chronoslob_onnx_inference_only` in `benchmarks/benchmark_main.cpp` reproduce `expected_test_output[0]` within `1e-3` before timing and are recorded as skipped (never timed as `LinearModel`) when ONNX Runtime is absent; the manual `onnx-runtime-manual` CI job smoke-tests the row's presence. Representative local: p50 ≈ 37 µs, p99 ≈ 109 µs, ≈ 23.2k inf/s, ~2 allocs/call (Win10/MSYS2 UCRT64 GCC, ONNX RT 1.20.1, not portable). Systems cost only — no predictive-quality claim.
 - Reports: [chronoslob_onnx_bridge_report](../reports/chronoslob_onnx_bridge_report_2026_05_31.md) (fixture), [chronoslob_real_model_bridge_report](../reports/chronoslob_real_model_bridge_report_2026_06_01.md) (synthetic-toy model), [chronoslob_public_l2_model_bridge_report](../reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md) (recorded-public-L2 model-contract artefact, incl. the isolated C++ ONNX row table).
-- Caveat: fixture is deterministic and **not trained**; the synthetic-toy artefact **is** trained but on synthetic toy data (4-feature single-timestep); the recorded-public-L2 artefact **is** trained on recorded public crypto L2 depth with a windowed 40×16 contract but remains a systems/integration artefact — accuracy is diagnostic only, no predictive/profitability/alpha/live-trading/production/portable-latency/L3/equities claim; Asterion-side score is plumbing only.
+- Scope: fixture is deterministic and **not trained**; the synthetic-toy artefact **is** trained but on synthetic toy data (4-feature single-timestep); the recorded-public-L2 artefact **is** trained on recorded public crypto L2 depth with a windowed 40×16 contract but remains a systems/integration artefact — accuracy is diagnostic only, no predictive/profitability/alpha/live-trading/production/portable-latency/L3/equities claim; Asterion-side score is plumbing only.
 
 **Q: What does it cost to put inference into the trading event loop?**
 - Answer: per-event benchmark rows insert caller-owned feature extraction + model scoring + a measured timeout/late-signal policy gate into the replay hot path, measured against the inference-free hot path. The default `LinearModel` row remains dependency-light and added **0** steady-state allocations in the curated run. An optional ONNX Runtime row now measures the real tiny ChronosLOB backend inside the same replay-loop shape (**61.0 us p50 / 262.2 us p99**, 570,000 total allocations over 120k events in the opt-in local run); plumbing only, no predictive/profitability claim.
 - Rows: `hot_path_binary_replay_l3_l2_inference_strategy_risk`; optional `hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk`; baseline `hot_path_binary_replay_l3_l2_strategy_risk`.
 - Report: [inference_event_loop_cost_report](../reports/inference_event_loop_cost_report_2026_06_01.md). See also [BENCHMARKS.md](../BENCHMARKS.md).
-- Caveat: representative local measurement on a tiny 12-event fixture; not portable; ONNX Runtime is optional and default builds report the ONNX replay row as skipped/unavailable.
+- Scope: representative local measurement on a tiny 12-event fixture; not portable; ONNX Runtime is optional and default builds report the ONNX replay row as skipped/unavailable.
 
 ## Shared multi-symbol replay parity
 
@@ -235,7 +236,7 @@ Conventions:
 - Files: `tests/unit/test_shared_replay_parity.cpp`, `tests/unit/test_multi_symbol.cpp`; `python/tests/test_shared_replay_parity.py`, `python/tests/test_replay_stability.py`.
 - Contract: [docs/shared_replay_parity.md](shared_replay_parity.md).
 - Reproduce: `./build/asterion_tests "[parity]"`; `PYTHONPATH=build/python python -m pytest python/tests/test_shared_replay_parity.py`.
-- Caveat: grouped replay is the default; shared replay is opt-in; parity coverage is stronger for tested cases, not exhaustively proven for all workloads; not a cross-symbol matching engine.
+- Scope: grouped replay is the default; shared replay is opt-in; parity coverage is stronger for tested cases, not exhaustively proven for all workloads; not a cross-symbol matching engine.
 
 ## Concurrency (SPSC)
 
@@ -248,7 +249,7 @@ Conventions:
 **Q: Where is the steady-state SPSC throughput harness?**
 - Files: `tests/unit/test_spsc_replay.cpp` (steady-state cases). Report: [spsc_steady_state_report](../reports/spsc_steady_state_report_2026_05_31.md).
 - Reproduce: `./build/asterion_benchmarks --only-steady-state-replay --dataset <generated.bin> --steady-state-validation-mode light --spsc-queue-capacity 4096`.
-- Caveat: opt-in; `Full` validation is the default; generated corpora are git-ignored.
+- Scope: opt-in; `Full` validation is the default; generated corpora are git-ignored.
 
 ## Market data
 
@@ -256,14 +257,14 @@ Conventions:
 - Files: `tools/normalise_binance_depth_to_asterion.py`, `data/samples/binance_depth_sample.raw.jsonl`, [docs/market_data.md](market_data.md).
 - Tests: `python/tests/test_binance_normalise.py`. Reports: [binance_replay_case_study](../reports/binance_replay_case_study_2026_05_31.md), [binance_larger_replay_case_study](../reports/binance_larger_replay_case_study_2026_06_01.md).
 - Reproduce: normalise the fixture to CSV/binary, then `./build/asterion_replay --input build/binance_sample.bin --format binary` (see README "Recorded Binance Public Depth Case Study").
-- Caveat: recorded public depth demo; not live trading, not authenticated, not equities-market realism.
+- Scope: recorded public depth demo; not live trading, not authenticated, not equities-market realism.
 
 **Q: Where is the larger recorded public crypto L2 replay evidence?**
 - Files: `data/samples/binance_depth_larger_sample.raw.jsonl`, `data/samples/binance_depth_larger_sample.expected.json`, `data/samples/binance_depth_larger_sample.normalised.csv`, `data/samples/binance_depth_larger_sample.normalised.bin`.
 - Tests: `python/tests/test_binance_normalise.py::test_larger_fixture_regeneration_guard_matches_expected_manifest`, plus the parametrized CSV/binary replay and grouped/shared parity tests in the same file.
 - Report: [binance_larger_replay_case_study](../reports/binance_larger_replay_case_study_2026_06_01.md).
 - Reproduce: `PYTHONPATH=build/python python -m pytest python/tests/test_binance_normalise.py -v`.
-- Caveat: recorded public Binance crypto L2 snapshots with deterministic synthetic order IDs; no L3/equities/live/authenticated/profitability/production claim.
+- Scope: recorded public Binance crypto L2 snapshots with deterministic synthetic order IDs; no L3/equities/live/authenticated/profitability/production claim.
 
 ## Scope and limitations
 
@@ -295,7 +296,7 @@ Conventions:
 - Files: [reports/linux_performance_evaluation_2026_06_01.md](../reports/linux_performance_evaluation_2026_06_01.md),
   [reports/durham_hpc_performance_evaluation_2026_06_04.md](../reports/durham_hpc_performance_evaluation_2026_06_04.md),
   [reports/perf_profile.md](../reports/perf_profile.md), `scripts/run_linux_perf_profile.sh`.
-- Caveat: both runs are representative environment-specific measurements, not portable
+- Scope: both runs are representative environment-specific measurements, not portable
   claims. A more controlled bare-metal/cloud pass would still help if it exposes LLC
   events, lets frequency be fixed and uses a profiling build for flamegraph-quality
   call graphs. Counter values are never fabricated when a real PMU is unavailable.

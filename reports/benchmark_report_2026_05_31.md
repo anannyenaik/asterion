@@ -1,6 +1,7 @@
 # Benchmark Report - 2026-05-31
 
-Representative local measurements on this machine, not portable performance claims.
+This report records representative local measurements for the disclosed machine
+and workload.
 
 Update: a later same-day allocation experiment added the opt-in pooled L3 benchmark path. See
 `reports/allocation_optimisation_report_2026_05_31.md` for the before/after allocation comparison.
@@ -10,8 +11,8 @@ Update: a later same-day allocation experiment added the opt-in pooled L3 benchm
 Measured path: binary event replay -> L3 book update -> reusable L2 view generation -> fixed-size
 imbalance strategy callback -> risk check.
 
-This report does not claim live-trading performance, production HFT performance, profitability or
-cross-machine portability.
+The measurements cover recorded replay systems cost. They are not portable
+across machines and carry no live-trading or profitability claim.
 
 ## Environment
 
@@ -66,7 +67,7 @@ warm-up in deterministic tests.
 
 ## Before / After
 
-The dedicated end-to-end hot-path benchmark did not exist before this change, so there is no honest
+The dedicated end-to-end hot-path benchmark did not exist before this change, so there is no valid
 before/after number for that exact pipeline.
 
 Measurable sub-paths from the local baseline build:

@@ -10,8 +10,9 @@ rejects are normal outcomes. Fuzzing complements deterministic unit, golden and
 property tests plus the independent Python reference matcher; it does not replace
 them.
 
-This is not proof of production safety, real-exchange correctness, live-trading
-validation, security certification or production-HFT readiness.
+The fuzzing scope covers bounded parser, replay, matching and manifest
+robustness. It does not establish real-exchange correctness, security
+certification or production safety.
 
 ## Targets
 

@@ -73,7 +73,7 @@ Module-level details live in [DESIGN.md](../DESIGN.md), evidence mappings in
 [evidence_index.md](evidence_index.md), and scope limits in
 [LIMITATIONS.md](../LIMITATIONS.md).
 
-## What This Diagram Does Not Imply
+## Scope
 
 - No live trading, order placement, broker connectivity or authenticated exchange
   connectivity.

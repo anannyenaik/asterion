@@ -1,20 +1,16 @@
 # Performance Deep Dive
 
-> **Measured performance-engineering case study under disclosed conditions.**
-> Every number in this document is transcribed verbatim from an existing curated
-> report in [`reports/`](../reports); nothing here is recomputed, extrapolated,
-> smoothed or invented. These are representative measurements on the stated host,
-> **not** portable latency, production-HFT, production-readiness or
-> production-model-serving claims, and **not** live-trading, exchange/broker
-> connectivity, order-placement, profitability, alpha or predictive-quality
-> claims. Cross-machine comparison of these numbers is **not meaningful**.
+> Measured performance-engineering case study under disclosed conditions. Every
+> number is transcribed from an existing curated report in
+> [`reports/`](../reports); none is recomputed or extrapolated. Results are
+> specific to the stated hosts and workloads, and cross-machine comparison is
+> not meaningful.
 
 This document turns Asterion's existing benchmark evidence into a single
 optimisation narrative: the baseline node-based order book, the hotspots the
 profilers actually found, the opt-in `PooledOrderBook` change, the before/after
-allocation and latency/throughput evidence, the correctness guardrails that keep
-the change honest, the bottlenecks that remain, and an explicit statement of what
-the project does *not* claim.
+allocation and latency/throughput evidence, the correctness controls, remaining
+bottlenecks and project scope.
 
 It is a reading guide over the primary sources, not a replacement for them:
 
@@ -111,7 +107,7 @@ book grows:
 | WSL2 | steady-state Light `deep_book_1m` | 0.73 | 1.37 | 68.34 | 7.62 |
 
 (LLC events were unsupported in both environments; WSL2 counters are multiplexed
-estimates. See the source reports for the full counter tables and caveats.)
+estimates. See the source reports for the full counter tables and environment limits.)
 
 ## 4. Hotspot evidence
 
@@ -149,7 +145,7 @@ band that is a single-core pinning artifact, the user-space hotspots are the
 **order-id hashtable insert/rehash**, `OrderBook::cancel_order` and
 `operator new`/`malloc`/`cfree` — the node-based book's per-order index churn.
 
-**Reading the hotspots honestly.** Two distinct cost families show up:
+**Interpreting the hotspots.** Two distinct cost families show up:
 
 1. **Book storage / allocator / locality** — `operator new`, `malloc_consolidate`,
    `_M_rehash`, hashtable `find`, `find_order`, `cancel_order`. This is exactly
@@ -187,7 +183,7 @@ The benchmark emits both rows in one pass:
 
 ## 6. Before / after results
 
-### 6.1 Allocations (the defensible signal)
+### 6.1 Allocations
 
 Standard node-based book → opt-in pooled book, after warm-up. Every row preserves
 guard-checksum parity (§7).
@@ -342,7 +338,7 @@ this measurement campaign did not have:
   wired into the SPSC pipeline; the multi-symbol-style corpus is skipped by the
   single-symbol hot-path benchmark.
 
-## 9. Non-claims and limitations
+## 9. Scope And Limitations
 
 This case study deliberately does **not** claim, and nothing above should be read
 as implying:

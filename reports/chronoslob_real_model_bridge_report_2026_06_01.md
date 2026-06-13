@@ -5,11 +5,10 @@ ONNX fixture to a **real, tiny ChronosLOB model artefact** exported from
 ChronosLOB code, loaded through Asterion's optional ONNX Runtime backend, with
 the deterministic `LinearModel` fallback preserved.
 
-**Scope / claim boundary.** This is *a tiny ChronosLOB research-model artefact
-exported into Asterion for systems-integration and inference-latency
-evaluation.* It does **not** claim predictive quality, trading profitability,
-live trading, production model-serving, production HFT, SOTA modelling, or a
-portable latency guarantee.
+**Scope.** This compact ChronosLOB research-model artefact is exported into
+Asterion for systems integration and local inference-cost evaluation. It does
+not evaluate predictive quality, profitability, live trading or production
+model serving.
 
 > These are representative local measurements on this machine/environment, not
 > portable performance claims.
@@ -197,7 +196,7 @@ and ONNX lane:
 * ONNX lane: real-model load vs steady-state allocations measured separately.
 
 Python (`python/tests/test_chronoslob_bridge.py`): real metadata is explicit and
-honest, artefact is tiny (< 50 KB), and `onnx_sha256` matches the file.
+explicit, the artefact is tiny (< 50 KB), and `onnx_sha256` matches the file.
 
 Default lane: **CTest 1/1 passed, pytest passed.** ONNX lane: **175 test cases,
 114,982 assertions passed.**

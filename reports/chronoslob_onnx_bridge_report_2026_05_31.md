@@ -1,11 +1,9 @@
 # ChronosLOB ONNX Bridge Report - 2026-05-31
 
-These are representative local measurements on this machine/environment, not portable performance claims.
-
-This report covers research-model-to-systems integration using a tiny
-ChronosLOB-style ONNX artefact. It does not claim predictive quality, trading
-profitability, live trading capability, production model-serving infrastructure,
-production-HFT infrastructure, SOTA modelling or a portable latency guarantee.
+This report evaluates research-model-to-systems integration using a compact
+ChronosLOB-style ONNX artefact. It covers model contracts, backend integration,
+fallback behavior and local systems cost. Predictive quality, profitability,
+live trading and production model serving are outside scope.
 
 > **Update (2026-06-01):** this report describes the original hand-written
 > deterministic **fixture**. The integration has since been upgraded to a

@@ -13,7 +13,7 @@ It passed:
 
 - GCC Release configure/build and `ctest`;
 - Python-enabled GCC Release configure/build, `ctest`, pytest
-  (`108 passed, 1 optional ONNX Runtime test skipped`) and the reviewer demo;
+  (`108 passed, 1 optional ONNX Runtime test skipped`) and the evaluation demo;
 - Clang Debug ASan/UBSan configure/build and `ctest`.
 
 The validation fixed two image-build gaps: Ubuntu 24.04 already reserves
@@ -30,7 +30,7 @@ checks were run inside it via
 - Release C++ configure/build and `ctest` (passed);
 - Python-enabled configure/build and pytest
   (`157 passed, 1 optional ONNX Runtime test skipped`);
-- the reviewer demo (`scripts/run_demo.sh --skip-build`);
+- the evaluation demo (`scripts/run_demo.sh --skip-build`);
 - Clang Debug ASan/UBSan configure/build and `ctest` (passed).
 
 These were the documented commands run verbatim except that container-local build
@@ -38,7 +38,7 @@ directories (`build-dc`, `build-dc-python`, `build-dc-sanitize`) were used, so t
 bind-mounted workspace's pre-existing native host build tree was left untouched.
 ONNX Runtime and heavy benchmarks remained optional and were not part of this
 validation. `devcontainer.json` uses the validated Dockerfile, `vscode` user and
-`/workspaces/<repo>` layout. This record is one local reviewer/development
+`/workspaces/<repo>` layout. This record is one local development
 validation, not a portable or production deployment guarantee.
 
 ## Open In A Devcontainer
@@ -127,5 +127,5 @@ an external installation and configure with
 When the dependency is absent, Asterion preserves the deterministic
 `LinearModel` fallback. See [chronoslob_bridge.md](chronoslob_bridge.md).
 
-This environment is a reproducible reviewer/development path, not production
+This environment is a reproducible development path, not production
 deployment or production model-serving validation.

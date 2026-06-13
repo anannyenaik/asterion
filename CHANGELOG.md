@@ -1,8 +1,8 @@
 # Changelog
 
 All notable changes to Asterion are documented here. Asterion is a deterministic
-C++20 trading systems lab for replay, matching, risk, inference integration,
-benchmarking and correctness evaluation — not a live trading or production-HFT system.
+C++20 systems lab for replay, matching, risk, inference integration,
+benchmarking and correctness evaluation over recorded and simulated workloads.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 Benchmark/latency numbers are never committed; reports under `reports/` hold
@@ -28,14 +28,19 @@ representative local measurements only.
 - Read-only Python bindings for `MatchingEngine` and `CancelOrderRequest` to enable the
   cross-check (data/matching surface only; no live or production exchange surface).
 
+### Changed
+- Reworked public documentation, reports, release material and reader-facing
+  comments for concise technical presentation. Consolidated repeated warning
+  language into explicit scope statements and removed an internal wording draft.
+
 ### Validation
 - Exercised the documented Dev Container CLI workflow on 2026-06-06 (Dev Container
   CLI 0.87.0, Docker Desktop Engine 29.5.2): `devcontainer up` plus
   `devcontainer exec` ran the documented Release C++ build/`ctest`, the Python
-  build/pytest (`157 passed, 1 optional ONNX Runtime test skipped`), the reviewer
+  build/pytest (`157 passed, 1 optional ONNX Runtime test skipped`), the evaluation
   demo and the Clang ASan/UBSan build/`ctest`, all passing. Updated the
   reproducibility docs accordingly; the earlier "`devcontainer up` not separately
-  exercised" caveat no longer applies to the current evidence. ONNX Runtime and
+  exercised" limitation no longer applies to the current evidence. ONNX Runtime and
   heavy benchmarks remained optional and were not part of this validation.
 
 ## [0.1.0] - 2026-06-05
@@ -43,7 +48,7 @@ representative local measurements only.
 Final reproducibility, release hygiene and publication pass.
 
 ### Added
-- Final reviewer-facing architecture, evidence, matching-semantics and release
+- Final architecture, evidence, matching-semantics and release
   documentation across the work completed after `v0.1.0-rc2`.
 - Automatic ASan/UBSan push/PR gating, public-L2 ChronosLOB model-contract
   evidence and the isolated C++ optional-ONNX systems-cost benchmark.
@@ -63,7 +68,7 @@ Final reproducibility, release hygiene and publication pass.
 - The Dev Container CLI was unavailable on the validating Windows host, so
   `devcontainer up` was not separately exercised.
 - No heavy benchmark or default-image ONNX Runtime validation was performed.
-- This validation is reviewer/development reproducibility evidence, not
+- This validation is local development reproducibility evidence, not
   production readiness or a portable benchmark claim.
 
 ## [0.1.0-rc2] — 2026-06-01 (since v0.1.0-rc1)
@@ -78,7 +83,7 @@ single-thread replay remains the default path.
 - Optimized measured hot path (binary replay → L3 update → reusable L2 → strategy → risk)
   with a documented local benchmark report.
 - Measured ONNX/inference benchmark path and a configurable late-signal model-disable policy gate.
-- Recorded **public** Binance depth-stream case study: honest L2→synthetic-L3 normaliser,
+- Recorded **public** Binance depth-stream case study: deterministic L2→synthetic-L3 normaliser,
   deterministic replay, and a fixture regeneration guard. Capture is manual/opt-in, never in CI.
 - Event-log schema v1 boundary hardening: JSON schema file plus drift/contract tests.
 - Opt-in `PooledOrderBook` L3 benchmark path with allocation-reduction and stress-parity validation.
@@ -93,12 +98,12 @@ single-thread replay remains the default path.
   lossless-blocking backpressure by default, opt-in `DropNewestOnFull` for overload experiments.
 - Opt-in steady-state SPSC replay evaluation and `ReplayValidationMode::Light` for large-corpus
   throughput measurement; `Full` validation remains the default correctness path.
-- Reviewer-facing documentation/evidence pass: `docs/claim_audit.md` (claim→evidence map),
-  `docs/evidence_index.md` (reviewer question → file + command), `reports/README.md` (report
-  scope/limitation index), this `CHANGELOG.md`, `docs/cv_summary_draft.md` and README polish.
+- Documentation and evidence pass: `docs/claim_audit.md` (claim→evidence map),
+  `docs/evidence_index.md` (technical question → file + command), `reports/README.md` (report
+  scope/limitation index), this `CHANGELOG.md` and README polish.
   No runtime, build or test code changed in this pass.
 
-### Not changed / still out of scope
+### Scope
 - No live exchange/broker connectivity, order placement, kernel bypass, FPGA or colocated networking.
 - No profitability/alpha claim; inference measures plumbing only.
 - No portable/committed benchmark numbers.

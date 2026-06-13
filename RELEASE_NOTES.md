@@ -5,8 +5,8 @@
 Asterion v0.1.0 is a Linux-first C++20 deterministic trading systems lab for
 recorded/simulated market replay, L3 order-book and matching semantics, risk
 controls, telemetry, and measured optional inference integration. It is
-published for systems review and reproducible evaluation, not for production or
-live trading.
+published for reproducible systems evaluation over recorded and simulated
+workloads.
 
 ## Release Highlights
 
@@ -21,7 +21,7 @@ live trading.
 - Pre-trade risk gateway, opt-in working-exposure and rate-limit controls,
   simulated session/portfolio accounting, append-only audit trail and optional
   local-key tamper-evident manifests.
-- Python bindings, inspection CLI and a one-command reviewer demo over checked-in
+- Python bindings, inspection CLI and a one-command evaluation demo over checked-in
   sample data.
 - Default GitHub Actions matrix covering GCC Release, Clang Release, Python
   bindings/pytest/demo and automatic Clang ASan/UBSan gating.
@@ -42,11 +42,11 @@ The locally built image passed:
 
 - GCC Release configure/build and `ctest`;
 - Python-enabled GCC Release configure/build, `ctest`, pytest
-  (`108 passed, 1 optional ONNX Runtime test skipped`) and the reviewer demo;
+  (`108 passed, 1 optional ONNX Runtime test skipped`) and the evaluation demo;
 - Clang Debug ASan/UBSan configure/build and `ctest`.
 
 On the Windows host, a fresh MSYS2/UCRT64 GCC Release build pinned to Python
-3.11 also passed `ctest`, all 109 Python tests and the PowerShell reviewer demo.
+3.11 also passed `ctest`, all 109 Python tests and the PowerShell evaluation demo.
 The host MSYS2 sanitizer build could not link because that local toolchain does
 not provide `libasan`/`libubsan`; sanitizer coverage instead passed in the local
 Clang container above and in the hosted gating workflow.
@@ -78,7 +78,7 @@ and [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 All benchmark and latency evidence is representative and environment-specific.
 No new benchmark numbers were generated for this release pass.
 
-## Explicit Non-Claims And Limitations
+## Scope And Limitations
 
 - No live exchange, authenticated exchange, broker or order-placement
   connectivity.
@@ -96,7 +96,7 @@ No new benchmark numbers were generated for this release pass.
 See [LIMITATIONS.md](LIMITATIONS.md) and
 [docs/claim_audit.md](docs/claim_audit.md) for the full boundaries.
 
-## Reviewer Links
+## Project Links
 
 - [README](README.md)
 - [Architecture overview](docs/architecture_overview.md)

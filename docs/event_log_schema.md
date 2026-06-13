@@ -188,4 +188,4 @@ checksums and grouped/shared parity fields.
   event tuples/checksums.
 
 When a failure is intentional, update the manifest, this document and affected fixtures
-in the same commit so reviewers can see the migration boundary.
+in the same commit so the migration boundary remains visible.

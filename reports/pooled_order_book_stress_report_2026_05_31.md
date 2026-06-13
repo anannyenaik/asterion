@@ -1,19 +1,17 @@
 # Pooled Order Book Stress Report - 2026-05-31
 
-These are representative local measurements on this machine, not portable performance claims.
+This report evaluates the opt-in pooled path under deterministic stress corpora
+on the disclosed local machine. The correctness-first `OrderBook` remains the
+default; measurements are environment-specific.
 
-This is not production-HFT infrastructure. The pooled path is opt-in, the correctness-first
-`OrderBook` remains available, and no live trading, authenticated exchange connectivity or order
-placement is involved.
-
-## Why This Pass Was Needed
+## Evaluation Objective
 
 The first pooled-book benchmark proved the allocation-reduction idea on the checked-in hot-path
 sample. This pass extends validation to deterministic generated corpora with larger and more
-adversarial lifecycle shapes so the allocation-free steady-state claim is tested beyond one tiny
+adversarial lifecycle shapes so the allocation-free steady-state result is tested beyond one compact
 fixture while keeping CI free of machine-specific latency gates.
 
-## CI-Safe Validation
+## Deterministic Validation
 
 The C++ test suite now generates small deterministic corpora in memory for:
 

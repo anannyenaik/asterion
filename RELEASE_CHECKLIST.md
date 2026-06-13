@@ -1,6 +1,6 @@
 # Release Checklist
 
-Use this before tagging or presenting the repo for review.
+Use this before tagging or publishing the repository.
 
 ## Required
 
@@ -55,10 +55,10 @@ GitHub release command guidance is in `docs/github_release_metadata.md`.
   checked-in Dockerfile's UID/GID handling and explicit Clang sanitizer-runtime
   dependency.
 - Validated container paths: GCC Release build + `ctest`; Python-enabled GCC
-  Release build + `ctest` + pytest + reviewer demo; Clang Debug ASan/UBSan build
+  Release build + `ctest` + pytest + evaluation demo; Clang Debug ASan/UBSan build
   + `ctest`.
 - A fresh Windows/MSYS2 UCRT64 GCC Release build pinned to Windows Python 3.11
-  passed `ctest`, all 109 Python tests and the PowerShell reviewer demo.
+  passed `ctest`, all 109 Python tests and the PowerShell evaluation demo.
 - The Windows/MSYS2 sanitizer build was attempted but could not link because the
   local toolchain does not provide `libasan`/`libubsan`. The local Clang
   container sanitizer path passed, and hosted sanitizer CI gates the final

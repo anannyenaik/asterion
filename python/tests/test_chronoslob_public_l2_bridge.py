@@ -79,7 +79,7 @@ def test_public_l2_metadata_contract_is_explicit() -> None:
     assert len(meta["onnx_sha256"]) == 64
     assert len(meta["source_data_sha256"]) == 64
 
-    # Honest claim boundary: systems/integration only, no trading claim.
+    # Scope boundary: systems integration only, with no trading claim.
     boundary = meta["claim_boundary"].lower()
     assert "model-contract" in boundary or "integration" in boundary
     for term in _BANNED_CLAIM_TERMS:

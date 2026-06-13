@@ -11,13 +11,17 @@ builds, Python bindings and demo smoke tests) and the `sanitizers` workflow
 (ASan/UBSan C++ tests). They exclude optional ONNX Runtime and all benchmark
 workflows, and never gate on performance numbers.
 
-**Asterion: Deterministic Low-Latency Trading Systems Lab**
+**Deterministic Low-Latency Trading Systems Lab**
 
-CV title: **C++20 Deterministic Trading Systems Lab with Market Replay, Risk Gateway and Measured Inference**
+Asterion is a Linux-first C++20 systems lab for deterministic market replay, L3
+order-book reconstruction, price-time-priority matching, pre-trade risk,
+execution reporting, latency instrumentation and correctness testing. The
+project emphasizes auditable behavior, explicit system boundaries and
+reproducible evaluation.
 
-Asterion is a Linux-first C++20 trading systems lab focused on deterministic replay, L3 order book reconstruction, price-time-priority matching, pre-trade risk checks, execution reports, latency instrumentation and correctness testing. It is intentionally built as a serious foundation rather than a toy exchange simulator.
-
-It does **not** claim to be a real exchange, a live trading system, or a true production HFT stack. The goal is to make the important engineering properties visible: deterministic behavior, testability, clean boundaries and benchmarkability.
+Asterion focuses on recorded and simulated workloads. Live exchange
+connectivity, order placement and production-HFT infrastructure are outside its
+scope.
 
 ## Representative Benchmark Evidence
 
@@ -42,7 +46,7 @@ for methodology, the optimisation narrative, additional rows and limitations.
 Windows/MSYS2 and WSL2 results remain historical/local development baselines, and
 ONNX Runtime remains optional.
 
-## How To Review This Repo In 10 Minutes
+## Ten-Minute Evaluation
 
 ```bash
 ./scripts/configure_release.sh
@@ -66,7 +70,7 @@ python -m pytest python/tests
 Windows PowerShell helpers fall back to an existing MSYS2/MinGW-w64 toolchain
 (`C:\msys64\ucrt64\bin`) when `cmake` is not already on `PATH`.
 
-For a quick reviewer pass, read this README, then skim the supporting docs:
+For a concise technical evaluation, read this README, then skim the supporting docs:
 [architecture overview](docs/architecture_overview.md), [DESIGN.md](DESIGN.md),
 [CORRECTNESS.md](CORRECTNESS.md), [RISK.md](RISK.md),
 [docs/matching_semantics.md](docs/matching_semantics.md),
@@ -76,13 +80,12 @@ release candidate is described in [RELEASE_NOTES.md](RELEASE_NOTES.md). Then run
 The demo uses checked-in sample data and writes generated audit/latency/benchmark
 artifacts under `build/demo/`, which is ignored by git.
 
-**What this 10-minute path proves:** the project builds clean in Release, the C++ and
-Python test suites pass, and the demo reproduces deterministic checksums (book, execution
-report, diagnostics, audit chain, latency config) on checked-in data — while machine-dependent
-timings vary. **What it does not claim:** any live connectivity, production HFT performance or
-portable benchmark guarantees (see [What This Does Not Claim](#what-this-does-not-claim)).
+This path verifies the Release build, C++ and Python test suites, and
+deterministic checksums for the book, execution reports, diagnostics, audit
+chain and latency configuration on checked-in data. Timing results remain
+machine-dependent; see [Scope](#scope).
 
-**Reviewer shortcuts** — three docs make the audit fast:
+**Evidence map:**
 
 - [docs/claim_audit.md](docs/claim_audit.md) — every major claim classified against its evidence.
 - [docs/evidence_index.md](docs/evidence_index.md) — "where is X tested?" → file + command.
@@ -93,7 +96,7 @@ portable benchmark guarantees (see [What This Does Not Claim](#what-this-does-no
 > `-PythonExe` to the PowerShell scripts to pin it). Default Linux CI uses one interpreter
 > throughout. See [docs/evidence_index.md](docs/evidence_index.md#toolchain-note-windows).
 
-## What This Proves
+## Verified Properties
 
 - Integer tick prices in the hot path; no floating-point prices in matching or book state.
 - L3 book reconstruction with order-ID lookup, FIFO queues per price level and deterministic checksums.
@@ -111,11 +114,11 @@ portable benchmark guarantees (see [What This Does Not Claim](#what-this-does-no
 - Golden trace tests and randomized invariant tests.
 - Measured inference infrastructure through `Model`, `LinearModel`, `FeatureExtractor`,
   timeout/late-signal policy hooks and a documented TorchScript-style placeholder interface.
-- A reproducible reviewer demo that exercises replay, diagnostics, parity, audit manifests,
+- A reproducible evaluation demo that exercises replay, diagnostics, parity, audit manifests,
   simulated risk snapshots, latency-budget JSON and benchmark JSON generation without external
   services or committed benchmark results.
 
-## What This Does Not Claim
+## Scope
 
 - No live exchange, broker or market-data connectivity.
 - No production HFT performance, kernel-bypass, FPGA, colocated networking or profitability claim.
@@ -143,7 +146,7 @@ CSV / binary / synthetic events
 ```
 
 See [docs/architecture_overview.md](docs/architecture_overview.md) for the
-one-page pipeline, optional side paths and explicit non-claims.
+one-page pipeline, optional side paths and scope boundaries.
 
 ## Key Modules
 
@@ -222,7 +225,7 @@ See [docs/claim_audit.md](docs/claim_audit.md) for the full claim→evidence map
   text and JSON output.
 - One-command demo scripts for Linux/macOS shell and Windows PowerShell that run only on checked-in
   sample data and ignored generated outputs.
-- GitHub Actions CI with reviewer-readable jobs: `gcc-release`, `clang-release`,
+- GitHub Actions CI with clearly scoped jobs: `gcc-release`, `clang-release`,
   `python-bindings` (bindings, pytest, inspection-CLI and one-command demo smoke
   tests) and default-gating `asan-ubsan`, plus manual fuzz/ONNX/benchmark workflows.
   The default checks are dependency-light and never gate on performance numbers. See
@@ -275,13 +278,13 @@ Convenience script:
 
 ## Continuous Integration
 
-CI is structured for **reviewer-visible correctness, portability and optional-inference
-verification** — not benchmark gating or production validation. The default `ci`
+CI is structured for **correctness, portability and optional-inference
+verification**. The default `ci`
 workflow runs on every push and pull request to `main` and is intentionally
 dependency-light (no ONNX Runtime, no large benchmarks, no network beyond normal
-package setup). Jobs are named so a reviewer can read the check list directly:
+package setup). Each job has a narrow verification role:
 
-| Job | Proves |
+| Job | Verifies |
 | --- | --- |
 | `gcc-release` | C++20 Release build + `ctest` on GCC with strict warnings. |
 | `clang-release` | The same build + tests on Clang, i.e. cross-compiler portability. |
@@ -314,12 +317,12 @@ default CI:
 Three further workflows are manual-only and never gate `main`: `fuzz-smoke`
 (bounded Clang/libFuzzer + ASan/UBSan robustness smoke tests), `benchmarks`
 (emits benchmark JSON; comparisons are informational, with no `--fail-on-regression`)
-and `linux-performance` (best-effort `perf` profiling, honestly recording when a
+and `linux-performance` (best-effort `perf` profiling, recording when a
 hosted runner exposes no hardware counters). **Benchmark numbers are reported, not
 CI-gated.** The primary performance context is the Durham HPC evidence under
 [reports/](reports/), not hosted-runner timings. See
 [docs/evidence_index.md](docs/evidence_index.md) and
-[docs/claim_audit.md](docs/claim_audit.md) for what each lane does and does not prove.
+[docs/claim_audit.md](docs/claim_audit.md) for each lane's evidence and scope.
 
 ## Replay And Event Logs
 
@@ -396,11 +399,13 @@ A recorded **public** Binance order-book depth stream, normalised into Asterion'
 event schema and replayed deterministically through the existing
 replay/diagnostics pipeline.
 
-**This is a recorded public market-data engineering demo. It is not live trading, not authenticated exchange connectivity, and not evidence of equities-market realism.** No API keys, no order placement, no broker connectivity, no profitability claim.
+This recorded-data path uses unauthenticated public crypto L2 depth. It performs
+no order placement and makes no claim of live connectivity, L3 feed fidelity,
+equities-market realism or profitability.
 
 A tiny hand-curated fixture is checked in for deterministic CI and guarded by
 `data/samples/binance_depth_sample.expected.json`; local capture is opt-in and
-manual (never run in CI). Reviewer path:
+manual (never run in CI). Reproduction path:
 
 ```bash
 # Normalise the checked-in fixture into Asterion CSV + binary event logs.
@@ -425,7 +430,7 @@ python tools/capture_binance_depth.py --symbol BTCUSDT --duration 20 \
 ```
 
 Binance depth is L2 price-level data; Asterion's schema is L3/order-oriented. The
-normaliser is an honest adapter that uses level-replacement semantics with
+normaliser uses level-replacement semantics with
 deterministic synthetic order IDs and does not fabricate real exchange order IDs.
 The fixture-based tests re-run normalisation, compare regenerated CSV output,
 check binary semantic properties and replay checksums, and assert CSV/binary
@@ -450,7 +455,7 @@ dropped). An opt-in `DropNewestOnFull` policy exists for overload-shedding exper
 correctness-preserving for order-book streams.
 
 ```bash
-# Reviewer-facing parity + stats demo (needs the built Python bindings on PYTHONPATH).
+# Parity and statistics demo (needs the built Python bindings on PYTHONPATH).
 PYTHONPATH=build/python python scripts/run_spsc_replay_demo.py \
   --input data/samples/sample_replay.csv --queue-capacity 4 --json
 
@@ -539,8 +544,8 @@ cmake --build build-gbench --target asterion_google_benchmarks
 See [BENCHMARKS.md](BENCHMARKS.md), [docs/profiling.md](docs/profiling.md) and
 [reports/benchmark_report_2026_05_31.md](reports/benchmark_report_2026_05_31.md) for methodology.
 
-For a single cross-report view of the performance/allocation evidence — what it proves, what it does
-not, one top-level evidence table and before/after summaries — see
+For a single cross-report view of the performance and allocation evidence,
+including one top-level evidence table and before/after summaries, see
 [reports/performance_evidence_summary_2026_06_01.md](reports/performance_evidence_summary_2026_06_01.md)
 (representative local measurements only; no new numbers).
 
@@ -689,7 +694,7 @@ rows reproduce the recorded expected output within `1e-3` before timing and are 
 evidence — not the live 4-feature replay-loop contract and not a predictive-quality claim. Default
 builds record the replay row and the isolated public-L2 row as skipped/unavailable, and ONNX fallback
 is not counted as ONNX evidence. ONNX inference
-allocations are measured and reported honestly (model-load is measured separately from steady-state)
+allocations are measured and reported explicitly (model-load is measured separately from steady-state)
 and are not claimed to be allocation-free. See
 [docs/chronoslob_bridge.md](docs/chronoslob_bridge.md), the fixture report
 [reports/chronoslob_onnx_bridge_report_2026_05_31.md](reports/chronoslob_onnx_bridge_report_2026_05_31.md),
@@ -730,14 +735,10 @@ network connection or sends live broker messages.
 fills and marks, then evaluates gross exposure, net exposure, concentration and loss thresholds.
 All limits default to disabled and audit recording is opt-in, mirroring the risk gateway.
 
-## Honesty And Limitations
+## Scope And Limitations
 
-Asterion is a deterministic systems lab. The market-data ingestion path is for recorded and
-simulated logs only. It is not connected to any exchange, does not trade live, does not implement
-kernel bypass, does not claim true HFT production performance and does not include fabricated
-benchmark results. The inference path measures model plumbing and policy accounting only; it is
-not a profitable strategy claim. See [LIMITATIONS.md](LIMITATIONS.md) for the full scope statement.
-
-## Example CV Bullet
-
-Built **Asterion**, a C++20 deterministic trading systems lab implementing L3 order book reconstruction, price-time-priority matching, pre-trade risk checks, market replay, execution-report checksums, correctness tests and latency benchmark scaffolding.
+Asterion evaluates recorded and simulated workloads. The market-data path has no
+live exchange connection, and the inference path measures model integration and
+policy accounting rather than predictive quality. Performance evidence is tied
+to the disclosed hosts and workloads. See [LIMITATIONS.md](LIMITATIONS.md) for
+the complete scope statement.

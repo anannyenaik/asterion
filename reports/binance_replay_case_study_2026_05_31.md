@@ -1,8 +1,10 @@
 # Recorded Binance Public Depth-Stream Engineering Case Study (2026-05-31)
 
-> **This is a recorded public market-data engineering demo. It is not live trading, not authenticated exchange connectivity, and not evidence of equities-market realism.**
+> Recorded public crypto L2 normalisation and deterministic replay case study.
 
-No API keys, no order placement, no broker connectivity, no profitability claim.
+The path uses no API keys and performs no order placement. It evaluates recorded
+market-data engineering rather than live connectivity, L3 feed fidelity,
+equities-market realism or profitability.
 This case study captures (or replays a checked-in fixture of) **public** Binance
 order-book depth, normalises it into Asterion's existing event schema, and
 replays it deterministically through the existing replay/diagnostics pipeline.
@@ -138,7 +140,7 @@ ingestion/normalisation/replay correctness, not performance.
 ## Explicit limitations
 
 - **L2 → L3 modelling.** Binance publishes L2 price-level data with no per-order
-  identity. Asterion's book is L3/order-oriented. The normaliser is an honest
+  identity. Asterion's book is L3/order-oriented. The normaliser is a deterministic
   adapter using **level-replacement semantics with deterministic synthetic order
   IDs**; it does **not** fabricate real exchange order IDs. Per-level FIFO depth,
   individual order sizes/arrival order and true order lifetimes are not

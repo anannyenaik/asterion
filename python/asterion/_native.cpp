@@ -226,7 +226,7 @@ PYBIND11_MODULE(_native, module) {
 
   // Opt-in SPSC replay pipeline. Deterministic single-thread replay remains the
   // default; this exposes the bounded single-producer/single-consumer pipeline
-  // for reviewer-facing parity and stats inspection.
+  // for parity and statistics inspection.
   py::enum_<asterion::SpscBackpressurePolicy>(module, "SpscBackpressurePolicy")
       .value("Block", asterion::SpscBackpressurePolicy::Block)
       .value("DropNewestOnFull", asterion::SpscBackpressurePolicy::DropNewestOnFull);

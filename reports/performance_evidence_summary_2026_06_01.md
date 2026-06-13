@@ -1,14 +1,14 @@
 # Performance Evidence Summary (2026-06-01)
 
-> **These are representative local measurements on this machine/environment, not
-> portable performance claims.** Every number below is copied from an existing
-> curated report; nothing here is recomputed, extrapolated or invented. Where a
-> metric was never measured, the cell reads `not measured` or `n/a`.
+> Representative measurements from the environments disclosed in the source
+> reports. Every number below is transcribed from an existing curated report;
+> none is recomputed or extrapolated. Unmeasured metrics are marked
+> `not measured` or `n/a`.
 
 This is a top-level index of the performance and allocation evidence Asterion
-already has. It exists so a reviewer can see, in one place, what the benchmarks
-prove, what they deliberately do not prove, and which source report backs each
-row. For per-claim classification see [docs/claim_audit.md](../docs/claim_audit.md);
+already has. It provides one index of the measured paths, their scope and the
+source report behind each row. For per-claim classification see
+[docs/claim_audit.md](../docs/claim_audit.md);
 for reproduction commands see [docs/evidence_index.md](../docs/evidence_index.md)
 and [BENCHMARKS.md](../BENCHMARKS.md).
 
@@ -49,7 +49,7 @@ Numbers transcribed from
 nothing is recomputed or invented. Environment: Rocky Linux 8.10, AMD EPYC 7702,
 GCC 13.2 Release, one Slurm allocation, CPU affinity 121.
 
-| path measured | dataset / workload | p50 (std / pooled or base / loop) | p99 | throughput | allocations | checksum / parity | caveat |
+| path measured | dataset / workload | p50 (std / pooled or base / loop) | p99 | throughput | allocations | checksum / parity | scope |
 | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
 | std vs pooled hot path | `high_cancellation_1m` (1M, 5 iters) | 281 ns / 291 ns | 631 ns / 681 ns | 2.88M / 2.82M ev/s | std 7,340,580 → pooled **0** | guard `14180005740461440914` (match) | allocation removal under parity is the signal, not the latency tie |
 | std vs pooled stress hot path | 8 small stress corpora (20k–40k ev each) | 180–491 ns std / pooled | 311–882 ns | see source | std 28,125–51,895 → pooled **0** | guard parity 8/8 | single-symbol book layer; `stress_multi_symbol_style` skipped |
@@ -118,12 +118,12 @@ environments in the comprehensive table.
 ## Why old laptop/WSL rows are retained
 
 - They are the **original optimisation evidence** (before/after allocation
-  story) and document methodology that the Hamilton pass reuses.
+  context) and document methodology that the Hamilton pass reuses.
 - Several rows — the ONNX ChronosLOB bridge, the inference event-loop ONNX row,
   the Binance public-depth case study — were **never measured on Hamilton** and
   exist only as laptop evidence.
 - Deleting them would hide history; relabelling them as Hamilton results would be
-  dishonest. They stay, clearly attributed to their own Windows/MSYS2 or WSL2
+  misleading. They stay, clearly attributed to their own Windows/MSYS2 or WSL2
   environment, with the explicit note that cross-machine comparison is not
   meaningful.
 
@@ -150,7 +150,7 @@ environments in the comprehensive table.
 - The correctness-first `OrderBook` and single-thread replay remain the
   **defaults**; the pooled book, SPSC pipeline and `Light` validation are opt-in.
 
-## What this evidence proves
+## Verified Properties
 
 - The correctness-first hot path (binary replay → L3 book update → reusable L2
   view → fixed-size strategy callback → risk check) runs with a stable,
@@ -177,12 +177,12 @@ environments in the comprehensive table.
 - The recorded **Binance public-depth case study** normalises and replays
   deterministically to fixed correctness checksums.
 - The **Durham Hamilton8 HPC pass** shows the same scoped allocation/parity
-  story on a Slurm compute node: GCC Release `ctest` passed, the 1M
+  evidence on a Slurm compute node: GCC Release `ctest` passed, the 1M
   high-cancellation pooled hot path reached **0 measured allocations** with
   guard parity, all six 1M SPSC rows were lossless with checksum parity, and
   explicit Linux `perf` counters were collected under disclosed PMU limits.
 
-## What this evidence does not prove
+## Scope
 
 - No portable or cross-machine performance numbers. Most curated rows are from
   one Windows 10 / MSYS2 laptop; the WSL2 and Durham HPC rows are explicitly
@@ -244,7 +244,7 @@ Numbers are transcribed from the source report named in the last column. Latency
 is per-call for inference rows and per-event/per-run/aggregate for the replay
 rows as noted in each source report.
 
-| area | path measured | dataset / workload | environment | p50 | p99 | p99.9 | throughput | allocations | checksum / parity | source report | caveat |
+| area | path measured | dataset / workload | environment | p50 | p99 | p99.9 | throughput | allocations | checksum / parity | source report | scope |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |
 | standard hot path | binary replay → L3 → L2 → strategy → risk | `sample_hot_path_replay.bin` (12 events, 10k iters) | Win/MSYS2 | 800 ns | 2,000 ns | 7,500 ns | 809,066 ev/s | 210,000 | guard `18052214259513584877` | [benchmark_report](benchmark_report_2026_05_31.md) | correctness-first node-based book still allocates; local only |
 | pooled hot path | same path via opt-in `PooledOrderBook` | `sample_hot_path_replay.bin` (5k iters) | Win/MSYS2 | 600 ns | 1,300 ns | 6,400 ns | 1,037,075 ev/s | 0 | guard `3714046084935619589` (matches standard "after" row) | [allocation_optimisation](allocation_optimisation_report_2026_05_31.md) | zero-alloc only after warm-up; opt-in |
@@ -295,11 +295,11 @@ The same methodology disciplines run through every report above.
   laptop, its OS scheduling, power state, compiler and timer behaviour. The `max`
   column in several reports is dominated by occasional OS scheduling jitter,
   which is why distributions, not best cases, are reported.
-- **Windows/MSYS2 caveat.** All runs are Windows 10 through MSYS2/MinGW-w64
+- **Windows/MSYS2 context.** All runs are Windows 10 through MSYS2/MinGW-w64
   UCRT64, not native Linux. The compiled Python extension is ABI-specific to the
   interpreter that built it, so the build and the tests/demo must use the same
   Python (see the toolchain note in [docs/evidence_index.md](../docs/evidence_index.md)).
-- **HDD/disk-loading caveat.** Large generated corpora (1M-event binaries are
+- **HDD/disk-loading context.** Large generated corpora (1M-event binaries are
   ~58 MB each) are loaded from local disk before the measured loop; corpus
   loading is outside the measured event loop, but disk and OS cache state are
   part of the local environment and are not portable.
@@ -507,5 +507,5 @@ claim. See
   when a real PMU is unavailable.
 - The **technical paper** can now draw its microarchitectural section from the
   measured WSL2 and Durham HPC counters, with each environment's PMU and
-  governor/turbo caveats stated; a more controlled Linux profiling pass would
+  governor/turbo constraints stated; a more controlled Linux profiling pass would
   further strengthen it.

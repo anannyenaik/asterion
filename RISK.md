@@ -1,6 +1,7 @@
 # Risk
 
-Asterion implements a basic but real pre-trade risk gateway. It is intentionally separate from the matching engine so order validation is explicit and testable.
+Asterion implements an explicit, testable pre-trade risk gateway separated from
+the matching engine.
 
 ## Implemented Checks
 

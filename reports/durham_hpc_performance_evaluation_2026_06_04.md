@@ -1,11 +1,9 @@
 # Durham HPC Linux Compute-Node Performance-Counter and Latency-Distribution Evidence (2026-06-04)
 
-> **Durham HPC Linux compute-node performance-counter and latency-distribution
-> evidence under disclosed conditions.** These are representative measurements
-> from one Hamilton8 Slurm compute-node allocation, not portable performance
-> claims. Nothing here is a production-HFT, portable-latency, live-trading,
-> profitability/alpha, predictive-quality or production-model-serving claim.
-> No login-node benchmark numbers are reported.
+> Durham HPC Linux compute-node performance-counter and latency-distribution
+> evidence under disclosed conditions. Results come from one Hamilton8 Slurm
+> compute-node allocation and are specific to that environment. No login-node
+> benchmark numbers are reported.
 
 This report adds a non-WSL Linux pass for Asterion on Durham University's
 Hamilton8 HPC cluster. It complements, but does not replace, the earlier Windows
@@ -13,7 +11,7 @@ and WSL2 reports. The useful signal is the combination of deterministic checksum
 parity, allocation counters, latency distributions and real Linux `perf`
 counters under one disclosed Slurm allocation.
 
-## Scope boundary
+## Scope
 
 - Asterion is not production-HFT infrastructure. These numbers are one Slurm
   allocation on one shared Hamilton8 compute node and are **not portable**.

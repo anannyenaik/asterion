@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Capture recorded Binance **public** order-book depth into raw JSONL.
 
-This is a recorded public market-data engineering tool. It is **not** live
-trading, **not** authenticated exchange connectivity, and **not** evidence of
-equities-market realism.
+This tool records public market-data snapshots for deterministic replay
+fixtures. It uses no authenticated connectivity and performs no trading.
 
-Scope and safety boundaries (enforced by construction):
+Operational boundaries:
 
 * Uses only the **public** REST endpoint ``GET /api/v3/depth`` (order-book
   snapshots). No API keys, no secrets, no signed/authenticated endpoints.
 * No order placement, no account access, no trading of any kind.
-* Conservative request pacing with capped exponential backoff on errors.
+* Bounded request pacing with capped exponential backoff on errors.
 * Handles connection errors, timeouts, malformed messages and Ctrl-C cleanly.
 * The standard library only (``urllib``) -- no third-party dependencies.
 * **Never** runs in CI or in the test suite: network capture is opt-in and
@@ -54,8 +53,7 @@ DEPTH_PATH = "/api/v3/depth"
 STREAM_TYPE = "rest_depth_snapshot_poll"
 USER_AGENT = f"asterion-capture-binance-depth/{TOOL_VERSION} (+public-market-data; recorded demo)"
 
-# Conservative client-side guard rails. These are intentionally gentle: this is a
-# small recorded demo, not a high-rate collector.
+# Client-side limits for the recorded-data capture utility.
 MIN_INTERVAL_SECONDS = 0.5
 MAX_BACKOFF_SECONDS = 30.0
 

@@ -1,9 +1,8 @@
 # Perf Profile
 
-Representative local measurements on one WSL2 Linux environment on this laptop,
-plus one Durham Hamilton8 HPC Slurm compute-node allocation, not portable
-performance claims. Not live trading, not production HFT, not a portable latency
-proof.
+This report records local `perf` measurements from one WSL2 laptop environment
+and one Durham Hamilton8 Slurm compute-node allocation. Results are specific to
+the disclosed hosts and workloads.
 
 ## Durham Hamilton8 HPC status (updated 2026-06-04)
 
@@ -159,7 +158,7 @@ Under `perf` pinning to a single core the two SPSC threads interleave through
 measurement — the unpinned throughput table in the evaluation report is the
 representative SPSC result.
 
-## Caveats for this environment
+## Environment Constraints
 
 - **WSL2, not native/cloud Linux.** Virtualized PMU (no LLC events, multiplexed
   counters), uncontrolled turbo, one laptop — representative local measurements,

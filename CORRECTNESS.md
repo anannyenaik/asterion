@@ -180,7 +180,7 @@ does not allocate.
 
 Backend selection is tested without the optional ONNX dependency: the Linear backend is selected and
 scores deterministically; an ONNX request falls back to `LinearModel` (when ONNX Runtime is not
-compiled in) with an honest detail string; and the selected backend integrates with feature
+compiled in) with an explicit detail string; and the selected backend integrates with feature
 extraction and measured latency accounting, producing the same score as a reference `LinearModel`.
 When ONNX Runtime is genuinely compiled in, a tiny checked-in identity fixture is decoded and loaded
 to assert active backend selection, deterministic scoring and measured latency accounting.

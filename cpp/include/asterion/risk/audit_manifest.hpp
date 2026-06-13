@@ -26,8 +26,8 @@ namespace asterion {
 // deliberately excluded from the chain checksum and signature payload; `creator` is
 // included in the signature payload when signing is enabled.
 //
-// Honesty: without signing this is integrity/tamper-evidence by checksum, not a
-// cryptographic-compliance guarantee. Optional HMAC-SHA256 signing (see
+// Scope: without signing this provides checksum-based integrity evidence, not a
+// cryptographic compliance guarantee. Optional HMAC-SHA256 signing (see
 // AuditManifestGenerateOptions::signing_key) adds keyed authentication, but only
 // the holder of the key can verify it; it is disabled by default.
 

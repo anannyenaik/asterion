@@ -1,14 +1,15 @@
-# Opt-In Steady-State SPSC Replay Evaluation With Deterministic Parity And Controlled Validation Cost (2026-05-31)
+# Steady-State SPSC Replay Evaluation (2026-05-31)
 
-These are representative local measurements on this machine/environment, not portable performance claims.
+Measurements are representative of the disclosed local environment.
 
 This report covers the opt-in steady-state SPSC replay evaluation added after the first SPSC replay
 pipeline. Deterministic single-thread replay remains the default. Full per-event validation remains
 available and remains the default. The lighter validation mode described here is opt-in and intended
 for throughput evaluation on large replay corpora, not as a replacement for correctness testing.
 
-This is not production networking, not live exchange connectivity, not production-HFT
-infrastructure, not a portable latency guarantee, and not evidence of trading profitability or alpha.
+The evaluation covers a bounded replay concurrency path. Production networking,
+live exchange connectivity, portable latency, profitability and alpha are
+outside scope.
 
 ## Why The Previous Benchmark Was Limited
 

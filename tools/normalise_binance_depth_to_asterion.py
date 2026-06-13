@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Normalise recorded Binance public depth messages into Asterion replay events.
 
-This is a recorded public market-data engineering tool. It is **not** live
-trading, **not** authenticated exchange connectivity, and **not** evidence of
-equities-market realism. It reads raw public-depth JSONL captured by
+This recorded-data tool reads public-depth JSONL captured by
 ``tools/capture_binance_depth.py`` (or a hand-curated fixture) and produces
 Asterion event logs (CSV and/or binary) plus a structured normalisation report.
+It uses no authenticated connectivity and performs no trading.
 
 Determinism: the same input bytes always produce the same normalised events and
 the same diagnostics. The parsing/diagnostics core is pure-Python and needs no
@@ -17,9 +16,9 @@ Field mapping (Binance public depth  ->  Asterion event schema)
 --------------------------------------------------------------------------------
 Binance publishes **L2-style price-level** data: each level is ``[price, qty]``
 with no per-order identity. Asterion's schema is **L3/order-oriented** (every
-resting order has an ``order_id``). This tool is an honest adapter: it does NOT
-pretend Binance exposes real L3 order IDs. It uses *level-replacement* semantics
-with *deterministic synthetic* order IDs, and the limitation is documented in
+resting order has an ``order_id``). The adapter uses *level-replacement*
+semantics with *deterministic synthetic* order IDs; it does not infer real L3
+order identity. The mapping boundary is documented in
 ``docs/market_data.md`` and ``LIMITATIONS.md``.
 
 Two raw message shapes are accepted (auto-detected per line):

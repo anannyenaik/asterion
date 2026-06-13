@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serious replay performance evaluation: larger corpora, standard vs pooled L3.
+"""Replay performance evaluation over larger standard and pooled L3 corpora.
 
 This orchestrator wires together the existing, single-source-of-truth pieces:
 
@@ -65,7 +65,7 @@ class Dataset:
     skip_reason: str = ""
 
 
-# The serious local/manual corpus matrix. Seeds are explicit and fixed so every
+# Local/manual performance corpus matrix. Seeds are explicit and fixed so every
 # corpus is byte-for-byte reproducible. The 100k baseline is a fast smoke size;
 # the 1M variants are the larger workloads. The multi-symbol corpus is recorded
 # for completeness but skipped by the hot-path benchmark because the pooled hot

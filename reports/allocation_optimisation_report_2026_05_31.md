@@ -1,10 +1,8 @@
 # Allocation Optimisation Report - 2026-05-31
 
-These are representative local measurements on this machine, not portable performance claims.
-
-This is not production-HFT infrastructure. The correctness-first `OrderBook` remains available and
-is still the default implementation. The pooled path is opt-in and benchmarked under the conditions
-disclosed below.
+This report measures the opt-in pooled L3 path under the disclosed local
+environment. The correctness-first `OrderBook` remains the default, and all
+timings are environment-specific.
 
 ## Scope
 
@@ -14,9 +12,8 @@ Measured path:
 binary replay -> L3 book update -> reusable L2 view -> fixed-size strategy callback -> risk check
 ```
 
-The allocation experiment targets L3 replay allocations after warm-up. It does not add live trading,
-authenticated exchange connectivity, order placement, profitability claims or portable latency
-claims.
+The experiment targets L3 replay allocations after warm-up. Its scope is
+allocation behavior and local systems cost for recorded replay.
 
 ## Environment
 

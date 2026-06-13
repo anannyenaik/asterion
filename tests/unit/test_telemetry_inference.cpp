@@ -300,7 +300,7 @@ TEST_CASE("Policy gate never disables when the feature is not configured",
   REQUIRE_FALSE(gate.model_disabled());
 }
 
-TEST_CASE("TorchScript backend is an honest placeholder until LibTorch is linked",
+TEST_CASE("TorchScript backend reports its placeholder status until LibTorch is linked",
           "[inference]") {
   TorchScriptModel model("model.ts");
   REQUIRE_FALSE(model.available());

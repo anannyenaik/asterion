@@ -6,13 +6,12 @@ supersedes the synthetic-toy ChronosLOB artefact (`chronoslob_tiny_real`) **for
 model-contract evidence** with a genuine, if tiny, model trained on **recorded
 public Binance crypto L2 depth**, exposing a richer windowed contract.
 
-**Scope / claim boundary.** This is *recorded-public-data model-contract evidence
+**Scope.** This artefact provides recorded-public-data model-contract evidence
 for moving a research-style LOB model into Asterion's deterministic inference
-path* — a systems/integration artefact. It does **not** claim predictive quality,
-trading profitability, alpha, live trading, authenticated/broker connectivity,
-order placement, production model-serving, production HFT, portable latency,
-equities-market realism or L3 exchange-feed realism. Any accuracy/loss below is
-**diagnostic context only**, with no trading significance.
+path. Accuracy and loss are diagnostic context only. Predictive quality,
+profitability, live trading, authenticated connectivity, order placement,
+production model serving, portable latency, equities-market realism and L3 feed
+fidelity remain outside scope.
 
 > Latency numbers below are representative local measurements on this
 > machine/environment, not portable performance claims. Durham Hamilton8 HPC
@@ -122,7 +121,7 @@ vectors are recorded in the metadata so the transform is fully reproducible.
 | eval accuracy (diagnostic) | 1.000000 |
 | parameters | ~1.7k |
 
-**Read the accuracy honestly.** `eval_accuracy_diagnostic = 1.0` is *training-set*
+**Interpreting accuracy.** `eval_accuracy_diagnostic = 1.0` is *training-set*
 accuracy on 76 tiny, heavily-overlapping windows — it indicates the network
 **memorised** its smoke-scale training set, not predictive skill. There is **no**
 held-out validation and **no** generalisation claim. The number exists only to
@@ -248,7 +247,7 @@ different input contract and is **not** wired into those rows.
   cannot masquerade as the live model). The correctness-first default path is
   unchanged.
 
-## What this proves
+## Verified Properties
 
 * A research-style, multi-timestep, 40-dim DeepLOB-style LOB model trained on
   **recorded public crypto L2 data** can be exported and moved into Asterion's
@@ -259,7 +258,7 @@ different input contract and is **not** wired into those rows.
 * The optional ONNX path and the deterministic `LinearModel` fallback coexist;
   ONNX-named evidence cannot silently fall back.
 
-## What this does not prove
+## Scope
 
 * **Nothing about predictive quality, profitability, alpha or signal value.** The
   reported accuracy is training-set memorisation on a tiny overlapping window set.

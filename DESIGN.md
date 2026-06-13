@@ -121,7 +121,7 @@ regeneration.
 
 ### Recorded Binance Public Depth Normalisation
 
-`tools/normalise_binance_depth_to_asterion.py` is an honest adapter from recorded
+`tools/normalise_binance_depth_to_asterion.py` is a deterministic adapter from recorded
 **public** Binance order-book depth into the same canonical event schema used by
 every other ingestion path. Binance publishes L2-style price-level data with no
 per-order identity, while Asterion's book is L3/order-oriented. The adapter uses
@@ -189,7 +189,7 @@ microbenchmarks.
 
 ### Risk Gateway
 
-The risk gateway exists before matching because serious trading systems reject invalid or dangerous
+The risk gateway exists before matching so invalid or dangerous
 orders before they consume matching resources. The current checks are intentionally simple but real:
 quantity, notional, position, gross exposure, price band, duplicate ID, stale data and kill switch.
 Accepted client-order IDs are tracked with a small flat set so callers can reserve capacity and avoid
@@ -269,7 +269,7 @@ Backend selection is explicit: `make_inference_backend` returns a `Model` for th
 and records whether it fell back. The deterministic `LinearModel` is the default and the fallback. An
 optional ONNX Runtime backend (`OnnxModel`) is compiled only behind the `ASTERION_USE_ONNXRUNTIME`
 CMake flag when the dependency is found; otherwise an ONNX request degrades to `LinearModel` with an
-honest detail string. The dependency is never required by default CI; a manual CI input configures
+explicit detail string. The dependency is never required by default CI; a manual CI input configures
 with `-DASTERION_USE_ONNXRUNTIME=ON` to exercise the build flag and deterministic fallback path.
 The compile-time `kOnnxRuntimeAvailable` constant lets tests branch on the build configuration.
 `data/models/chronoslob_tiny_fixture.onnx` is a small deterministic ChronosLOB-style fixture with

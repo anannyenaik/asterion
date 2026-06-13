@@ -1,21 +1,15 @@
-# Opt-In SPSC Replay Pipeline — Systems Evaluation Report (2026-05-31)
+# Opt-In SPSC Replay Pipeline Evaluation (2026-05-31)
 
-## Scope and honesty statement
+## Scope
 
 This report documents **one** carefully scoped, opt-in concurrency boundary added to Asterion: a
 deterministic bounded **single-producer/single-consumer (SPSC)** replay pipeline between market-data
 replay and event processing.
 
-**These are representative local measurements on this machine/environment, not portable performance
-claims.**
-
-This is explicitly **not**:
-
-- production networking,
-- live exchange or broker connectivity,
-- production-HFT infrastructure,
-- a lock-free trading architecture beyond the one bounded SPSC queue described here,
-- a latency guarantee.
+Measurements are representative of the disclosed local environment. The
+evaluation covers one bounded SPSC queue and excludes production networking,
+live exchange or broker connectivity, broader lock-free architecture and
+portable latency claims.
 
 Deterministic single-thread replay (`ReplayEngine::replay_events`) **remains the default**. The SPSC
 mode is strictly opt-in (`run_spsc_replay`) and exists to make a single concurrency boundary explicit,
@@ -31,7 +25,7 @@ benchmark/evaluation only.
 Asterion already had deterministic replay, schema guards, recorded-data tooling, optional ONNX
 infrastructure, benchmark tooling, a pooled order book and zero-allocation feature extraction. The
 remaining credibility gap was that it had **no explicit concurrency boundary** — every path was
-single-threaded. A reviewer evaluating systems-engineering maturity reasonably asks how the project
+single-threaded. The next systems question is how the project
 handles a producer/consumer split, ownership across a thread boundary, backpressure and deterministic
 parity under concurrency. This change answers that with the smallest defensible surface: one bounded
 SPSC pipeline, proven to preserve the single-thread results exactly.
@@ -138,7 +132,7 @@ they are not flaky.
 
 The ring buffer allocates its backing storage exactly once at construction and never allocates during
 `try_push`/`try_pop`. The dominant allocation in `run_spsc_replay` is **thread creation** (one
-`std::thread` per call, ~tens of KB of stack), which is reported honestly by the benchmark
+`std::thread` per call, ~tens of KB of stack), which is reported directly by the benchmark
 (`bytes_allocated`). For a workload that creates the pipeline once and streams many events, this
 per-call thread-lifecycle cost amortizes to near zero per event; for the per-run benchmark below it is
 paid on every iteration and is the main reason the per-run SPSC latency is higher on a tiny dataset.
@@ -163,7 +157,7 @@ SPSC stats for that run: `queue_capacity=1024`, `produced_events=12`, `consumed_
 `backpressure_count=0`, `dropped_events=0`, `max_queue_depth=12`, `checksum_parity=true`.
 
 Interpretation: on a 12-event dataset the per-run SPSC number is dominated by per-iteration thread
-creation/join (~tens to ~hundreds of microseconds), not by per-event processing. This is the honest
+creation/join (~tens to ~hundreds of microseconds), not by per-event processing. This is the
 cost of spinning the pipeline up and down 2000 times. SPSC is intended for long-running streams where
 the producer thread is created once; the larger-corpus measurement below isolates the amortized
 behaviour.
@@ -179,7 +173,7 @@ queue capacity 1024:
 | `replay_l3_diagnostics_single_thread` | ~2,089 | — | — | — | baseline |
 | `spsc_replay_l3_diagnostics` | ~1,848 | 8,658 | 1,024 (saturated) | 0 | **true** |
 
-Two honest caveats on these absolute numbers:
+Two constraints apply to these absolute numbers:
 
 1. The balanced corpus grows the book without bound, and replay runs full book-state validation
    (`check_invariants()` + best-bid/ask) after **every** event. That validation is O(book size), so
@@ -209,7 +203,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 .\build\asterion_tests.exe "[spsc]"
 
-# Python tests + reviewer demo (needs the built bindings on PYTHONPATH)
+# Python tests + evaluation demo (needs the built bindings on PYTHONPATH)
 $env:PYTHONPATH = "$PWD\build\python"
 python -m pytest python/tests/test_spsc_replay.py
 python scripts\run_spsc_replay_demo.py --input data\samples\sample_replay.csv --queue-capacity 4 --json

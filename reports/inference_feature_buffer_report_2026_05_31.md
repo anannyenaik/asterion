@@ -1,11 +1,10 @@
 # Inference Feature Buffer Report - 2026-05-31
 
-These are representative local measurements on this machine/environment, not portable performance claims.
-
-This report covers the caller-owned feature buffer added for inference. It measures plumbing only:
-L2 feature extraction, LinearModel scoring and timeout/late-signal policy accounting. It does not
-claim predictive quality, trading profitability, production model-serving infrastructure, production
-HFT performance or live trading capability.
+This report evaluates the caller-owned inference feature buffer under the
+disclosed local environment. It measures L2 feature extraction, `LinearModel`
+scoring, timeout and late-signal policy accounting, and allocation behavior.
+Predictive quality, profitability and production model serving are outside
+scope.
 
 > **Update (2026-06-01):** the same caller-owned buffer now also feeds a real
 > tiny ChronosLOB `DeepLOBModel` through the optional ONNX backend with no change
@@ -15,7 +14,7 @@ HFT performance or live trading capability.
 > adds one allocation/call. See
 > [chronoslob_real_model_bridge_report_2026_06_01.md](chronoslob_real_model_bridge_report_2026_06_01.md).
 
-## Limitation Before This Change
+## Previous Allocation Source
 
 The existing `FeatureExtractor` API returned `std::vector<double>` for L2 features. That was useful
 for research, Python bindings and debugging, but it owned dynamic storage in the inference path. The

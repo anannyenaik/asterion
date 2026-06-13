@@ -1,14 +1,13 @@
-# Claim Audit
+# Evidence And Scope Audit
 
-This document audits every major claim Asterion makes and classifies the evidence
-behind it. It is the single place a reviewer can use to check that nothing in the
-README, [DESIGN.md](../DESIGN.md), [BENCHMARKS.md](../BENCHMARKS.md) or the reports
-overclaims.
+This document maps Asterion's major technical claims to their supporting evidence
+and scope. It provides a single index across the README,
+[DESIGN.md](../DESIGN.md), [BENCHMARKS.md](../BENCHMARKS.md) and the reports.
 
-Asterion is **a deterministic C++20 trading systems lab for replay, matching, risk,
-inference integration, benchmarking and correctness evaluation.** It is not a real
-exchange, an HFT bot, live trading infrastructure, production model serving, or
-evidence of profitability or equities-market realism.
+Asterion is a deterministic C++20 trading-systems lab for replay, matching, risk,
+inference integration, benchmarking and correctness evaluation. Its scope
+excludes live exchange infrastructure, production model serving and claims of
+profitability or equities-market realism.
 
 ## Classification legend
 
@@ -20,7 +19,7 @@ evidence of profitability or equities-market realism.
 | **Simulated only** | In-process deterministic model; never touches a network or live venue. |
 | **Recorded-data demo only** | Works on checked-in/recorded fixtures; no live connectivity. |
 | **Future work** | Not implemented; listed to mark the boundary. |
-| **Explicitly not claimed** | Deliberately out of scope; called out so it is never inferred. |
+| **Outside scope** | A boundary that is documented to prevent unsupported inference. |
 
 Evidence shorthand: C++ tests live in [`tests/unit/`](../tests/unit), Python tests in
 [`python/tests/`](../python/tests), reports in [`reports/`](../reports). See
@@ -50,15 +49,15 @@ Evidence shorthand: C++ tests live in [`tests/unit/`](../tests/unit), Python tes
 
 | Claim | Classification | Primary evidence |
 | --- | --- | --- |
-| Ubuntu-based reproducible devcontainer path for Release, C++ tests, Python tests, demo and sanitizers | Documented reviewer/development path; locally Docker- and Dev Container CLI-validated | [reproducible_dev_environment.md](reproducible_dev_environment.md), [`.devcontainer/Dockerfile`](../.devcontainer/Dockerfile), [`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json). Dockerfile + documented Docker-only path validated on one local Docker Desktop Linux-container installation on 2026-06-05: GCC Release C++, Python/pytest/demo and Clang ASan/UBSan passed. The Dev Container CLI path (CLI 0.87.0) was then exercised on the same host on 2026-06-06: `devcontainer up` + `devcontainer exec` ran the documented Release C++ build/`ctest`, Python build/pytest (157 passed, 1 ONNX skipped), the reviewer demo and the Clang ASan/UBSan build/`ctest`, all passing. Installs no ONNX Runtime and runs no heavy benchmark automatically. One local reviewer/development validation only; not a portable or production guarantee. |
+| Ubuntu-based reproducible devcontainer path for Release, C++ tests, Python tests, demo and sanitizers | Documented development path; locally Docker- and Dev Container CLI-validated | [reproducible_dev_environment.md](reproducible_dev_environment.md), [`.devcontainer/Dockerfile`](../.devcontainer/Dockerfile), [`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json). Dockerfile + documented Docker-only path validated on one local Docker Desktop Linux-container installation on 2026-06-05: GCC Release C++, Python/pytest/demo and Clang ASan/UBSan passed. The Dev Container CLI path (CLI 0.87.0) was then exercised on the same host on 2026-06-06: `devcontainer up` + `devcontainer exec` ran the documented Release C++ build/`ctest`, Python build/pytest (157 passed, 1 ONNX skipped), the evaluation demo and the Clang ASan/UBSan build/`ctest`, all passing. Installs no ONNX Runtime and runs no heavy benchmark automatically. One local development validation only; not a portable or production guarantee. |
 | Default CI builds + tests on GCC and Clang (C++20 Release, strict warnings) | Implemented + tested in default CI | [.github/workflows/ci.yml](../.github/workflows/ci.yml) jobs `gcc-release`, `clang-release` |
 | Python bindings, inspection CLI and one-command demo pass on a single interpreter | Implemented + tested in default CI | `ci.yml` job `python-bindings` |
 | Tested C++ paths are clean under Address + UndefinedBehaviour sanitizers | Implemented + tested in default CI | [.github/workflows/sanitizers.yml](../.github/workflows/sanitizers.yml) job `asan-ubsan` (Debug, `-DASTERION_ENABLE_SANITIZERS=ON`, unit/golden/property suite including the full public-L2 metadata/model-contract fixture). Large numeric arrays use bounded iterative parsing, so the lane gates every push/PR without a raised stack limit. Correctness/memory-UB evidence only; not performance or production-readiness evidence. |
-| Bounded libFuzzer smoke coverage for parser/replay/matching/audit surfaces | Implemented but optional + **manual CI only** | [.github/workflows/fuzz-smoke.yml](../.github/workflows/fuzz-smoke.yml); never gates `main`, never measures performance and does not prove production safety or security certification. |
+| Bounded libFuzzer smoke coverage for parser/replay/matching/audit surfaces | Implemented but optional + **manual CI only** | [.github/workflows/fuzz-smoke.yml](../.github/workflows/fuzz-smoke.yml); never gates `main`, never measures performance and does not establish production safety or security certification. |
 | Real ONNX Runtime backend loads checked-in ChronosLOB artefacts (fixture, real tiny model, public-L2 model contract) and scores deterministically | Implemented but optional + **manual CI only** | `ci.yml` job `onnx-runtime-manual` (dispatch `onnx_backend=true`). Model-contract / systems evidence; **not** predictive-quality evidence. ONNX Runtime never installed by default CI. |
 | Isolated C++ ONNX systems-cost row for the recorded-public-L2 `[1,16,40]` artefact (`public_l2_chronoslob_onnx_inference_only`) | Implemented but optional + **manual/ONNX-only** | `benchmarks/benchmark_main.cpp`; reproduces the recorded expected output within `1e-3` before timing, recorded as skipped (never timed as `LinearModel`) when ONNX Runtime is absent, smoke-tested in `ci.yml` job `onnx-runtime-manual`. Representative local timing only (not portable); **systems cost, not** predictive-quality, alpha or production-serving evidence. |
-| Benchmark / latency numbers as a CI pass-fail gate | **Explicitly not claimed** | `benchmarks` + `linux-performance` are manual `workflow_dispatch` only; comparisons run without `--fail-on-regression`. Numbers are reported, not gated. |
-| CI proves performance, predictive quality or production readiness | **Explicitly not claimed** | CI proves build/correctness/portability/sanitizer-backed tested-path safety and optional-inference plumbing only; performance context is the Durham HPC reports below |
+| Benchmark / latency numbers as a CI pass-fail gate | **Outside scope** | `benchmarks` + `linux-performance` are manual `workflow_dispatch` only; comparisons run without `--fail-on-regression`. Numbers are reported, not gated. |
+| CI proves performance, predictive quality or production readiness | **Outside scope** | CI proves build/correctness/portability/sanitizer-backed tested-path safety and optional-inference plumbing only; performance context is the Durham HPC reports below |
 
 ## Performance / allocation claims
 
@@ -95,10 +94,10 @@ Evidence shorthand: C++ tests live in [`tests/unit/`](../tests/unit), Python tes
 | ChronosLOB-style ONNX fixture bridge (tiny 1×4→1×1 fixture, metadata, regen tool) | Recorded-data demo only / Implemented but optional | `tests/unit/test_inference_backend.cpp` (ChronosLOB cases); `python/tests/test_chronoslob_bridge.py`; [docs/chronoslob_bridge.md](chronoslob_bridge.md); [reports/chronoslob_onnx_bridge_report_2026_05_31.md](../reports/chronoslob_onnx_bridge_report_2026_05_31.md). Fixture is deterministic, **not trained**. |
 | Real tiny ChronosLOB `DeepLOBModel` exported to ONNX (1×1×4→1×3), trained on synthetic toy data; systems-integration / inference-latency only | Implemented but optional | `tests/unit/test_inference_backend.cpp` (`[real]` cases, incl. ONNX-lane load+deterministic score); `python/tests/test_chronoslob_bridge.py` (real metadata + sha256); [reports/chronoslob_real_model_bridge_report_2026_06_01.md](../reports/chronoslob_real_model_bridge_report_2026_06_01.md). **Trained** but on synthetic toy data; **no** predictive/profitability/live-trading/production claim. |
 | Recorded-public-L2 ChronosLOB `DeepLOBModel` model-contract artefact (windowed 1×16×40→1×3, window length 16, 40-dim LOB frame), trained on recorded public Binance crypto L2 depth; normalisation metadata + source-data/model checksums + expected fixtures | Recorded-data demo only / Implemented but optional | `tests/unit/test_inference_backend.cpp` (`[public_l2]`/`[parser]` cases: bounded full-fixture metadata parsing, malformed/truncated array rejection, contract-shape and expected-length checks, not-the-live-contract fallback, ONNX-lane load + fixture reproduction); `python/tests/test_chronoslob_public_l2_bridge.py` (contract, normalisation, checksums, ONNX reproduction); ChronosLOB `tools/export_asterion_public_l2_onnx.py` @ `4e8fd56`; [reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md](../reports/chronoslob_public_l2_model_bridge_report_2026_06_04.md). **Trained on recorded public crypto L2 depth** but a systems/integration artefact only — accuracy is diagnostic; **no** predictive/profitability/alpha/live-trading/production/portable-latency/L3/equities claim; not Asterion's live 4-feature contract (falls back, cannot masquerade). |
-| ONNX inference allocations measured honestly (load separated from steady-state, not claimed alloc-free) | Implemented + tested | `tests/unit/test_inference_backend.cpp` ("ONNX inference allocations are measured honestly and separated from load", real-model load/steady-state case) |
+| ONNX inference allocations measured explicitly (load separated from steady-state, not claimed alloc-free) | Implemented + tested | `tests/unit/test_inference_backend.cpp` ("ONNX inference allocations are separated from load", real-model load/steady-state case) |
 | Timeout/late-signal policy can disable model after repeated late signals when configured | Implemented but optional | `tests/unit/test_telemetry_inference.cpp` (policy-gate cases); disabled by default |
 | Event-loop inference cost: replay → L3 → L2 → caller-owned feature extraction → model scoring → measured policy gate, alongside strategy + risk, measured vs the inference-free hot path | Implemented + benchmarked (local); ONNX path optional | `benchmarks/benchmark_main.cpp` (`hot_path_binary_replay_l3_l2_inference_strategy_risk`, optional `hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk`); [reports/inference_event_loop_cost_report_2026_06_01.md](../reports/inference_event_loop_cost_report_2026_06_01.md). LinearModel stage adds **0** steady-state allocations on top of the node-based book; optional ONNX row is measured only when active ONNX is available and is not allocation-free; plumbing only, no decisioning/alpha/profitability claim; tiny 12-event fixture, local only |
-| Predictive quality / signal value / alpha / profitability | **Explicitly not claimed** | Inference path measures plumbing only; stated in every inference report header |
+| Predictive quality / signal value / alpha / profitability | **Outside scope** | Inference path measures plumbing only; stated in every inference report header |
 
 ## Market-data claims
 
@@ -107,35 +106,26 @@ Evidence shorthand: C++ tests live in [`tests/unit/`](../tests/unit), Python tes
 | Binance recorded public-depth case study (normalise → replay) | Recorded-data demo only | `python/tests/test_binance_normalise.py`; `tools/normalise_binance_depth_to_asterion.py`; [docs/market_data.md](market_data.md); [reports/binance_replay_case_study_2026_05_31.md](../reports/binance_replay_case_study_2026_05_31.md). Tiny hand-curated fixture; capture is manual/opt-in, never in CI. |
 | Larger recorded public crypto L2 replay case study (public REST depth snapshots -> normalise -> CSV/binary -> deterministic replay -> diagnostics/checksums -> grouped/shared parity) | Recorded-data demo only | `data/samples/binance_depth_larger_sample.*`; `data/samples/binance_depth_larger_sample.expected.json`; `python/tests/test_binance_normalise.py::test_larger_fixture_regeneration_guard_matches_expected_manifest`; [reports/binance_larger_replay_case_study_2026_06_01.md](../reports/binance_larger_replay_case_study_2026_06_01.md). Public Binance crypto L2 snapshots only; no live/authenticated connectivity, L3/equities realism, profitability, predictive-quality or production claim. |
 | Live capture is public REST `/api/v3/depth` only, no keys, no order placement | Recorded-data demo only | `tools/capture_binance_depth.py`; `test_capture_module_imports_without_network` |
-| Real L3 order identity / per-level FIFO depth / true order lifetimes from Binance | **Explicitly not claimed** | Binance depth is L2; normaliser uses synthetic order IDs + level-replacement (stated in LIMITATIONS) |
-| Equities-market realism | **Explicitly not claimed** | Stated in README + case-study header |
+| Real L3 order identity / per-level FIFO depth / true order lifetimes from Binance | **Outside scope** | Binance depth is L2; normaliser uses synthetic order IDs + level-replacement (stated in LIMITATIONS) |
+| Equities-market realism | **Outside scope** | Stated in README + case-study header |
 | Opt-in shared multi-symbol replay (`MultiSymbolBookSet`) with grouped-vs-shared parity | Implemented but optional + tested | `tests/unit/test_multi_symbol.cpp`, `tests/unit/test_shared_replay_parity.cpp`, `python/tests/test_shared_replay_parity.py`, `python/tests/test_replay_stability.py`; contract in [docs/shared_replay_parity.md](shared_replay_parity.md); grouped replay is the default; not a cross-symbol matching engine; parity coverage is stronger for tested cases, not exhaustively proven for all workloads |
 
 ## Boundary claims (deliberately out of scope)
 
 | Claim | Classification |
 | --- | --- |
-| Live exchange / broker / market-data connectivity | **Explicitly not claimed** |
-| Order placement / authenticated exchange connectivity | **Explicitly not claimed** |
-| Production-HFT performance, kernel bypass, FPGA, colocated networking | **Explicitly not claimed** |
-| Profitability / alpha / signal value | **Explicitly not claimed** |
-| Portable / committed benchmark or latency numbers | **Explicitly not claimed** (all numbers are representative local measurements) |
-| Managed audit retention, custody, compliance, tamper-proof storage | **Explicitly not claimed** |
+| Live exchange / broker / market-data connectivity | **Outside scope** |
+| Order placement / authenticated exchange connectivity | **Outside scope** |
+| Production-HFT performance, kernel bypass, FPGA, colocated networking | **Outside scope** |
+| Profitability / alpha / signal value | **Outside scope** |
+| Portable / committed benchmark or latency numbers | **Outside scope** (all numbers are representative local measurements) |
+| Managed audit retention, custody, compliance, tamper-proof storage | **Outside scope** |
 | Cross-symbol / portfolio-level matching | Future work |
 | Multi-version schema migration framework | Future work (v1 is stable + guarded) |
 | Current Linux `perf` counter evidence | Implemented + benchmarked (local) - **collected 2026-06-01 in WSL2** and **2026-06-04 on Durham Hamilton8 HPC**. WSL2 provides virtualized PMU evidence on one laptop; Durham provides one Slurm compute-node GCC/Rocky Linux run. Both are representative environment-specific measurements, not portable. See [reports/linux_performance_evaluation_2026_06_01.md](../reports/linux_performance_evaluation_2026_06_01.md), [reports/durham_hpc_performance_evaluation_2026_06_04.md](../reports/durham_hpc_performance_evaluation_2026_06_04.md) and [reports/perf_profile.md](../reports/perf_profile.md). |
 | More controlled Linux `perf` (LLC events when available, fixed governor/turbo, frame-pointer flamegraphs) | Future work - the WSL2 run has a virtualized PMU; the Durham run has no LLC events and no root governor/turbo control. A more controlled host/allocation would improve counter completeness and call-graph quality. |
 
-Reviewer-facing architecture and release metadata are indexed in
+Architecture and release metadata are indexed in
 [architecture_overview.md](architecture_overview.md) and
 [github_release_metadata.md](github_release_metadata.md). They summarize existing
 evidence and boundaries; they do not introduce implementation or production claims.
-
-## Auditor's note
-
-No overclaim was found that required rewriting during this audit pass. Every numeric
-result in `reports/` carries a "representative local measurements, not portable
-performance claims" header, and every simulated/optional component is labelled at its
-definition site and in [LIMITATIONS.md](../LIMITATIONS.md). This document and
-[evidence_index.md](evidence_index.md) were added to make that mapping explicit for a
-10-minute review.

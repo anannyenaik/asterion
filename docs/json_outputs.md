@@ -1,9 +1,9 @@
 # Stable JSON Outputs
 
-Asterion emits machine-readable JSON from its tools so reviewers and scripts can consume
-results without parsing text. This note documents each output, the test that guards it,
-and — importantly — which fields are **deterministic** (safe to diff/assert across runs)
-versus **machine-dependent** (timings; never assert on these).
+Asterion emits machine-readable JSON so tools and scripts can consume results
+without parsing text. This document identifies each output, its guarding test
+and the fields that are deterministic across runs versus machine-dependent
+timings.
 
 This is a lightweight contract note, not a formal schema framework. The authoritative
 shape is the guarding test plus the checked-in sample fixture.

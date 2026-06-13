@@ -74,7 +74,7 @@ flamegraph.pl build/perf_profile/out.folded > build/perf_profile/asterion.svg
 ```
 
 GitHub-hosted runners often do not expose hardware performance counters. The manual
-`linux-performance` workflow records that blocker honestly and does not gate on benchmark numbers.
+`linux-performance` workflow records that blocker explicitly and does not gate on benchmark numbers.
 
 ## WSL2 perf run (2026-06-01) — collected
 

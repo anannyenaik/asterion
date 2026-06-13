@@ -484,7 +484,7 @@ TEST_CASE("ONNX Runtime fixture backend scores deterministically when opt-in dep
   REQUIRE(result.score == Catch::Approx(metadata.expected_test_output.front()));
 }
 
-TEST_CASE("ONNX inference allocations are measured honestly and separated from load",
+TEST_CASE("ONNX inference allocations are separated from load",
           "[inference][backend][onnx][alloc]") {
   const ModelMetadata metadata = load_model_metadata(chronoslob_metadata_path());
 
@@ -514,7 +514,7 @@ TEST_CASE("ONNX inference allocations are measured honestly and separated from l
   REQUIRE(warm == Catch::Approx(metadata.expected_test_output.front()));
 
   // Steady-state inference allocations: measured and reported, not asserted to be
-  // zero. ONNX Runtime is free to allocate per-run buffers; honesty over claims.
+  // zero. ONNX Runtime may allocate per-run buffers.
   reset_allocation_counters();
   double last = 0.0;
   for (int i = 0; i < 16; ++i) {

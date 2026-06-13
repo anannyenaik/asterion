@@ -1,9 +1,9 @@
 # Matching And Order-State Semantics
 
-Asterion implements deterministic exchange-style matching semantics for a local
-research/systems lab. This document describes the in-process matching contract. It does not claim
-real-exchange completeness, production exchange behaviour, live trading support, broker/exchange
-connectivity or regulatory-grade order handling.
+Asterion implements deterministic exchange-style matching semantics for local
+systems evaluation. This document defines the in-process matching contract.
+Venue-complete behavior, live connectivity and regulatory workflows are outside
+scope.
 
 ## Supported Requests
 

@@ -1,11 +1,9 @@
 # Inference Report - 2026-05-31
 
-These are representative local measurements on this machine/environment, not portable performance claims.
-
-This report measures the *plumbing cost* of the inference path: feature extraction, model scoring
-and the timeout/late-signal policy gate. It does **not** claim any predictive quality, signal value,
-profitability or live-trading performance. The numbers below were produced on a single Windows
-laptop and are not comparable across machines.
+This report measures inference-path systems cost: feature extraction, model
+scoring and the timeout and late-signal policy gate. Results were produced on a
+single Windows laptop and are not comparable across machines. Predictive
+quality, signal value and profitability are outside scope.
 
 > **Update (2026-06-01):** the optional ONNX path now also runs a real tiny
 > ChronosLOB `DeepLOBModel` (trained on synthetic toy data) alongside the
@@ -61,7 +59,7 @@ $env:Path = 'C:\msys64\ucrt64\bin;' + $env:Path
 .\build-feature-buffer\asterion_benchmarks.exe --json build-feature-buffer\inference_feature_buffer_benchmark.json --no-text
 ```
 
-## Method And Honesty Notes
+## Method
 
 - The inference benchmarks use **per-call instrumentation**: each iteration is timed individually so
   a real p50/p95/p99/p99.9/max distribution can be reported (`timing_mode = per-call`).
@@ -100,7 +98,7 @@ Notes on the numbers above:
 - **The policy gate allocates nothing** and adds only the cost of integer comparisons; its disable
   latch is checked with injected timings.
 - **The vector-returning feature extraction path allocates one `std::vector<double>` per call**
-  (200,000 allocations over 200,000 calls). This is kept for convenience and reported honestly.
+  (200,000 allocations over 200,000 calls). This is kept for convenience and reported explicitly.
 - **The caller-owned-buffer feature extraction path reported 0 allocations and 0 bytes** in the
   scoped warmed benchmark rows and has a deterministic unit allocation check.
 - The old/new feature extraction + LinearModel rows separate the allocation-owning convenience path
@@ -130,7 +128,7 @@ lane). When those rows are present:
 Any ONNX-vs-LinearModel latency gap on a given machine reflects runtime/session/model-call overhead
 versus an inlined dot product. It is a plumbing comparison, not a model-quality comparison.
 
-## What This Report Does Not Claim
+## Scope
 
 - No predictive quality, alpha, signal value or trading profitability.
 - No portable or cross-machine performance numbers.

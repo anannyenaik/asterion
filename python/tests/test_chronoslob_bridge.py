@@ -68,7 +68,7 @@ def test_chronoslob_real_metadata_is_explicit() -> None:
         "top_level_imbalance",
         "top_level_quantity",
     ]
-    # Honest claim boundary: integration/latency only, no predictive claim.
+    # Scope boundary: integration and latency only, with no predictive claim.
     assert "systems-integration" in payload["claim_boundary"]
     assert payload["training"]["data"] == "synthetic_toy"
     # The recorded expected output is the per-model determinism contract.

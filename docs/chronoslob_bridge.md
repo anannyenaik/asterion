@@ -1,11 +1,10 @@
 # ChronosLOB ONNX Bridge
 
-This bridge is scoped as research-model-to-systems integration using a tiny
-ChronosLOB-style ONNX artefact. It is model-plumbing evidence only.
-
-It does not claim predictive quality, trading profitability, live trading,
-production model serving, production HFT, SOTA modelling or a portable latency
-guarantee.
+This bridge evaluates research-model-to-systems integration using compact
+ChronosLOB-style ONNX artefacts. Its scope is model contracts, feature
+compatibility, backend selection, fallback behavior and systems cost. It does
+not evaluate predictive quality, profitability, live trading or production
+model serving.
 
 There are now **three** checked-in artefacts:
 

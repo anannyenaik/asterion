@@ -1,13 +1,12 @@
 # Reports Index
 
-These reports are **representative local measurements on a single machine/environment,
-not portable performance claims.** No benchmark JSON is committed; every report exists
-to document methodology and one set of local results so a reviewer can reproduce the
-shape of the result, not the exact numbers.
+These reports record representative measurements under disclosed local
+environments. No benchmark JSON is committed; each report documents methodology,
+results and the boundaries required to interpret them.
 
 For how each report maps to a claim, see [docs/claim_audit.md](../docs/claim_audit.md);
 for reproduction commands, see [docs/evidence_index.md](../docs/evidence_index.md).
-For reviewer navigation before reading individual reports, see the
+For orientation before reading individual reports, see the
 [architecture overview](../docs/architecture_overview.md), the
 [reproducible development environment](../docs/reproducible_dev_environment.md)
 and the compact benchmark evidence table near the top of the
@@ -31,7 +30,7 @@ these reports only and adds no new numbers).
 
 | Report | What it covers | Results | Optional deps | Key limitation |
 | --- | --- | --- | --- | --- |
-| [performance_evidence_summary_2026_06_01.md](performance_evidence_summary_2026_06_01.md) | **Top-level summary**: what the benchmark/allocation evidence proves and does not prove, one cross-report evidence table, methodology, before/after | Local representative (index of existing reports) | **ONNX Runtime** only for the ChronosLOB row | Transcribes curated reports; leads with Durham HPC as the primary performance context, laptop/WSL kept as historical; not portable |
+| [performance_evidence_summary_2026_06_01.md](performance_evidence_summary_2026_06_01.md) | **Top-level summary**: measured benchmark/allocation evidence, scope, one cross-report evidence table, methodology, before/after | Local representative (index of existing reports) | **ONNX Runtime** only for the ChronosLOB row | Transcribes curated reports; leads with Durham HPC as the primary performance context, laptop/WSL kept as historical; not portable |
 | [benchmark_report_2026_05_31.md](benchmark_report_2026_05_31.md) | Hot-path benchmark: binary replay → L3 update → reusable L2 → strategy → risk; core + inference benchmark categories | Local representative | None | Machine-dependent; not portable; not production-HFT |
 | [allocation_optimisation_report_2026_05_31.md](allocation_optimisation_report_2026_05_31.md) | Before/after allocation comparison for the opt-in pooled L3 path | Local representative | None (pooled path is opt-in) | Zero-alloc only after warm-up in disclosed paths; opt-in |
 | [pooled_order_book_stress_report_2026_05_31.md](pooled_order_book_stress_report_2026_05_31.md) | PooledOrderBook under generated stress corpora; parity vs correctness-first book | Local representative | None | Opt-in; single-symbol at book layer; not production-HFT |

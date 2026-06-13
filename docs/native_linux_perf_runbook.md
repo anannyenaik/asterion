@@ -1,22 +1,23 @@
-# Native / Cloud Linux Performance Pass — Runbook (status: ON HOLD)
+# Native / Cloud Linux Performance Runbook
 
-> **This is a runbook, not results.** It contains **no measurements**. It is the
-> exact, copy-pasteable procedure for collecting the deferred *native / cloud
-> Linux performance-counter and latency-distribution evidence under disclosed
-> local conditions*. Run it **only** on native, bare-metal, or PMU-capable cloud
-> Linux. It is **not** a production-HFT, portable-latency, live-trading,
-> profitability/alpha, predictive-quality or production-model-serving procedure.
->
-> **Why it is on hold:** as of 2026-06-04 the only host available is a Windows
-> laptop whose sole Linux is WSL2. WSL2 was already measured (commit `216f473`,
-> [reports/linux_performance_evaluation_2026_06_01.md](../reports/linux_performance_evaluation_2026_06_01.md))
-> and must **not** be re-run and relabelled as native Linux. This pass needs a
-> different host. See memory `asterion-native-linux-host-gap`.
+This runbook contains the procedure for collecting native or PMU-capable cloud
+Linux performance-counter and latency-distribution evidence. It contains no
+measurements.
+
+**Status:** deferred pending access to a distinct native or PMU-capable Linux
+host. As of 2026-06-04, the available Linux environment is WSL2, already measured
+at commit `216f473` and documented in
+[reports/linux_performance_evaluation_2026_06_01.md](../reports/linux_performance_evaluation_2026_06_01.md).
+Those results must not be relabelled as native Linux.
+
+The procedure evaluates deterministic replay systems cost under disclosed host
+conditions. It does not evaluate live trading, predictive quality or portable
+latency.
 
 ## What the native pass adds over the existing WSL2 pass
 
 The WSL2 pass already produced real cycles/instructions/IPC/branch/cache counters
-and `perf record` hotspots, but with documented caveats this pass is meant to
+and `perf record` hotspots, but with documented environment limits this pass is meant to
 remove:
 
 | WSL2 limitation (commit 216f473) | What native/bare-metal Linux fixes |
@@ -28,11 +29,11 @@ remove:
 | GCC only | GCC **and** Clang Release, compared |
 | ONNX not compiled | optionally `-DASTERION_USE_ONNXRUNTIME=ON` to measure the ONNX replay loop |
 
-## Host requirements (read this before provisioning)
+## Host Requirements
 
-**A generic shared cloud VM is usually NOT enough.** Most KVM/Xen/Hyper-V guests
-virtualise or disable the PMU exactly like WSL2 did, so you would just reproduce
-the same `<not supported>` LLC caveat. GitHub-hosted runners also expose no PMU.
+Most generic shared cloud VMs virtualise or disable the PMU and reproduce the
+same `<not supported>` LLC result observed under WSL2. GitHub-hosted runners also
+expose no PMU.
 
 You need **one of**:
 
@@ -46,7 +47,7 @@ You need **one of**:
 | AWS EC2 `*.metal` (e.g. `c7i.metal-24xl`, `m7i.metal-24xl`, older `c6i.metal`) | full | on-demand, pricey/hr — **tear down when done** |
 | Equinix Metal | full | hourly bare metal |
 | Hetzner **dedicated** (Robot) / OVH / Latitude.sh / Vultr Bare Metal | full | dedicated, not the shared "Cloud" tiers |
-| Hetzner **Cloud** / generic shared VM | usually virtualised/none | likely reproduces the WSL2 caveat — avoid for the PMU pass |
+| Hetzner **Cloud** / generic shared VM | usually virtualised/none | likely reproduces the WSL2 PMU limit — avoid for the PMU pass |
 | GitHub Actions runner | none | perf reports `<not supported>`; not a path |
 
 > **Cost & safety:** bare-metal cloud is billed by the hour and is outward-facing.
@@ -60,7 +61,7 @@ names.
 
 ---
 
-## Step 0 — Capture the environment (Task 1 + 2 fields)
+## Step 0 — Capture The Environment
 
 Run and save the output; these become the report's "Environment" table.
 
@@ -84,7 +85,7 @@ cat /proc/sys/kernel/perf_event_paranoid
 
 **Confirm `systemd-detect-virt` reports `none` (bare metal) — if it names a
 hypervisor, verify the PMU works in Step 2 before trusting counters, and label the
-host class honestly in the report.** If it is a virtualised guest with a
+host class precisely in the report.** If it is a virtualised guest with a
 virtualised PMU, stop and pick a bare-metal host instead; do not present a second
 virtualised pass as native.
 
@@ -108,7 +109,7 @@ git log --oneline -1     # expect 216f473 "Add Linux performance evidence" or la
 git diff --check         # expect clean
 ```
 
-## Step 2 — Confirm perf counters (Task 2 — do not skip)
+## Step 2 — Confirm Perf Counters
 
 ```bash
 perf stat -d -- true
@@ -125,7 +126,7 @@ for the session (disclose it): `sudo sysctl kernel.perf_event_paranoid=1` (or
 `-1` for full access). **Do not invent or substitute any counter that perf marks
 unsupported — keep the verbatim line.**
 
-## Step 3 — CPU control (Task 5, disclosed)
+## Step 3 — Record CPU Controls
 
 Where available and safe (skip silently if unavailable; document either way):
 
@@ -144,7 +145,7 @@ controlled, **state that clearly** — do not pretend they were pinned. Advanced
 (optional): boot-time `isolcpus=`/`nohz_full=` for deeper isolation; document if
 used.
 
-## Step 4 — Build & test, GCC and Clang Release (Tasks 3, 4)
+## Step 4 — Build And Test With GCC And Clang
 
 ```bash
 # GCC Release
@@ -159,7 +160,7 @@ ctest --test-dir build-clang-release --output-on-failure
 ```
 
 Record each compiler version, the Release flags CMake shows (`-O3 -DNDEBUG`), and
-the test results. If Clang is unavailable, document honestly and continue with
+the test results. If Clang is unavailable, record that status and continue with
 GCC.
 
 Optional profiling build for fuller flamegraphs (Step 8):
@@ -178,7 +179,7 @@ cmake -S . -B build-gcc-onnx -G Ninja -DCMAKE_BUILD_TYPE=Release -DASTERION_USE_
 cmake --build build-gcc-onnx --target asterion_benchmarks
 ```
 
-## Step 5 — Deterministic corpora (Task 6)
+## Step 5 — Generate Deterministic Corpora
 
 The orchestrator generates all corpora into the git-ignored `build/perf_corpora/`
 and records a manifest with seeds, event counts and SHA-256 checksums. The SHA-256
@@ -218,7 +219,7 @@ python3 scripts/generate_synthetic_events.py --mode balanced --events 10000 \
 > `Light` is a **throughput-evaluation** mode only — correctness stays covered by
 > `ctest` (Full validation) and the end-of-replay checksum/parity.
 
-## Step 6 — Latency / throughput benchmarks (Task 7)
+## Step 6 — Run Latency And Throughput Benchmarks
 
 ```bash
 BENCH=build-gcc-release/asterion_benchmarks
@@ -279,9 +280,9 @@ numbers.
 
 For each measured path record: command, compiler, dataset, validation mode, p50,
 p95, p99, p99.9, max, throughput, allocation count + bytes, checksum/parity, and a
-caveat.
+environment limit.
 
-## Step 7 — perf stat -d (Task 9), pinned
+## Step 7 — Run Pinned `perf stat -d`
 
 The helper wraps the hot path under `perf stat -d` and keeps `<not supported>`
 lines verbatim:
@@ -311,7 +312,7 @@ page-faults, cycles, GHz, instructions, IPC, branch-miss %, cache-miss % of refs
 **L1-dcache and LLC metrics (should now be available)**. Note multiplexing
 fractions if any remain.
 
-## Step 8 — perf record hotspots + flamegraph (Task 10)
+## Step 8 — Capture Hotspots And Flamegraphs
 
 Hot path (standard + pooled in one process) with flamegraph, using the
 frame-pointer build for fuller call graphs:
@@ -336,7 +337,7 @@ dominate samples (a pinning artifact) — flat per-symbol hotspots are the relia
 signal. Prefer text `perf report --stdio` summaries; **do not commit raw
 `perf.data`**.
 
-## Step 9 — Bring results back / what I need to write the report
+## Step 9 — Assemble The Result Set
 
 Everything above writes into **git-ignored** locations (`build/perf_corpora/`,
 `build/perf_results/`, `build/perf_profile/`, and the `out_*.json` you created).
@@ -356,7 +357,7 @@ committed as **`Add native Linux performance evidence`**, with native results ke
 in their own tables (environment column explicit), separate from the WSL2 and
 Windows/MSYS2 tables.
 
-## Claim boundaries (Task 13 — must hold in every output)
+## Scope Boundaries
 
 Representative local measurements only. **No** portable-latency, production-HFT,
 production-model-serving, live-trading, authenticated exchange/broker
@@ -365,7 +366,7 @@ Binance data stays public crypto L2 only; the ChronosLOB toy model stays plumbin
 evidence; ONNX Runtime stays optional; the correctness-first default path stays
 available.
 
-## Hygiene (Tasks 1, 14)
+## Output Hygiene
 
 Do **not** commit: generated corpora, benchmark JSON dumps, raw `perf.data`,
 build directories, caches, downloaded deps, or secrets. Commit only the curated,

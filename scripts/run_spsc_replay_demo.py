@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reviewer-facing demo for Asterion's opt-in SPSC replay pipeline.
+"""Evaluate parity for Asterion's opt-in SPSC replay pipeline.
 
 Runs the deterministic single-thread replay path and the bounded
 single-producer/single-consumer (SPSC) replay pipeline over the same events,

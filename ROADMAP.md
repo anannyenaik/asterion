@@ -140,7 +140,7 @@ Deferred from Phase 9:
 - concise release checklist for clean checkout builds, tests, demo, docs and optional lanes;
 - CLI error-path hardening for missing files, malformed JSON/logs, invalid options and bad audit
   manifests, with parseable JSON errors when `--json` is requested;
-- simulated portfolio-risk fixture and CLI snapshot for the reviewer demo;
+- simulated portfolio-risk fixture and CLI snapshot for the evaluation demo;
 - default CI smoke test for the one-command demo, while ONNX and benchmark-history paths remain
   manual or opt-in.
 

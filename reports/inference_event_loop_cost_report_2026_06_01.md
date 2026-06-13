@@ -1,13 +1,10 @@
 # Inference Event-Loop Cost Report (2026-06-01)
 
-> **These are representative local measurements on this machine/environment, not
-> portable performance claims.** This report frames a single question:
-> **what is the measured local systems cost of adding inference to a deterministic
-> trading event loop?** It measures *plumbing* — feature extraction, model scoring,
-> the timeout/late-signal policy gate, fallback behaviour, allocation behaviour and
-> the per-event latency impact of inserting inference into replay. It does **not**
-> claim model profitability, alpha, signal value, predictive quality for the
-> ChronosLOB toy model, production model serving, or production-HFT performance.
+> This report measures the local systems cost of adding inference to a
+> deterministic replay event loop: feature extraction, model scoring, the
+> timeout and late-signal policy gate, fallback behavior, allocation behavior
+> and per-event latency. Results are environment-specific. Predictive quality,
+> profitability and production model serving are outside scope.
 
 This report builds on the existing per-component inference evidence
 ([inference_report_2026_05_31.md](inference_report_2026_05_31.md),
@@ -254,7 +251,7 @@ measured back-to-back in the same process:
 | `hot_path_binary_replay_l3_l2_strategy_risk` (no inference) | 800 ns | 3,600 ns | 4,300 ns | 12,800 ns | 2,336,100 ns | 487,639 ev/s | 210,000 | 13,440,000 | `18052214259513584877` |
 | `hot_path_binary_replay_l3_l2_inference_strategy_risk` (**+ feature + LinearModel + policy**) | 1,600 ns | 5,400 ns | 6,300 ns | 28,200 ns | 12,950,900 ns | 280,467 ev/s | 210,000 | 13,440,000 | `17484014929127736293` |
 
-Reading these honestly:
+Interpretation:
 
 - **Allocation delta = 0.** The inference stage is caller-owned and the measured
   engine's per-call strings stay in small-string-optimised storage, so the row's
@@ -305,7 +302,7 @@ session creation costs.
 | `hot_path_binary_replay_l3_l2_inference_strategy_risk` | LinearModel | 1.3 us | 1.7 us | 2.3 us | 40.7 us | 15.973 ms | 529,457 ev/s | 210,000 | 13,440,000 | `17484014929127736293` |
 | `hot_path_binary_replay_l3_l2_chronoslob_real_onnx_inference_strategy_risk` | ONNX real ChronosLOB | **61.0 us** | **202.5 us** | **262.2 us** | **811.3 us** | **21.170 ms** | **13,079 ev/s** | **570,000** | **19,440,000** | `7611055767038144338` |
 
-Reading this honestly:
+Interpretation:
 
 - The ONNX replay-loop row measured replay + L3/L2 update + caller-owned feature
   extraction + real tiny ChronosLOB ONNX scoring + measured policy gate +
@@ -330,11 +327,11 @@ Reading this honestly:
 ## Measured evidence table
 
 Columns: path · feature-extraction mode · model/backend · policy behaviour ·
-p50 · p95 · p99 · p99.9 · max · throughput · allocations · source · caveat.
+p50 · p95 · p99 · p99.9 · max · throughput · allocations · source · scope.
 `n/m` = not measured, `n/a` = not applicable. Per-call rows are timer-granularity
 bound at p50; per-event rows are whole-event latency.
 
-| path | feat. mode | model/backend | policy | p50 | p95 | p99 | p99.9 | max | throughput | allocs | source | caveat |
+| path | feat. mode | model/backend | policy | p50 | p95 | p99 | p99.9 | max | throughput | allocs | source | scope |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
 | feature extraction only | vector-returning | n/a | n/a | 100 ns | 300 ns | 400 ns | 500 ns | 32,100 ns | 3,934,963 op/s | 200,000 | [inference_feature_buffer](inference_feature_buffer_report_2026_05_31.md) | allocates 1 vector/call; plumbing only |
 | feature extraction only | caller-owned `FeatureBuffer` | n/a | n/a | 100 ns | 200 ns | 300 ns | 300 ns | 23,100 ns | 6,983,411 op/s | **0** | [inference_feature_buffer](inference_feature_buffer_report_2026_05_31.md) | p50 at timer granularity |

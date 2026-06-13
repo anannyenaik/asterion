@@ -5,14 +5,13 @@
 # `perf stat -d` (and optionally `perf record` + a flamegraph) over a chosen
 # replay corpus, writing plain-text output under an ignored local directory.
 #
-# It NEVER fakes results. If `perf` is missing it explains and exits non-zero
+# If `perf` is missing, the script explains the blocker and exits non-zero
 # (so a wrapper can record the blocker). If hardware counters are not exposed
 # (common on GitHub-hosted runners and locked-down kernels), perf itself reports
 # "<not supported>" / "<not counted>" and those lines are kept verbatim.
 #
-# These are representative measurements on the machine/environment that runs the
-# script, not portable performance claims. This profiles a deterministic replay
-# stress workload; it is not live trading and not a production-HFT benchmark.
+# Results are specific to the machine and environment running the script. The
+# profiled workload is deterministic recorded replay.
 #
 # Usage:
 #   scripts/run_linux_perf_profile.sh [options]

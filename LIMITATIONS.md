@@ -1,127 +1,140 @@
-# Limitations
+# Scope And Limitations
 
-Asterion is a deterministic trading systems lab, not a live trading product.
+Asterion is a deterministic trading-systems and ML-infrastructure lab for
+recorded and simulated workloads. Its evidence covers implemented behavior,
+correctness tests and measurements under disclosed environments. Live trading,
+authenticated exchange or broker connectivity, order placement and production
+HFT infrastructure are outside the project scope.
 
-Explicit limitations:
+## Market And Matching Scope
 
-- not a real exchange;
-- no real exchange connectivity;
-- no live trading;
-- matching is a deterministic local research surface with limit/market, IOC, FOK, post-only,
-  cancel, replace and one reject-incoming STP policy; it does not model auctions, hidden/iceberg
-  orders, pegging, stop orders, venue-specific expiry, trade busts or regulatory workflows (see
-  `docs/matching_semantics.md`);
-- simplified network path;
-- simplified market impact model;
-- no kernel bypass;
-- no FPGA path;
-- no broad allocation-avoidance claim; only the documented reusable L2, fixed strategy callback,
-  reserved risk sub-paths and opt-in pooled L3 benchmark path are shown allocation-free after
-  warm-up under their scoped tests;
-- deterministic single-thread replay is the default. There is exactly one opt-in concurrency
-  boundary: a bounded single-producer/single-consumer (SPSC) replay pipeline (`run_spsc_replay`)
-  for systems evaluation. It is not production networking, not live exchange connectivity, not a
-  production-HFT or lock-free trading architecture, and not a latency guarantee. The default
-  backpressure policy is lossless blocking (the producer waits when the bounded queue is full, so no
-  event is dropped); an opt-in `DropNewestOnFull` policy exists for overload-shedding experiments
-  only and is not correctness-preserving for order-book streams (dropping events creates sequence
-  gaps and unknown-order references that deterministically halt replay). The SPSC consumer reuses the
-  exact single-thread `ReplayEngine` processing path, so book/execution/diagnostics checksums are
-  bit-identical to the single-thread path regardless of thread timing; only backpressure count and
-  max queue depth are timing-dependent, and those are never part of any checksum. The pooled-book
-  SPSC variant is not implemented because `ReplayEngine` is not templated on the book type;
-  `PooledOrderBook` is exercised by the existing single-thread hot-path benchmark rows instead;
-- steady-state SPSC replay evaluation (`run_spsc_replay_steady_state`) and
-  `ReplayValidationMode::Light` are opt-in benchmark/evaluation tools. `Light` avoids repeated full
-  invariant walks during each event by keeping cheap per-event top-of-book checks and running full
-  validation at end-of-replay. It is for throughput measurement on large corpora, not a replacement
-  for the default correctness-first `Full` validation mode;
-- benchmark results are hardware-dependent; generic dumps are not checked in;
-- the checked-in benchmark report is representative local evidence for one laptop and one optimized
-  path, not a portable latency claim;
-- benchmark regression comparison results are machine-dependent and are only meaningful when both
-  JSON files come from the same controlled hardware; the checked-in `sample_benchmark_*.json` files
-  are synthetic tooling fixtures, not measurements;
-- latency-budget observed nanoseconds are machine-dependent; only the configuration checksum and the
-  accounting logic are deterministic, and there are no built-in latency targets;
-- strategy examples are deterministic workloads, not profitable trading strategies;
-- inference defaults to a deterministic linear backend with measured latency accounting and policy
-  hooks; an optional ONNX Runtime backend exists behind the `ASTERION_USE_ONNXRUNTIME` CMake flag but
-  is only exercised by a manual CI toggle, and ONNX requests fall back to `LinearModel` when the
-  dependency is absent; two checked-in ChronosLOB ONNX artefacts exercise model-plumbing only when a
-  real ONNX Runtime build is available — a tiny deterministic hand-written fixture, and a tiny
-  **real** ChronosLOB `DeepLOBModel` trained on synthetic toy data and exported from ChronosLOB
-  (`reports/chronoslob_real_model_bridge_report_2026_06_01.md`). The real artefact is trained but on
-  synthetic toy data with a reduced 4-feature, single-timestep simplification; it carries **no**
-  predictive-quality, profitability, alpha, live-trading or production-serving claim, and the
-  Asterion-side score is a deterministic plumbing value only;
-- inference benchmarks measure plumbing cost only (feature extraction, model scoring, policy
-  accounting) and make no predictive-quality, signal-value or profitability claim; per-call latency
-  percentiles for sub-microsecond operations are dominated by the timer resolution and are
-  representative-local, not portable; the vector-returning feature extraction convenience path still
-  allocates one vector per call, while the caller-owned-buffer path is only claimed allocation-free
-  in its scoped warmed tests/benchmark rows; ONNX inference is not claimed to be allocation-free;
-- the timeout/late-signal policy can disable the model after repeated late signals only when
-  explicitly configured; by default the model is never disabled and the gate merely abstains on
-  individual late or timed-out signals;
-- snapshot loading reconstructs the L3 book from framed single-order Snapshot records; it cannot
-  represent an aggregated L2-only image whose levels lack per-order detail;
-- the new risk controls (open-order exposure, message-rate limiting, self-trade prevention,
-  cancel-on-disconnect cancellation) are opt-in and disabled by default; sliding-window rate
-  limiting is available but stores per-client timestamps while enabled;
-- cancel-on-kill and cancel-on-disconnect release tracked simulated working exposure inside the risk
-  gateway; they do not send live exchange/broker cancels;
-- `SimulatedBrokerSession` is an in-process deterministic lifecycle model; it is not a broker
-  adapter, does not maintain real sessions and never sends network messages;
-- replace-order risk checks apply to tracked resting simulated orders after an execution report has
-  bound the exchange order ID; they are not a full broker order-management system;
-- `PortfolioRiskMonitor` is a simulated accounting gate over caller-supplied marks and positions;
-  it does not provide live portfolio management, market-risk data or cross-symbol matching;
-- persistent risk audit logging, rotation, verification and audit manifests are opt-in and
-  append-only; optional HMAC-SHA256 manifest signing uses caller-managed local keys and is not a
-  retention policy, custody system, compliance guarantee or tamper-proof storage layer;
-- `MultiSymbolBookSet` powers an opt-in shared replay path, but it is not a cross-symbol matching
-  engine and does not replace the default grouped single-symbol replay path; grouped replay remains
-  the default unless shared replay parity is exhaustively validated and documented;
-- `PooledOrderBook` is an opt-in allocation experiment for measured L3 replay. It is not production
-  HFT infrastructure, not a general allocator framework, and not a replacement for the
-  correctness-first `OrderBook`; its zero-allocation result applies only after explicit warm-up and
-  reservation in the disclosed benchmark/test paths. Current pooled validation is single-symbol at
-  the book/benchmark layer; generated multi-symbol-style streams are grouped per symbol for parity
-  checks and are not run through the single-symbol hot-path benchmark;
-- historical benchmark trends are only meaningful on the same controlled hardware and are kept out of
-  CI performance gates;
-- the larger-corpus Linux performance-evaluation path is manual/non-blocking and produces
-  representative measurements for the stated machine/environment only; if `perf` counters are
-  unavailable locally, on HPC allocations or on GitHub-hosted runners, the blocker is documented and
-  no counter values are fabricated. The **primary** performance context is the Durham Hamilton8 HPC
-  pass collected on 2026-06-04 (`reports/durham_hpc_performance_evaluation_2026_06_04.md`): it is
-  **one shared Slurm compute-node allocation** (Rocky Linux/GCC, no `LLC` events, no root control
-  over governor/turbo, GCC evidence only, one inference hotspot report OOM-killed) - a representative
-  shared-HPC measurement only, not portable, not production-HFT. The earlier WSL2 `perf` pass
-  collected on 2026-06-01 (`reports/linux_performance_evaluation_2026_06_01.md`) and the original
-  Windows/MSYS2 laptop run are retained as **historical / local development** baselines: the WSL2 run
-  is **one laptop, a virtualized PMU** (no `LLC` cache events, time-multiplexed counters, uncontrolled
-  CPU turbo), representative WSL2 measurements only, not native/cloud Linux and not portable. Durham
-  supersedes the laptop/WSL context only for the paths it actually measured; not every old result was
-  re-run on Hamilton and cross-machine comparison is not meaningful. Because per-run
-  `Full`-validation replay is O(resting-book size)
-  per event, the 1M Linux rows use `--steady-state-validation-mode light`, a throughput-evaluation
-  mode; correctness stays covered by the default `Full` validation in `ctest` and by end-of-replay
-  checksum parity. The optional ONNX Runtime backend was not built in those Linux runs, so the ONNX
-  replay-loop row is recorded as skipped, not measured;
-- event-log schema v1 is stable for the checked-in fixtures and guarded by manifest/tests, but
-  Asterion does not yet ship a general multi-version migration framework. Breaking schema changes
-  must bump the version, update `docs/event_log_schema.md`, regenerate affected fixtures and
-  document how old logs should be converted;
-- the recorded Binance public depth case study is a recorded public market-data engineering demo: it
-  is not live trading, not authenticated exchange connectivity, and not evidence of equities-market
-  realism. Capture uses only the public REST `/api/v3/depth` endpoint with no API keys, performs no
-  order placement and is opt-in/manual (never run in CI). Binance depth is L2 price-level data, so the
-  normaliser models each price level as a single synthetic-order with deterministic synthetic order
-  IDs and level-replacement semantics; it does not provide real L3 order identity, per-level FIFO
-  depth, individual order sizes or true order lifetimes, and makes no profitability claim. The
-  checked-in fixture is tiny and hand-curated for deterministic CI; large local captures are
-  git-ignored.
+- The matching engine implements a deterministic local contract for limit and
+  market orders, IOC, FOK, post-only, cancel, replace and one reject-incoming
+  self-trade-prevention policy. It does not model auctions, hidden or iceberg
+  orders, pegging, stop orders, venue-specific expiry, trade busts or regulatory
+  workflows. See `docs/matching_semantics.md`.
+- The project does not implement kernel bypass, FPGA paths, colocated networking,
+  a production network stack or a market-impact model.
+- Strategy examples are deterministic systems workloads. They carry no
+  profitability, alpha or signal-value claim.
 
-These constraints are deliberate. The first version is designed to make correctness, determinism and benchmarking boundaries solid before adding performance-specific complexity.
+## Replay And Concurrency
+
+- Deterministic single-thread replay is the default.
+- `run_spsc_replay` is an opt-in bounded single-producer/single-consumer
+  concurrency experiment. Its consumer reuses the single-thread `ReplayEngine`
+  path, and lossless runs produce bit-identical book, execution-report and
+  diagnostics checksums. Backpressure count and maximum queue depth are
+  timing-dependent diagnostics and are excluded from checksums.
+- The default SPSC backpressure policy blocks the producer when the queue is
+  full. The opt-in `DropNewestOnFull` policy is intentionally lossy and is not
+  correctness-preserving for order-book streams; dropped events create sequence
+  gaps and unknown-order references that halt replay deterministically.
+- A pooled-book SPSC variant is not implemented because `ReplayEngine` is not
+  templated on the book type. `PooledOrderBook` is evaluated through the
+  single-thread hot-path benchmark rows.
+- `run_spsc_replay_steady_state` and `ReplayValidationMode::Light` are opt-in
+  throughput-evaluation tools. `Light` retains inexpensive per-event top-of-book
+  checks and performs full validation at end of replay. Default `Full`
+  validation remains the correctness path.
+- `MultiSymbolBookSet` provides an opt-in shared replay path. It is not a
+  cross-symbol matching engine and does not replace the default grouped
+  single-symbol replay path.
+
+## Performance Evidence
+
+- Benchmark and latency observations are specific to the disclosed hardware,
+  toolchain, build and workload. Generic benchmark dumps are not committed, and
+  cross-machine comparisons are not meaningful.
+- Regression comparisons are meaningful only when both JSON files were produced
+  on the same controlled hardware. Checked-in `sample_benchmark_*.json` files are
+  synthetic tooling fixtures, not measurements.
+- Latency-budget observations are machine-dependent. Configuration checksums and
+  accounting logic are deterministic; Asterion defines no built-in latency
+  targets.
+- Allocation claims apply only to documented warmed paths: reusable L2 views,
+  fixed strategy callbacks, reserved risk paths, caller-owned inference feature
+  buffers and the opt-in pooled L3 benchmark path. ONNX inference and the
+  vector-returning feature-extraction convenience path are not allocation-free.
+- `PooledOrderBook` is an opt-in allocation experiment, not a general allocator
+  framework or replacement for the correctness-first `OrderBook`. Its measured
+  zero-allocation result requires explicit warm-up and reservation in the
+  disclosed tests and benchmarks. Current pooled validation is single-symbol at
+  the book and benchmark layer; multi-symbol-style streams are grouped per
+  symbol for parity checks.
+- Performance workflows are manual and non-blocking. They record unavailable
+  `perf` counters rather than substituting values.
+
+The primary performance context is the Durham Hamilton8 pass collected on
+2026-06-04
+(`reports/durham_hpc_performance_evaluation_2026_06_04.md`): one shared Slurm
+compute-node allocation using Rocky Linux and GCC, with no LLC events, no root
+control over governor or turbo, GCC evidence only, and one inference hotspot
+report terminated by OOM. The 2026-06-01 WSL2 pass
+(`reports/linux_performance_evaluation_2026_06_01.md`) and the original
+Windows/MSYS2 laptop run remain local development baselines. The WSL2 run used
+one laptop with a virtualized PMU, no LLC cache events, time-multiplexed counters
+and uncontrolled CPU turbo.
+
+Durham supersedes the laptop and WSL2 context only for paths measured on
+Hamilton8. Not every earlier result was rerun there. The 1M Linux rows use
+`--steady-state-validation-mode light` because per-event `Full` validation is
+O(resting-book size); default `Full` validation and end-of-replay checksum parity
+retain the correctness coverage. The optional ONNX Runtime backend was not built
+in those Linux runs, so the ONNX replay-loop row is recorded as skipped.
+
+## Inference And Model Scope
+
+- The default inference backend is deterministic `LinearModel`. ONNX Runtime is
+  optional behind `ASTERION_USE_ONNXRUNTIME`, exercised by a manual CI path, and
+  falls back to `LinearModel` when unavailable.
+- Checked-in ONNX artifacts cover a deterministic hand-written fixture, a tiny
+  4-feature single-timestep ChronosLOB `DeepLOBModel` trained on synthetic toy
+  data, and a windowed `[1,16,40]` ChronosLOB model trained on recorded public
+  Binance crypto L2 depth. They evaluate model contracts, feature integration,
+  fallback behavior, allocation accounting and systems cost.
+- Inference benchmarks measure feature extraction, model scoring and policy
+  accounting. They do not establish predictive quality, profitability, alpha or
+  production model-serving capability. Sub-microsecond percentiles are affected
+  by timer resolution and remain local observations.
+- The timeout and late-signal policy disables a model after repeated late
+  signals only when explicitly configured. By default, the model remains enabled
+  and the gate abstains on individual late or timed-out signals.
+
+## Risk, Session And Audit Scope
+
+- Open-order exposure, message-rate limiting, self-trade prevention and
+  cancel-on-disconnect cancellation are opt-in and disabled by default.
+  Sliding-window rate limiting stores per-client timestamps while enabled.
+- Cancel-on-kill and cancel-on-disconnect release tracked simulated working
+  exposure inside the risk gateway; they do not send exchange or broker cancels.
+- `SimulatedBrokerSession` is an in-process deterministic lifecycle model. It
+  maintains no real session and sends no network messages.
+- Replace-order risk checks apply to tracked resting simulated orders after an
+  execution report binds the exchange order ID. They do not form a complete
+  broker order-management system.
+- `PortfolioRiskMonitor` is a simulated accounting gate over caller-supplied
+  marks and positions. It does not provide live portfolio management, market-risk
+  data or cross-symbol matching.
+- Persistent risk audit logs, rotation, verification and manifests are opt-in
+  and append-only. Optional HMAC-SHA256 manifest signing uses caller-managed
+  local keys; managed retention, custody, compliance controls and tamper-proof
+  storage remain outside scope.
+
+## Data And Schema Scope
+
+- Snapshot loading reconstructs the L3 book from framed single-order `Snapshot`
+  records. It cannot represent an aggregated L2-only image without per-order
+  detail.
+- Event-log schema v1 is stable for checked-in fixtures and guarded by manifests
+  and tests. Asterion does not provide a general multi-version migration
+  framework. Breaking changes must bump the version, update
+  `docs/event_log_schema.md`, regenerate affected fixtures and document
+  conversion from older logs.
+- The Binance case study uses recorded public REST `/api/v3/depth` data without
+  API keys. Capture is manual and never runs in CI. Binance depth is L2
+  price-level data, so the normaliser represents each level with deterministic
+  synthetic order IDs and level-replacement semantics. It does not recover real
+  L3 order identity, per-level FIFO depth, individual order sizes or true order
+  lifetimes. The checked-in fixture is compact for deterministic CI; larger
+  local captures are git-ignored.

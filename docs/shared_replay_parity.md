@@ -1,9 +1,8 @@
 # Shared replay parity
 
-This document defines the grouped-vs-shared replay parity contract and records what
-the parity tests cover and what they deliberately do not. It is scoped to Asterion's
-deterministic replay lab and makes no claim about live trading, exchange connectivity,
-order placement, cross-symbol matching, or production multi-venue replay.
+This document defines the grouped-vs-shared replay parity contract and its test
+coverage. The contract covers deterministic recorded replay; live connectivity,
+order placement, cross-symbol matching and multi-venue replay are outside scope.
 
 ## The two replay paths
 
@@ -126,7 +125,7 @@ differs—the grouped path's expected top-of-book L2 levels. The C++ and Python 
 helpers attach this description to the failing assertion so a failure is reproducible
 from the test log alone.
 
-## What is covered, and what is not
+## Coverage
 
 Covered (for the tested deterministic cases): interleaved multi-symbol flows, snapshots,
 cancels, replaces, executes, trades, heartbeats, per-symbol sequence gaps, timestamp

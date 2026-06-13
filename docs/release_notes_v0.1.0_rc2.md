@@ -2,9 +2,9 @@
 
 **Asterion v0.1.0-rc2: deterministic trading systems lab — second release candidate**
 
-Asterion is a deterministic C++20 trading systems lab for replay, matching, risk,
-inference integration, benchmarking and correctness evaluation. It is published for
-review, not for production or live trading.
+Asterion is a deterministic C++20 systems lab for replay, matching, risk,
+inference integration, benchmarking and correctness evaluation over recorded
+and simulated workloads.
 
 ## Release status
 
@@ -25,7 +25,7 @@ pooled-book allocation path, caller-owned feature buffer, ChronosLOB ONNX bridge
 opt-in SPSC pipeline and steady-state harness). These warrant a fresh review checkpoint.
 
 Native-Linux `perf` counter evidence is **not** a blocker for this `rc2` checkpoint: it is
-an additive, optional, local-only artefact that is honestly marked pending (see
+an additive, optional, local-only artefact explicitly tracked as pending (see
 [Known limitations](#known-limitations)). It is deferred to the final `v0.1.0` (or a later
 rc) and does not gate this release candidate.
 
@@ -33,7 +33,7 @@ rc) and does not gate this release candidate.
 
 - **Hot-path optimization** with a documented local benchmark report.
 - **Measured ONNX/inference benchmark path** and a configurable late-signal model-disable policy.
-- **Recorded public Binance depth case study** — honest L2→synthetic-L3 normaliser, deterministic
+- **Recorded public Binance depth case study** — deterministic L2→synthetic-L3 normaliser,
   replay, fixture regeneration guard. Manual/opt-in capture, never in CI.
 - **Event-log schema v1 hardening** — JSON schema file + drift/contract tests.
 - **Opt-in `PooledOrderBook`** allocation path with stress-parity validation.
@@ -69,7 +69,7 @@ toolchain — cmake 4.3.3, g++ 16.1.0, Ninja — with a single pinned interprete
 - One-command demo: passed and reproduced deterministic checksums.
 - `git diff --check`: clean.
 
-Toolchain caveat (Windows): the compiled Python extension is ABI-specific to the
+Toolchain note (Windows): the compiled Python extension is ABI-specific to the
 interpreter that built it. Build and run pytest/the demo with the **same** interpreter
 (here CPython 3.11 throughout). Default Linux CI uses one interpreter end-to-end and is the
 source of truth for green status; CI run
@@ -79,7 +79,7 @@ on this commit.
 ## Reports and evidence
 
 - [docs/claim_audit.md](claim_audit.md) — every major claim classified against its evidence.
-- [docs/evidence_index.md](evidence_index.md) — reviewer questions → file + reproduction command.
+- [docs/evidence_index.md](evidence_index.md) — technical questions → file + reproduction command.
 - [reports/README.md](../reports/README.md) — report-by-report scope, optional deps, limitations.
 - [reports/benchmark_report_2026_05_31.md](../reports/benchmark_report_2026_05_31.md) — local hot-path benchmark.
 - [reports/linux_performance_evaluation_2026_05_31.md](../reports/linux_performance_evaluation_2026_05_31.md) — larger-corpus eval + perf blocker.
@@ -103,7 +103,7 @@ See [LIMITATIONS.md](../LIMITATIONS.md) and [docs/claim_audit.md](claim_audit.md
 - Snapshots are single-order records, not aggregated L2-only images.
 - Shared multi-symbol replay is opt-in/parity-tested; grouped replay is the default.
 
-## Claim boundaries (unchanged)
+## Scope
 
 - No live exchange/broker/market-data connectivity; recorded/simulated logs only.
 - No order placement, authenticated connectivity, kernel bypass, FPGA or colocated networking.

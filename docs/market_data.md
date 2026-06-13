@@ -3,7 +3,10 @@
 This document describes Asterion's recorded public market-data path and how
 Binance public order-book depth is normalised into Asterion's event schema.
 
-> **This is a recorded public market-data engineering demo. It is not live trading, not authenticated exchange connectivity, and not evidence of equities-market realism.** No API keys, no order placement, no broker connectivity, no profitability claim. See [LIMITATIONS.md](../LIMITATIONS.md).
+> This recorded-data path uses unauthenticated public crypto L2 depth. It uses no
+> API keys, performs no order placement and makes no claim of live connectivity,
+> L3 feed fidelity, equities-market realism or profitability. See
+> [LIMITATIONS.md](../LIMITATIONS.md).
 
 ## Components
 
@@ -17,7 +20,7 @@ Binance public order-book depth is normalised into Asterion's event schema.
 | Normalise | [`tools/normalise_binance_depth_to_asterion.py`](../tools/normalise_binance_depth_to_asterion.py) | no | Pure-Python core; writes CSV/binary via the `asterion` event-log writer. |
 | Replay | `build/asterion_replay`, `scripts/asterion_inspect.py` | no | Existing deterministic replay/diagnostics pipeline. |
 
-## Reviewer one-liners
+## Reproduction Commands
 
 ```bash
 # (1) Normalise the checked-in fixture into Asterion CSV + binary event logs.
@@ -134,7 +137,7 @@ A snapshot becomes an Asterion **snapshot block**: a begin marker
 with a fresh synthetic `order_id`), and an end marker (`flags = kSnapshotEndFlag`).
 The replay engine resets and reconstructs the book from the block.
 
-## The honest L2 → L3 limitation
+## L2 To L3 Mapping Boundary
 
 Binance publishes **L2-style price-level** data: each update is a `[price, qty]`
 level with **no per-order identity**. Asterion's book is **L3/order-oriented**:

@@ -1,6 +1,9 @@
 # Recorded Public Crypto L2 Market-Data Normalisation And Deterministic Replay Evidence
 
-> This is recorded public crypto L2 market-data normalisation and deterministic replay evidence. It is not live trading, not authenticated exchange connectivity, not order placement, not broker connectivity, not equities-market realism, not L3 exchange-feed realism, not alpha/profitability evidence and not production market-data infrastructure.
+> Recorded public crypto L2 normalisation and deterministic replay evidence. The
+> path uses unauthenticated public data and deterministic synthetic order IDs. It
+> does not provide live connectivity, L3 feed fidelity, order placement,
+> equities-market realism or profitability evidence.
 
 ## Executive Summary
 
@@ -39,7 +42,7 @@ Capture result:
 The capture tool uses no API keys, no account endpoint, no signed endpoint and no order-placement
 endpoint. The checked-in fixture is replayed offline; CI does not capture from the network.
 
-## What This Case Study Proves
+## Verified Properties
 
 - Public recorded Binance L2 depth snapshots can be converted deterministically into Asterion's
   event-log schema.
@@ -50,15 +53,13 @@ endpoint. The checked-in fixture is replayed offline; CI does not capture from t
 - The fixture guard can regenerate the normalised outputs and catch drift in counts, checksums,
   binary layout, replay diagnostics and grouped/shared parity.
 
-## What This Case Study Does Not Prove
+## Scope
 
-- It does not prove live trading, live market-data connectivity, broker connectivity or order
-  placement.
-- It does not prove authenticated exchange access.
-- It does not prove equities-market realism or L3 exchange-feed realism.
-- It does not prove alpha, profitability, predictive quality or signal value.
-- It does not prove production market-data infrastructure or production HFT performance.
-- It does not include portable latency, throughput or benchmark evidence.
+- The path is offline and unauthenticated, with no broker connectivity or order placement.
+- Binance public depth supplies crypto L2 snapshots rather than equities or L3 feed semantics.
+- The case study evaluates deterministic normalisation and replay, not predictive
+  quality, signal value, profitability or production market-data infrastructure.
+- No latency, throughput or benchmark evidence is included.
 
 ## Normalisation Pipeline
 
@@ -117,7 +118,7 @@ The same replay fields match for CSV and binary inputs.
 
 ## Evidence Table
 
-| Metric | Value | Source command/tool | Caveat |
+| Metric | Value | Source command/tool | Scope |
 | --- | ---: | --- | --- |
 | JSONL line count | 10 | `data/samples/binance_depth_larger_sample.expected.json` | Includes one metadata banner |
 | Raw message count | 9 | `normalise_binance_depth_to_asterion.py --json` | Public REST snapshots only |
@@ -192,6 +193,5 @@ is committed.
 ## Next Work
 
 - Optionally add a replay-loop-with-ONNX benchmark row when the optional ONNX Runtime lane is
-  available and the claim boundary is kept to systems cost only.
+  available, scoped to systems cost.
 - Collect native Linux `perf` evidence on hardware where virtualization/PMU access is available.
-- Write the technical paper only after native Linux perf evidence is collected.

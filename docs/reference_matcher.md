@@ -8,10 +8,10 @@ re-implements the same documented semantics from scratch, plus a cross-check
 harness that replays identical order flow into both the C++ engine and the
 reference and compares the results.
 
-This is **specification-style reference testing for deterministic matching
-semantics**. It is a test oracle / second specification. It is **not** evidence
-of production-exchange correctness, regulatory-grade validation, live trading,
-real exchange completeness or authenticated connectivity.
+This is specification-style reference testing for deterministic matching
+semantics: a test oracle and second implementation of the documented contract.
+Production-exchange completeness, regulatory validation and live connectivity
+are outside scope.
 
 ## What it is
 
@@ -86,7 +86,7 @@ For each replayed stream, `run_cross_check` compares:
    `checksum_execution_reports`, so both checksums are produced by the *same*
    hashing function over each side's report stream.
 
-## What is not compared (limitations)
+## Comparison Scope
 
 - **L3 FIFO of the resting book is not directly enumerated.** The Python
   bindings expose the C++ book as an aggregate L2 view and per-order lookup, not

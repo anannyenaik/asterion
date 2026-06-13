@@ -1,6 +1,8 @@
 # Benchmarks
 
-Asterion includes a local benchmark runner for repeatable experiments. It reports timings for the current machine only; do not treat results as portable performance claims.
+Asterion includes a local benchmark runner for repeatable systems experiments.
+Timings are reported with their machine and environment; they are not portable
+performance claims.
 
 > **Benchmarks are reported, never CI-gated.** The default `ci` workflow does not run
 > benchmarks. The `benchmarks` and `linux-performance` workflows are manual
@@ -19,7 +21,7 @@ Asterion includes a local benchmark runner for repeatable experiments. It report
 > measured (1M std-vs-pooled hot path, small stress hot path, 1M SPSC, LinearModel
 > replay-loop inference, `perf` counters/hotspots). Benchmark commands below stay
 > reproducible, but generated benchmark JSON and corpora are never committed.
-> A compact reviewer-facing selection is also near the top of
+> A compact evidence selection is also near the top of
 > [README.md](README.md#representative-benchmark-evidence); this document and the
 > linked reports remain the source for methodology and limitations.
 
@@ -157,7 +159,7 @@ throughput as the better estimate of raw op cost. The vector-returning extractio
 allocates one `std::vector<double>` per call. The caller-owned-buffer extraction path, LinearModel
 scoring and the policy gate are measured separately and are expected to allocate nothing after
 warm-up in the scoped unit tests/benchmark rows. ONNX inference allocations are measured and reported
-honestly, not asserted to be zero. See
+explicitly rather than asserted to be zero. See
 [reports/inference_report_2026_05_31.md](reports/inference_report_2026_05_31.md). The
 ChronosLOB ONNX bridge is documented in
 [docs/chronoslob_bridge.md](docs/chronoslob_bridge.md), with the legacy fixture in
@@ -213,8 +215,8 @@ portable performance claim.
 The pooled-book allocation experiment is reported in
 `reports/allocation_optimisation_report_2026_05_31.md`.
 
-For a single cross-report view of all performance/allocation evidence — what it proves, what it does
-not, one top-level evidence table, methodology and before/after summaries — see
+For a single cross-report view of the performance and allocation evidence,
+including methodology and before/after summaries, see
 [reports/performance_evidence_summary_2026_06_01.md](reports/performance_evidence_summary_2026_06_01.md).
 It transcribes existing measured results only; it adds no new benchmark numbers.
 
@@ -351,7 +353,7 @@ benchmark architecture.
 The replay benchmark uses recorded/simulated event logs only. It does not imply live exchange
 connectivity or portable hardware performance.
 
-## Serious Linux Performance Evaluation
+## Linux Performance Evaluation
 
 `scripts/run_perf_evaluation.py` runs a larger-corpus standard-vs-pooled L3 hot-path evaluation.
 It generates a deterministic corpus matrix (100k baseline plus 1M balanced, high-cancellation,
@@ -361,7 +363,7 @@ the standard `hot_path_binary_replay_l3_l2_strategy_risk` row and the pooled
 `hot_path_binary_replay_pooled_l3_l2_strategy_risk` row in one pass), and writes a per-corpus
 comparison plus a `corpus_manifest.json` (mode, seed, event count, symbol count, SHA-256, exact
 generation command, format) under the git-ignored `build/perf_results/`. The multi-symbol-style
-corpus is generated and checksummed for reviewer visibility, but is skipped by the hot-path
+corpus is generated and checksummed for visibility, but is skipped by the hot-path
 benchmark because that benchmark is deliberately single-symbol.
 
 ```bash
@@ -378,7 +380,7 @@ whether the pooled path stayed allocation-free in steady state. Large corpora ar
 On Linux, `scripts/run_linux_perf_profile.sh` profiles the hot path with `perf stat -d`
 (cycles/instructions/branches/branch-misses/cache-references/cache-misses/context-switches/
 page-faults) and optional `perf record` + flamegraph, writing text output under the git-ignored
-`build/perf_profile/`. It fails loudly (it never fakes results) when `perf` is unavailable. The
+`build/perf_profile/`. It exits non-zero and records the blocker when `perf` is unavailable. The
 manual `linux-performance` GitHub workflow runs the same path on dispatch only; it is non-blocking,
 gates on no numbers, and notes that GitHub-hosted runners often do not expose hardware counters.
 

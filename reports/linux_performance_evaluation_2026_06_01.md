@@ -1,12 +1,9 @@
 # Linux Performance-Counter and Latency-Distribution Evidence (2026-06-01)
 
-> **Linux performance-counter and latency-distribution evidence under disclosed
-> local conditions.** These are representative measurements on one WSL2 Linux
-> environment on one laptop, not portable performance claims. Nothing here is a
-> production-HFT, portable-latency, live-trading, profitability/alpha,
-> predictive-quality or production-model-serving claim. Every number below was
-> measured in this WSL2 environment; no Windows/MSYS2 numbers are copied into the
-> Linux result tables, and no `perf` counter is fabricated.
+> Linux performance-counter and latency-distribution evidence from one WSL2
+> environment on one laptop. Every number below was measured in that environment;
+> no Windows/MSYS2 numbers are copied into the Linux result tables, and
+> unavailable `perf` counters remain explicitly unavailable.
 
 This report adds the previously-deferred Linux `perf` pass for Asterion. The
 earlier firmware-virtualization blocker (BIOS/UEFI virtualization disabled, which
@@ -21,7 +18,7 @@ compute-node pass now exists in
 That report is GCC/Rocky Linux HPC evidence, not WSL2 evidence; it is still a
 single disclosed allocation and not portable.
 
-## Scope Boundary
+## Scope
 
 - Asterion is not production-HFT infrastructure. These numbers are one local WSL2
   environment on one Kaby Lake laptop and are **not portable**.
@@ -87,7 +84,7 @@ available here, **except** the detailed-mode last-level-cache events
 `<not supported>`. Because more events are requested than there are hardware
 counters, `perf` **time-multiplexes** the counters; the per-counter scaling
 fraction (≈49–75% in the tables below) is reported verbatim and the counts are
-`perf`'s scaled estimates. These are honest counter estimates under
+`perf`'s scaled estimates. These are explicit counter estimates under
 multiplexing, not exact event totals.
 
 ## Methodology
@@ -102,7 +99,7 @@ multiplexing, not exact event totals.
   documented manifest (SHA-256 match on all 8 corpora — see
   [Corpora](#corpora)), so the *shape* of the workload reproduces across
   platforms even though the timings do not.
-- **Validation modes and a runtime caveat that shaped this run.** Replay defaults
+- **Validation modes and runtime context.** Replay defaults
   to correctness-first `Full` validation (a full book-invariant walk after every
   event). `OrderBook::check_invariants()` is **O(resting-book size) per event**
   and allocates a scratch set per call, so for book-growing corpora the per-run
@@ -333,7 +330,7 @@ Microarchitectural reading (local):
 
 ## Linux `perf record` hotspots
 
-`perf record -F 999 -g`, pinned, `perf report --stdio`. **Caveat:** the Release
+`perf record -F 999 -g`, pinned, `perf report --stdio`. **Scope:** the Release
 build is `-O3` (frame pointers omitted), so call-graph attribution is partial and
 some frames resolve as `[unknown]`; the flat per-symbol hotspots are the reliable
 signal.

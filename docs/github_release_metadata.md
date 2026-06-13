@@ -3,7 +3,7 @@
 This document records owner-side repository metadata and the final `v0.1.0`
 release process. Commands remain gated on the verified release commit.
 
-## Recommended Repository Metadata
+## Repository Metadata
 
 **Description**
 
@@ -36,19 +36,19 @@ GitHub description, topics and profile pinning are owner-side settings. They
 cannot be fully applied by a normal repository commit without an authenticated
 GitHub CLI/API session.
 
-## Suggested Final Release
+## Final Release
 
 - Title: **Asterion v0.1.0: deterministic trading systems lab**
 - Tag: `v0.1.0`, annotated, pointing at the final verified commit on `main`
-- Framing: reviewer-facing reproducibility, architecture and performance-evidence
-  polish for a deterministic systems lab
+- Framing: reproducibility, architecture and performance evidence for a
+  deterministic systems lab
 - Do not frame as production readiness, production-HFT validation, portable
   benchmark proof, live-trading capability or production model serving
 
 ## Release Body Outline
 
-1. Short project summary and explicit non-claims.
-2. Reviewer path: devcontainer or local Release build, `ctest`, `pytest`, demo.
+1. Short project summary and scope.
+2. Reproduction path: devcontainer or local Release build, `ctest`, `pytest`, demo.
 3. Architecture overview link.
 4. Correctness and determinism evidence.
 5. Primary Durham HPC performance evidence, with environment limitations.
