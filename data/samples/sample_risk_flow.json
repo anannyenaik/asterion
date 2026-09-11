@@ -1,0 +1,55 @@
+{
+  "audit_enabled": true,
+  "limits": {
+    "max_open_order_quantity": 150,
+    "max_messages_per_window": 3,
+    "rate_window_ns": 100,
+    "rate_limit_mode": "sliding-window"
+  },
+  "market_data": [
+    {
+      "symbol_id": 1,
+      "reference_price_ticks": 1000,
+      "timestamp_ns": 0
+    }
+  ],
+  "orders": [
+    {
+      "client_order_id": 1,
+      "client_id": 7,
+      "symbol_id": 1,
+      "side": "Buy",
+      "order_type": "Limit",
+      "price_ticks": 1000,
+      "quantity": 100,
+      "timestamp_ns": 10
+    },
+    {
+      "client_order_id": 2,
+      "client_id": 7,
+      "symbol_id": 1,
+      "side": "Buy",
+      "order_type": "Limit",
+      "price_ticks": 1000,
+      "quantity": 75,
+      "timestamp_ns": 20
+    }
+  ],
+  "execution_reports": [
+    {
+      "client_order_id": 1,
+      "exchange_order_id": 10001,
+      "symbol_id": 1,
+      "side": "Buy",
+      "order_status": "PartiallyFilled",
+      "exec_type": "Trade",
+      "filled_quantity": 60,
+      "remaining_quantity": 40,
+      "last_fill_quantity": 60,
+      "last_fill_price_ticks": 1000,
+      "average_price_ticks": 1000,
+      "resting_price_ticks": 1000,
+      "timestamp_ns": 30
+    }
+  ]
+}

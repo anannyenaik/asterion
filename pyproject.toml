@@ -1,0 +1,116 @@
+[build-system]
+requires = ["scikit-build-core>=0.9", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "asterion"
+version = "0.1.0"
+description = "Deterministic C++20 market replay, L3 order books, price-time matching, pre-trade risk and inference evaluation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Anannye Naik" }]
+keywords = [
+  "order-book",
+  "matching-engine",
+  "market-data",
+  "deterministic-replay",
+  "risk-management",
+  "performance-engineering",
+]
+classifiers = [
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = []
+
+[project.optional-dependencies]
+# Figure regeneration from the committed result files.
+figures = ["matplotlib>=3.7"]
+# Optional ONNX artefact regeneration. The C++ ONNX backend is a CMake option
+# and does not need these.
+onnx = ["onnx>=1.15", "numpy>=1.24"]
+dev = [
+  "pytest>=7.4",
+  "ruff>=0.6",
+  "mypy>=1.10",
+  "pyyaml>=6.0",
+  "matplotlib>=3.7",
+]
+
+[project.urls]
+Repository = "https://github.com/anannyenaik/asterion"
+
+[tool.scikit-build]
+cmake.version = ">=3.20"
+cmake.args = [
+  "-DASTERION_BUILD_PYTHON=ON",
+  "-DASTERION_BUILD_TESTS=OFF",
+  "-DASTERION_BUILD_BENCHMARKS=OFF",
+]
+wheel.packages = ["python/asterion"]
+# The binding source belongs in the repository, not in the wheel.
+wheel.exclude = ["_native.cpp"]
+build-dir = "build/{wheel_tag}"
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["build", "build-*", ".venv"]
+
+[tool.ruff.lint]
+# PLC0415 (import-outside-top-level) is enabled deliberately: the inspection CLI
+# and the normaliser import the compiled extension lazily so that the offline
+# commands stay usable without it, and those sites carry an explicit noqa.
+select = [
+  "E",    # pycodestyle
+  "F",    # pyflakes
+  "I",    # import sorting
+  "UP",   # pyupgrade
+  "B",    # bugbear
+  "SIM",  # simplify
+  "RUF",  # ruff-specific
+  "PLC0415",
+]
+ignore = [
+  # Line length is not enforced.
+  "E501",
+  # The event-log writers choose a text or binary handle at runtime and close it
+  # through a single `with` block, which this rule cannot see.
+  "SIM115",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test modules add the script directories to sys.path before importing them.
+"python/tests/*" = ["E402"]
+# The package registers the Windows DLL directories before importing the
+# extension, so those imports cannot sit at the top of the file.
+"python/asterion/__init__.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["python/asterion", "scripts", "figures"]
+exclude = "(^|/)(build|build-.*|\\.venv)/"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+# Type-check this repository against its own annotations only. Third-party
+# packages are optional here (matplotlib, numpy, onnx) and their bundled stubs
+# would otherwise make the result depend on whatever happens to be installed.
+no_site_packages = true
+
+[[tool.mypy.overrides]]
+# The pybind11 extension ships no stubs, so its attribute surface is unknown to
+# mypy. Everything in the pure-Python layer above it is still checked.
+module = ["asterion", "asterion._native", "matplotlib.*", "onnx"]
+ignore_missing_imports = true
+follow_imports = "skip"

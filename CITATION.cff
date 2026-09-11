@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+title: "Asterion: deterministic C++20 market replay, L3 order books, price-time matching, pre-trade risk and inference evaluation"
+message: "If you use this software, please cite it using these metadata."
+type: software
+authors:
+  - family-names: Naik
+    given-names: Anannye
+repository-code: "https://github.com/anannyenaik/asterion"
+abstract: >-
+  A C++20 systems lab for deterministic market replay, L3 order-book
+  reconstruction, price-time-priority matching, pre-trade risk controls and
+  inference evaluation. The event log, resulting book state, execution reports
+  and diagnostics carry deterministic checksums, so optimisation paths such as
+  the opt-in pooled order book and the bounded single-producer single-consumer
+  replay pipeline are compared only after the relevant parity or benchmark guard
+  checks agree. Scope is limited to recorded and simulated workloads.
+keywords:
+  - order book
+  - matching engine
+  - market data
+  - deterministic replay
+  - risk management
+  - performance engineering
+license: MIT
+version: 0.1.0

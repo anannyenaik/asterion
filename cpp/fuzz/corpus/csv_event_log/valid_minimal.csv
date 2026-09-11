@@ -1,0 +1,2 @@
+timestamp_ns,sequence_number,symbol_id,event_type,side,price_ticks,quantity,order_id,trade_id,flags
+1,1,1,Heartbeat,None,0,0,0,0,0

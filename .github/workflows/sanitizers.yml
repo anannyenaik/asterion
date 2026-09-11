@@ -1,0 +1,47 @@
+name: sanitizers
+
+# ASan/UBSan over the unit, golden and property suites.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  asan-ubsan:
+    name: asan-ubsan
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang git
+
+      - name: Configure (Debug + Address/UndefinedBehaviour sanitizers)
+        run: |
+          cmake -S . -B build-san -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DASTERION_ENABLE_WARNINGS=ON \
+            -DASTERION_ENABLE_SANITIZERS=ON \
+            -DASTERION_BUILD_BENCHMARKS=OFF
+
+      - name: Build tests
+        run: cmake --build build-san --target asterion_tests
+
+      - name: Test under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build-san --output-on-failure

@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "note": "Machine-readable benchmark measurements and provenance used by the README and figures.",
+  "environments": {
+    "durham_hamilton8": {
+      "cluster": "Durham University Hamilton8",
+      "node": "cn025.ham8.dur.ac.uk",
+      "slurm_job": "17356789",
+      "partition": "shared",
+      "allocation": "1 node, 1 task, 1 CPU, 8 GiB; process pinned to logical CPU 121",
+      "os": "Rocky Linux 8.10",
+      "kernel": "4.18.0-553.123.1.el8_10.x86_64",
+      "cpu": "AMD EPYC 7702 64-Core Processor",
+      "compiler": "GCC 13.2.0",
+      "build_type": "Release",
+      "compiler_flags": "-O3 -DNDEBUG",
+      "cmake": "3.30.5",
+      "ninja": "1.13.2",
+      "source_commit": "216f473667aede486c95fe9607e09646932ab5a1",
+      "measured_on": "2026-06-04"
+    },
+    "onnx_host": {
+      "os": "Windows 10",
+      "toolchain": "MSYS2 UCRT64",
+      "compiler": "GCC 16.1",
+      "build_type": "Release",
+      "onnxruntime_version": "1.20.1",
+      "measured_on": "2026-06-04"
+    }
+  },
+  "measurement_scope": [
+    "Each row is a single measured run. There are no repeated runs and no per-seed distributions, so no confidence intervals are available.",
+    "Latency percentiles are the measured distribution within a run and are the only variability reported.",
+    "Timings are specific to the disclosed host. Direct latency or throughput comparison across uncontrolled hosts is not supported by these measurements.",
+    "Guard checksums are deterministic for a fixed input. The blocking SPSC policy guarantees zero drops; checksum parity held on all six measured SPSC corpora.",
+    "Allocation counts are a property of the build and the allocation tracker rather than of the timing environment; the cross-host verification below records where they were reproduced.",
+    "The CPU governor and turbo state were not controllable from the non-root Slurm job.",
+    "LLC performance counters were unsupported for this allocation and are therefore absent."
+  ],
+  "cross_host_verification": {
+    "method": "run_pooled_stress_benchmarks.py re-run on unrelated hardware with a different iteration count.",
+    "host": {
+      "os": "Windows",
+      "compiler": "MinGW-w64 GCC 13.2"
+    },
+    "observations": [
+      "Allocations per event matched the Durham figures to six decimal places on all eight stress corpora.",
+      "Guard checksums matched between the standard and pooled variants on all eight corpora.",
+      "The pooled path recorded zero allocations on all eight corpora.",
+      "Latency and throughput differed, as expected for host-dependent quantities."
+    ],
+    "allocations_per_event": {
+      "stress_baseline_balanced": 1.40625,
+      "stress_high_cancellation": 1.4695,
+      "stress_replace_heavy": 1.713,
+      "stress_deep_book": 1.8482,
+      "stress_wide_price_range": 1.725,
+      "stress_bursty_flow": 1.41375,
+      "stress_long_same_symbol": 1.297375,
+      "stress_adversarial_lifecycle": 1.5
+    }
+  },
+  "reproduction": {
+    "corpora": "python scripts/generate_synthetic_events.py (seeds and modes in corpus_manifest.csv)",
+    "hot_path_and_spsc": "python scripts/run_perf_evaluation.py",
+    "stress_corpora": "python scripts/run_pooled_stress_benchmarks.py",
+    "figures": "python figures/generate_figures.py"
+  },
+  "files": {
+    "corpus_manifest.csv": {
+      "bytes": 2174,
+      "sha256": "e714baeef0d51bc5782c53cefc76ee8df2c596b2af0252d5e7d79abbe1c28d49",
+      "description": "Generation parameters and SHA-256 checksum of every deterministic corpus used above.",
+      "environment": "durham_hamilton8"
+    },
+    "hot_path_1m_standard_vs_pooled.csv": {
+      "bytes": 499,
+      "sha256": "efcb7155c22cacddfbd4eee3544ae8a1d0454f44b15e99d03056d4b2b90e068a",
+      "description": "Standard and opt-in pooled L3 hot path over the 1M high-cancellation corpus, five measured iterations each.",
+      "environment": "durham_hamilton8"
+    },
+    "inference_replay_loop.csv": {
+      "bytes": 1010,
+      "sha256": "6b993f961f71d3f8ad0f3a2a41b95f531c8c35138ef9b7a4bba455b0167b0baa",
+      "description": "Replay event loop with and without LinearModel inference over the 10k balanced corpus, plus standalone inference-support rows.",
+      "environment": "durham_hamilton8"
+    },
+    "perf_counters.csv": {
+      "bytes": 701,
+      "sha256": "145b8fc97d9523b32c345756c13b37600557d2e8b6ce499dfc0bc7a726e4b29d",
+      "description": "Linux perf stat counters collected around whole benchmark processes. LLC events were unsupported on this host.",
+      "environment": "durham_hamilton8"
+    },
+    "public_l2_onnx_inference.json": {
+      "bytes": 2293,
+      "sha256": "55719f78e655b4b1537f5737988cd5544a0ed5f0e369358a9b948883e10011e2",
+      "description": "Isolated ONNX Runtime inference cost for the recorded-public-L2 model-contract artefact, measured on a separate host.",
+      "environment": "onnx_host"
+    },
+    "spsc_steady_state_1m.csv": {
+      "bytes": 775,
+      "sha256": "4a64fdfc98137b4e14adc9914f4af985c762910359d8ea467c24b1d6741d6c05",
+      "description": "Single-thread and opt-in SPSC steady-state replay throughput over six 1M corpora, with backpressure, drops and checksum parity.",
+      "environment": "durham_hamilton8"
+    },
+    "stress_corpora_standard_vs_pooled.csv": {
+      "bytes": 713,
+      "sha256": "23a18a1a33ee9c6bebf233de23d855e71600ae0f29389fff4ccad4abe2affcb4",
+      "description": "Paired standard and pooled hot-path rows over eight small stress corpora, with guard-checksum parity.",
+      "environment": "durham_hamilton8"
+    }
+  }
+}

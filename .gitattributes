@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+# Binary event logs, fixtures and ONNX model artefacts must never be
+# line-ending converted.
+*.bin binary
+*.onnx binary
+*.pdf binary
+*.png binary
