@@ -1,0 +1,14 @@
+{
+  "_fixture": "Hand-curated Binance-LIKE public depth sample for deterministic CI.",
+  "scope": "Hand-curated synthetic data with no exchange capture or authenticated connectivity.",
+  "symbol": "BTCUSDT",
+  "source": "hand-curated fixture",
+  "stream_type": "hand_curated_depth_snapshot_and_diff",
+  "synthetic": true,
+  "raw_message_count": 5,
+  "shapes": ["rest_depth_snapshot_envelope", "depth_diff_update"],
+  "raw_fixture": "data/samples/binance_depth_sample.raw.jsonl",
+  "normaliser": "scripts/normalise_binance_depth_to_asterion.py",
+  "tool_version": "1.0.0",
+  "regenerate_normalised_with": "python scripts/normalise_binance_depth_to_asterion.py --input data/samples/binance_depth_sample.raw.jsonl --csv-output data/samples/binance_depth_sample.normalised.csv --binary-output data/samples/binance_depth_sample.normalised.bin"
+}

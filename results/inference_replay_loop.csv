@@ -1,0 +1,7 @@
+benchmark,variant,corpus,timing_mode,events_per_iteration,measured_iterations,measured_events,p50_ns,p95_ns,p99_ns,p999_ns,max_ns,throughput_per_second,allocations,bytes_allocated,guard
+hot_path_binary_replay_l3_l2_strategy_risk,standard_inference_free,balanced_10k,per-event,10000,50,500000,371,511,601,831,232147,2132930,703450,39408800,892861025581029264
+hot_path_binary_replay_pooled_l3_l2_strategy_risk,pooled_inference_free,balanced_10k,per-event,10000,50,500000,310,450,541,751,200518,2507441,0,0,892861025581029264
+hot_path_binary_replay_l3_l2_inference_strategy_risk,standard_linear_inference,balanced_10k,per-event,10000,50,500000,511,671,792,1002,206679,1649716,703450,39408800,1442857765714779360
+feature_extraction_caller_owned_buffer,inference_support,balanced_10k,per-call,,,,30,,40,,,16441266,0,0,
+linear_inference_only,inference_support,balanced_10k,per-call,,,,30,,40,,,16967916,0,0,
+feature_buffer_measured_linear_inference,inference_support,balanced_10k,per-call,,,,121,,151,,,6462928,0,0,

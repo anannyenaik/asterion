@@ -1,0 +1,3 @@
+benchmark,book_variant,corpus,events_per_iteration,measured_iterations,measured_events,p50_ns,p95_ns,p99_ns,p999_ns,max_ns,throughput_events_per_second,allocations,bytes_allocated,guard
+hot_path_binary_replay_l3_l2_strategy_risk,standard,high_cancellation_1m,1000000,5,5000000,281,501,631,812,207601,2879594,7340580,461929200,14180005740461440914
+hot_path_binary_replay_pooled_l3_l2_strategy_risk,pooled,high_cancellation_1m,1000000,5,5000000,291,491,681,832,213673,2815909,0,0,14180005740461440914

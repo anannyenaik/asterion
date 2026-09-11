@@ -1,0 +1,321 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+SAMPLES = ROOT / "data" / "samples"
+CLI = ROOT / "scripts" / "asterion_inspect.py"
+
+
+def _run(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(CLI), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_benchmark_summary_json() -> None:
+    result = _run(
+        "benchmark-summary",
+        "--input",
+        str(SAMPLES / "sample_benchmark_baseline.json"),
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == 1
+    assert payload["benchmark_count"] == 4
+    names = [row["name"] for row in payload["benchmarks"]]
+    assert "add_order" in names
+
+
+def test_benchmark_summary_text() -> None:
+    result = _run(
+        "benchmark-summary",
+        "--input",
+        str(SAMPLES / "sample_benchmark_baseline.json"),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "benchmark_count=4" in result.stdout
+
+
+def test_benchmark_compare_json_reports_regression() -> None:
+    result = _run(
+        "benchmark-compare",
+        "--baseline",
+        str(SAMPLES / "sample_benchmark_baseline.json"),
+        "--current",
+        str(SAMPLES / "sample_benchmark_current.json"),
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["regressions"] == ["cancel_order"]
+    assert payload["new_benchmarks"] == ["l2_snapshot_generation"]
+    assert payload["missing_benchmarks"] == ["replace_order"]
+    assert payload["has_regressions"] is True
+
+
+def test_benchmark_compare_does_not_fail_by_default() -> None:
+    # Normal runs must not fail solely because of performance variance.
+    result = _run(
+        "benchmark-compare",
+        "--baseline",
+        str(SAMPLES / "sample_benchmark_baseline.json"),
+        "--current",
+        str(SAMPLES / "sample_benchmark_current.json"),
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_benchmark_compare_fail_on_regression_flag() -> None:
+    result = _run(
+        "benchmark-compare",
+        "--baseline",
+        str(SAMPLES / "sample_benchmark_baseline.json"),
+        "--current",
+        str(SAMPLES / "sample_benchmark_current.json"),
+        "--fail-on-regression",
+    )
+    assert result.returncode == 1
+
+
+def test_latency_budget_summary_json() -> None:
+    result = _run(
+        "latency-budget",
+        "--input",
+        str(SAMPLES / "sample_latency_budget.json"),
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["exceeded_count"] == 1
+    assert payload["worst_offender"] == "risk"
+
+
+def test_latency_budget_fail_on_exceeded_flag() -> None:
+    result = _run(
+        "latency-budget",
+        "--input",
+        str(SAMPLES / "sample_latency_budget.json"),
+        "--fail-on-exceeded",
+    )
+    assert result.returncode == 1
+
+
+def test_audit_summary_json() -> None:
+    result = _run(
+        "audit-summary",
+        "--input",
+        str(SAMPLES / "sample_risk_audit.jsonl"),
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["entry_count"] == 2
+    assert payload["accepted_count"] == 1
+    assert payload["rejected_count"] == 1
+    assert payload["check_counts"]["accepted"] == 1
+
+
+def test_audit_verify_json() -> None:
+    result = _run(
+        "audit-verify",
+        "--input",
+        str(SAMPLES / "sample_risk_audit.jsonl"),
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["valid"] is True
+    assert payload["entries_checked"] == 2
+    assert payload["final_checksum"] == 18204584603026375655
+
+
+def test_shared_fuzz_cli_json() -> None:
+    pytest.importorskip("asterion")
+    result = _run("shared-fuzz", "--seed", "20260528", "--events", "32", "--symbols", "3", "--json")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["case_count"] == 1
+    assert payload["mismatch_count"] == 0
+
+
+def test_replay_parity_cli_json() -> None:
+    pytest.importorskip("asterion")
+    result = _run(
+        "replay-parity",
+        "--input",
+        str(SAMPLES / "sample_replay.csv"),
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["matched"] is True
+    assert payload["mismatch_count"] == 0
+
+
+def test_audit_manifest_cli_json(tmp_path: Path) -> None:
+    pytest.importorskip("asterion")
+    manifest = tmp_path / "sample_risk_audit.manifest.jsonl"
+    key = tmp_path / "manifest.key"
+    key.write_bytes(b"audit-manifest-cli-test-key")
+
+    generated = _run(
+        "audit-manifest",
+        "--input",
+        str(SAMPLES / "sample_risk_audit.jsonl"),
+        "--output",
+        str(manifest),
+        "--signing-key-file",
+        str(key),
+        "--signing-key-id",
+        "cli-test",
+        "--json",
+    )
+    assert generated.returncode == 0, generated.stderr
+    payload = json.loads(generated.stdout)
+    assert payload["ok"] is True
+    assert payload["signature_present"] is True
+    assert manifest.exists()
+
+    verified = _run(
+        "audit-manifest-verify",
+        "--manifest",
+        str(manifest),
+        "--base-dir",
+        str(SAMPLES),
+        "--signing-key-file",
+        str(key),
+        "--json",
+    )
+    assert verified.returncode == 0, verified.stderr
+    verification = json.loads(verified.stdout)
+    assert verification["valid"] is True
+    assert verification["signature_valid"] is True
+
+
+def test_onnx_status_cli_json() -> None:
+    pytest.importorskip("asterion")
+    result = _run("onnx-status", "--json")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["requested"] == "onnx"
+    assert payload["active"] in {"linear", "onnx"}
+
+
+def test_rate_limit_mode_json() -> None:
+    result = _run("rate-limit-mode", "--mode", "sliding-window", "--json")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["mode"] == "sliding-window"
+    assert payload["default"] is False
+
+
+def test_portfolio_risk_cli_json() -> None:
+    pytest.importorskip("asterion")
+    result = _run(
+        "portfolio-risk",
+        "--input",
+        str(SAMPLES / "sample_portfolio_risk.json"),
+        "--json",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["active"] is True
+    assert payload["snapshot"]["symbol_count"] == 2
+    assert payload["audit_entry_count"] == 2
+    assert [check["accepted"] for check in payload["checks"]] == [True, False]
+
+
+def test_json_error_for_missing_offline_file() -> None:
+    result = _run(
+        "benchmark-summary",
+        "--input",
+        str(SAMPLES / "missing_benchmark.json"),
+        "--json",
+    )
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "missing_benchmark.json" in payload["error"]
+
+
+def test_json_error_for_malformed_json(tmp_path: Path) -> None:
+    bad_json = tmp_path / "bad.json"
+    bad_json.write_text("{bad json", encoding="utf-8")
+
+    result = _run("benchmark-summary", "--input", str(bad_json), "--json")
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "Expecting property name" in payload["error"]
+
+
+def test_json_error_for_invalid_flag() -> None:
+    result = _run(
+        "benchmark-summary",
+        "--input",
+        str(SAMPLES / "sample_benchmark_baseline.json"),
+        "--json",
+        "--bad-flag",
+    )
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "unrecognized arguments" in payload["error"]
+
+
+def test_json_error_for_unsupported_replay_format() -> None:
+    result = _run(
+        "replay-checksums",
+        "--input",
+        str(SAMPLES / "sample_replay.csv"),
+        "--format",
+        "xml",
+        "--json",
+    )
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert "invalid choice" in payload["error"]
+
+
+def test_replay_missing_file_returns_parseable_json() -> None:
+    pytest.importorskip("asterion")
+    result = _run(
+        "replay-checksums",
+        "--input",
+        str(SAMPLES / "missing_replay.csv"),
+        "--json",
+    )
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["sequence_valid"] is False
+    assert "missing_replay.csv" in payload["error"]
+
+
+def test_audit_manifest_bad_file_returns_parseable_json(tmp_path: Path) -> None:
+    pytest.importorskip("asterion")
+    manifest = tmp_path / "bad_manifest.jsonl"
+    manifest.write_text("{bad json", encoding="utf-8")
+
+    result = _run(
+        "audit-manifest-verify",
+        "--manifest",
+        str(manifest),
+        "--json",
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["error"]

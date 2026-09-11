@@ -1,0 +1,64 @@
+{
+  "artefact": "chronoslob_public_l2_tiny",
+  "description": "Isolated systems cost of scoring the recorded-public-L2 model-contract artefact through the optional ONNX Runtime backend. This is an inference-latency diagnostic, not the trading hot path.",
+  "model_contract": {
+    "input_shape": "1x16x40",
+    "output_shape": "1x3",
+    "window_length": 16,
+    "features_per_timestep": 40,
+    "expected_output_tolerance": 0.001
+  },
+  "environment": {
+    "os": "Windows 10",
+    "toolchain": "MSYS2 UCRT64",
+    "compiler": "GCC 16.1",
+    "build_type": "Release",
+    "onnxruntime_version": "1.20.1",
+    "execution_provider": "CPU"
+  },
+  "rows": [
+    {
+      "name": "public_l2_chronoslob_onnx_inference_only",
+      "timing_mode": "per-call",
+      "measured_iterations": 20000,
+      "p50_ns": 36900,
+      "p95_ns": 72300,
+      "p99_ns": 108900,
+      "p999_ns": 409700,
+      "max_ns": 1190000,
+      "throughput_inferences_per_second": 23200,
+      "allocations_total": 40000,
+      "allocations_per_call": 2,
+      "bytes_per_call": 2568
+    },
+    {
+      "name": "public_l2_chronoslob_onnx_model_load",
+      "timing_mode": "model-load",
+      "measured_iterations": 1,
+      "p50_ns": 3260000,
+      "max_ns": 3260000,
+      "allocations_total": 20,
+      "bytes_allocated": 2315
+    }
+  ],
+  "python_reference": {
+    "description": "Comparison run through the Python onnxruntime package on the same machine, reported for context. The C++ row above is the in-process cost through the project's own optional backend.",
+    "runtime": "onnxruntime 1.20.1 (Python, CPU EP)",
+    "measured_iterations": 20000,
+    "p50_ns": 49200,
+    "p95_ns": 82300,
+    "p99_ns": 111500,
+    "p999_ns": 160700,
+    "max_ns": 323900,
+    "throughput_inferences_per_second": 18800
+  },
+  "scope": [
+    "Model load is measured separately and is not folded into per-call latency.",
+    "Steady-state inference performs about two allocations per call from ONNX Runtime per-run buffers.",
+    "Timings are local to the disclosed host and are not portable."
+  ],
+  "provenance": {
+    "transcribed_from": "ChronosLOB public-L2 model-bridge report, 2026-06-04",
+    "note": "Values are transcribed unchanged from the 2026-06-04 benchmark record. They were not recomputed for this repository."
+  }
+}

@@ -1,0 +1,7 @@
+corpus,mode,events,single_thread_events_per_second,spsc_events_per_second,spsc_to_single_ratio,backpressure_count,dropped_events,max_queue_depth,queue_capacity,checksum_parity,single_thread_allocations,spsc_allocations
+baseline_1m,balanced,1000000,1551396,1221553,0.79,245,0,4096,4096,true,1749373,1749376
+high_cancellation_1m,high-cancel,1000000,3748307,4627770,1.23,244,0,4096,4096,true,1468119,1468122
+replace_heavy_1m,replace-heavy,1000000,1690788,1368047,0.81,245,0,4096,4096,true,1947368,1947371
+deep_book_1m,deep-book,1000000,1007316,816142,0.81,246,0,4096,4096,true,2547216,2547219
+bursty_1m,bursty,1000000,1609860,1170675,0.73,246,0,4096,4096,true,1747761,1747764
+wide_price_range_1m,wide-price-range,1000000,1273384,896940,0.70,246,0,4096,4096,true,1752633,1752636

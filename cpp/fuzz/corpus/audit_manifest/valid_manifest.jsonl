@@ -1,0 +1,2 @@
+{"record":"manifest","schema_version":1,"format":"jsonl","creator":"asterion-fuzz-seed","created_at":"","chain_checksum":0}
+{"record":"file","file_name":"audit.jsonl","record_count":1,"byte_size":10,"content_checksum":1,"audit_chain_checksum":2}

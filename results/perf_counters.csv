@@ -1,0 +1,6 @@
+process,task_clock_ms,elapsed_s,cycles,instructions,instructions_per_cycle,branch_miss_rate_pct,cache_miss_of_references_pct,l1_dcache_miss_rate_pct,context_switches,cpu_migrations,page_faults
+high_cancellation_1m_hot_path,15718.40,15.7249,40306000000,77185000000,1.915,1.06,5.45,0.52,0,0,22503
+baseline_1m_steady_spsc,13272.42,13.2775,32959000000,33044000000,1.003,0.80,43.71,3.19,0,0,31419
+replace_heavy_1m_steady_spsc,12186.39,12.1926,29509000000,31877000000,1.080,0.81,43.03,2.95,0,0,25368
+deep_book_1m_steady_spsc,19410.29,19.4181,49445000000,44951000000,0.909,1.20,35.68,4.52,0,0,56632
+balanced_10k_inference_process,224643.70,224.6730,557545000000,1125320000000,2.018,1.15,13.69,7.98,0,0,11793

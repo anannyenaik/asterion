@@ -1,0 +1,55 @@
+build/
+build-*/
+cmake-build-*/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.idea/
+.vscode/
+compile_commands.json
+.env
+.env.*
+!.env.example
+Testing/
+# Keep the Python test-oracle package; the CTest "Testing/" rule above also
+# matches it on case-insensitive filesystems (Windows/macOS).
+!python/asterion/testing/
+CTestTestfile.cmake
+_deps/
+*.pyc
+__pycache__/
+.venv/
+*.egg-info/
+dist/
+wheelhouse/
+*.log
+*.out
+*.exe
+*.dll
+*.dylib
+*.so
+*.a
+*.lib
+*.obj
+*.o
+*.profraw
+*.profdata
+crash-*
+timeout-*
+oom-*
+leak-*
+slow-unit-*
+*.benchmark.json
+benchmarks/results/
+benchmarks/history/
+data/generated/
+# Local Binance public-depth captures can be large; keep them out of git.
+# The small checked-in fixture under data/samples/ is the deterministic path.
+data/captures/
+# Linux performance evaluation (large generated corpora + local perf output)
+/build/perf_corpora/
+/build/perf_results/
+/build/perf_profile/
+perf.data
+perf.data.old

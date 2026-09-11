@@ -1,0 +1,47 @@
+{
+  "derived_from": "https://github.com/anannyenaik/chronos-lob",
+  "deterministic_fixture": true,
+  "expected_test_input": [
+    2.0,
+    1000.0,
+    0.5,
+    400.0
+  ],
+  "expected_test_output": [
+    -0.08499999999999998
+  ],
+  "export_command": "python scripts/export_chronoslob_tiny_onnx.py --output data/models/chronoslob_tiny_fixture.onnx --metadata-output data/models/chronoslob_tiny_fixture.metadata.json",
+  "feature_count": 4,
+  "feature_order": [
+    "spread_ticks",
+    "mid_price_ticks",
+    "top_level_imbalance",
+    "top_level_quantity"
+  ],
+  "feature_version": 1,
+  "input_name": "features",
+  "input_shape": [
+    1,
+    4
+  ],
+  "ir_version": 8,
+  "model_name": "chronoslob_tiny_fixture",
+  "opset_version": 13,
+  "output_name": "score",
+  "output_semantics": "One scalar from the fixed linear head over Asterion's four-element L2 feature buffer.",
+  "output_shape": [
+    1,
+    1
+  ],
+  "producer_name": "asterion",
+  "producer_version": "chronoslob-bridge-2026-05-31",
+  "purpose": "Deterministic ONNX fixture used to exercise Asterion inference-path model loading, feature-contract validation and reproducible scoring.",
+  "reference_bias": 0.05,
+  "reference_weights": [
+    0.1,
+    -0.0005,
+    0.25,
+    0.0001
+  ],
+  "trained_model": false
+}

@@ -1,0 +1,9 @@
+corpus,mode,measured_events,standard_p50_ns,standard_p99_ns,standard_allocations,pooled_p50_ns,pooled_p99_ns,pooled_allocations,guard_parity
+stress_adversarial_lifecycle,adversarial-lifecycle,20000,200,361,30000,180,311,0,true
+stress_baseline_balanced,balanced,20000,300,441,28125,251,411,0,true
+stress_bursty_flow,bursty,20000,341,511,28275,281,461,0,true
+stress_deep_book,deep-book,25000,331,541,46205,271,470,0,true
+stress_high_cancellation,high-cancel,20000,250,421,29390,200,380,0,true
+stress_long_same_symbol,long-same-symbol,40000,321,471,51895,270,441,0,true
+stress_replace_heavy,replace-heavy,20000,321,421,34260,270,381,0,true
+stress_wide_price_range,wide-price-range,25000,491,772,43125,421,882,0,true

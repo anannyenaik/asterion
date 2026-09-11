@@ -1,0 +1,2235 @@
+#include "asterion/book/order_book.hpp"
+#include "asterion/book/pooled_order_book.hpp"
+#include "asterion/core/allocation_tracker.hpp"
+#include "asterion/core/checksum.hpp"
+#include "asterion/inference/backend.hpp"
+#include "asterion/inference/feature_extractor.hpp"
+#include "asterion/inference/inference.hpp"
+#include "asterion/inference/linear_model.hpp"
+#include "asterion/inference/model_metadata.hpp"
+#include "asterion/market_data/event_log.hpp"
+#include "asterion/market_data/replay.hpp"
+#include "asterion/market_data/spsc_replay.hpp"
+#include "asterion/matching/matching_engine.hpp"
+#include "asterion/risk/risk_gateway.hpp"
+#include "asterion/strategy/imbalance_strategy.hpp"
+
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <cctype>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <iterator>
+#include <optional>
+#include <span>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#if defined(__linux__) || defined(__APPLE__)
+#include <sys/utsname.h>
+#endif
+
+#ifndef ASTERION_GIT_COMMIT
+#define ASTERION_GIT_COMMIT "unknown"
+#endif
+
+#ifndef ASTERION_BUILD_TYPE
+#define ASTERION_BUILD_TYPE "unknown"
+#endif
+
+#ifndef ASTERION_COMPILER_FLAGS
+#define ASTERION_COMPILER_FLAGS ""
+#endif
+
+using namespace asterion;
+
+namespace {
+
+constexpr std::string_view kChronoslobSyntheticOnnxReplayLoopRowName =
+    "hot_path_binary_replay_l3_l2_chronoslob_synthetic_onnx_inference_strategy_risk";
+
+// Optional isolated C++ ONNX row for the recorded-public-L2 [1,16,40] artefact.
+// It measures the cost of scoring that artefact on its own; its windowed contract
+// differs from the event-loop 4-feature contract and is never wired into the
+// replay-loop rows.
+constexpr std::string_view kPublicL2OnnxIsolatedRowName =
+    "public_l2_chronoslob_onnx_inference_only";
+
+struct Options {
+  std::filesystem::path dataset_path{std::filesystem::path(ASTERION_SOURCE_DIR) / "data" /
+                                     "samples" / "sample_hot_path_replay.bin"};
+  std::optional<std::filesystem::path> json_path;
+  std::size_t hot_path_iterations{5'000};
+  std::size_t warmup_iterations{5};
+  std::size_t spsc_queue_capacity{1024};
+  ReplayValidationMode steady_state_validation_mode{ReplayValidationMode::Light};
+  bool text_output{true};
+  bool only_hot_path{false};
+  bool only_steady_state_replay{false};
+  std::string logging_mode;
+};
+
+struct LatencyDistribution {
+  bool available{false};
+  std::uint64_t p50_ns{0};
+  std::uint64_t p95_ns{0};
+  std::uint64_t p99_ns{0};
+  std::uint64_t p999_ns{0};
+  std::uint64_t max_ns{0};
+};
+
+// Stats for the opt-in SPSC replay pipeline rows. Empty/unavailable for every
+// other benchmark. These numbers are timing-dependent (backpressure/max depth)
+// and are reported for transparency only; checksum_parity confirms the threaded
+// pipeline produced bit-identical results to the single-thread baseline.
+struct SpscBenchmarkStats {
+  bool available{false};
+  std::size_t queue_capacity{0};
+  std::size_t produced_events{0};
+  std::size_t consumed_events{0};
+  std::size_t backpressure_count{0};
+  std::size_t dropped_events{0};
+  std::size_t max_queue_depth{0};
+  std::size_t end_of_stream_markers_produced{0};
+  std::size_t end_of_stream_markers_consumed{0};
+  std::uint64_t elapsed_ns{0};
+  double throughput_events_per_second{0.0};
+  bool checksum_parity{false};
+};
+
+struct SkippedBenchmark {
+  std::string name;
+  std::string category;
+  std::string requested_backend;
+  std::string model_name;
+  std::string reason;
+};
+
+struct BenchmarkResult {
+  std::string name;
+  std::size_t iterations{0};
+  std::size_t warmup_iterations{0};
+  std::size_t measured_iterations{0};
+  std::size_t event_count{0};
+  std::size_t risk_check_count{0};
+  std::string dataset_name;
+  std::string timing_mode{"aggregate"};
+  std::string validation_mode{"n/a"};
+  std::string thread_lifecycle_mode{"n/a"};
+  // "core" benchmarks measure replay/book/matching/risk paths. "inference"
+  // benchmarks measure feature extraction and model scoring; they are reported
+  // separately so inference timings are never conflated with the trading hot path.
+  std::string category{"core"};
+  // Inference-only metadata. Empty for core benchmarks.
+  std::string backend;
+  std::string model_name;
+  std::string input_shape;
+  std::string output_shape;
+  std::size_t feature_count{0};
+  std::uint32_t feature_version{0};
+  std::uint64_t total_ns{0};
+  std::uint64_t avg_ns{0};
+  double throughput_events_per_second{0.0};
+  std::uint64_t event_log_checksum{0};
+  std::uint64_t final_book_checksum{0};
+  std::uint64_t execution_report_checksum{0};
+  std::uint64_t diagnostics_checksum{0};
+  std::uint64_t guard{0};
+  AllocationSnapshot allocations;
+  LatencyDistribution latency;
+  SpscBenchmarkStats spsc;
+};
+
+Order make_order(OrderId order_id, Side side, PriceTicks price, Quantity quantity) {
+  return Order{order_id, order_id + 1'000'000, 1, side, price, quantity,
+               static_cast<TimestampNs>(order_id), order_id};
+}
+
+void print_usage(std::ostream& output) {
+  output << "Usage: asterion_benchmarks [dataset.csv] [--dataset path] [--json path]"
+         << " [--no-text] [--logging-mode name] [--hot-path-iterations n]"
+         << " [--warmup-iterations n] [--hot-path-warmup n] [--spsc-queue-capacity n]"
+         << " [--steady-state-validation-mode full|light] [--only-hot-path]"
+         << " [--only-steady-state-replay]\n";
+}
+
+bool parse_size_option(std::string_view name, std::string_view value, std::size_t& output) {
+  const std::string token(value);
+  if (token.empty() || token.front() == '-') {
+    std::cerr << name << " requires a non-negative integer\n";
+    return false;
+  }
+  char* end = nullptr;
+  const unsigned long long parsed = std::strtoull(token.c_str(), &end, 10);
+  if (end == nullptr || *end != '\0') {
+    std::cerr << name << " requires a non-negative integer\n";
+    return false;
+  }
+  output = static_cast<std::size_t>(parsed);
+  return true;
+}
+
+bool parse_validation_mode_option(std::string_view value, ReplayValidationMode& output) {
+  if (value == "full") {
+    output = ReplayValidationMode::Full;
+    return true;
+  }
+  if (value == "light") {
+    output = ReplayValidationMode::Light;
+    return true;
+  }
+  std::cerr << "--steady-state-validation-mode must be one of: full, light\n";
+  return false;
+}
+
+bool parse_options(int argc, char** argv, Options& options) {
+  bool logging_mode_overridden = false;
+  for (int i = 1; i < argc; ++i) {
+    const std::string_view arg(argv[i]);
+    if (arg == "--help" || arg == "-h") {
+      print_usage(std::cout);
+      return false;
+    }
+    if (arg == "--dataset") {
+      if (i + 1 >= argc) {
+        std::cerr << "--dataset requires a path\n";
+        return false;
+      }
+      options.dataset_path = argv[++i];
+      continue;
+    }
+    if (arg == "--json") {
+      if (i + 1 >= argc) {
+        std::cerr << "--json requires a path\n";
+        return false;
+      }
+      options.json_path = std::filesystem::path(argv[++i]);
+      continue;
+    }
+    if (arg == "--no-text") {
+      options.text_output = false;
+      continue;
+    }
+    if (arg == "--only-hot-path") {
+      options.only_hot_path = true;
+      continue;
+    }
+    if (arg == "--only-steady-state-replay") {
+      options.only_steady_state_replay = true;
+      continue;
+    }
+    if (arg == "--logging-mode") {
+      if (i + 1 >= argc) {
+        std::cerr << "--logging-mode requires a value\n";
+        return false;
+      }
+      options.logging_mode = argv[++i];
+      logging_mode_overridden = true;
+      continue;
+    }
+    if (arg == "--hot-path-iterations") {
+      if (i + 1 >= argc) {
+        std::cerr << "--hot-path-iterations requires a value\n";
+        return false;
+      }
+      if (!parse_size_option(arg, argv[++i], options.hot_path_iterations)) {
+        return false;
+      }
+      continue;
+    }
+    if (arg == "--warmup-iterations" || arg == "--hot-path-warmup") {
+      if (i + 1 >= argc) {
+        std::cerr << arg << " requires a value\n";
+        return false;
+      }
+      if (!parse_size_option(arg, argv[++i], options.warmup_iterations)) {
+        return false;
+      }
+      continue;
+    }
+    if (arg == "--spsc-queue-capacity") {
+      if (i + 1 >= argc) {
+        std::cerr << "--spsc-queue-capacity requires a value\n";
+        return false;
+      }
+      if (!parse_size_option(arg, argv[++i], options.spsc_queue_capacity)) {
+        return false;
+      }
+      if (options.spsc_queue_capacity == 0) {
+        std::cerr << "--spsc-queue-capacity must be at least 1\n";
+        return false;
+      }
+      continue;
+    }
+    if (arg == "--steady-state-validation-mode") {
+      if (i + 1 >= argc) {
+        std::cerr << "--steady-state-validation-mode requires a value\n";
+        return false;
+      }
+      if (!parse_validation_mode_option(argv[++i], options.steady_state_validation_mode)) {
+        return false;
+      }
+      continue;
+    }
+    if (!arg.empty() && arg.front() == '-') {
+      std::cerr << "unknown option: " << arg << '\n';
+      return false;
+    }
+    options.dataset_path = std::filesystem::path(argv[i]);
+  }
+
+  if (!logging_mode_overridden) {
+    if (options.json_path.has_value() && options.text_output) {
+      options.logging_mode = "stdout+json";
+    } else if (options.json_path.has_value()) {
+      options.logging_mode = "json";
+    } else {
+      options.logging_mode = "stdout";
+    }
+  }
+  return true;
+}
+
+template <typename Fn>
+BenchmarkResult run_benchmark(std::string name, std::size_t iterations, Fn&& fn) {
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  const std::uint64_t guard = fn();
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  const double throughput = total_ns == 0
+                                ? 0.0
+                                : static_cast<double>(iterations) * 1'000'000'000.0 /
+                                      static_cast<double>(total_ns);
+  BenchmarkResult result;
+  result.name = std::move(name);
+  result.iterations = iterations;
+  result.measured_iterations = iterations;
+  result.event_count = iterations;
+  result.total_ns = total_ns;
+  result.avg_ns = iterations == 0 ? 0 : total_ns / iterations;
+  result.throughput_events_per_second = throughput;
+  result.guard = guard;
+  result.allocations = allocations;
+  return result;
+}
+
+std::size_t nearest_rank_index(std::size_t sample_count, std::uint32_t permille) {
+  if (sample_count == 0) {
+    return 0;
+  }
+  const std::size_t rank =
+      (static_cast<std::size_t>(permille) * sample_count + 999U) / 1000U;
+  return rank == 0 ? 0 : rank - 1U;
+}
+
+LatencyDistribution latency_distribution(std::vector<std::uint64_t> samples) {
+  LatencyDistribution distribution;
+  if (samples.empty()) {
+    return distribution;
+  }
+  std::sort(samples.begin(), samples.end());
+  distribution.available = true;
+  distribution.p50_ns = samples[nearest_rank_index(samples.size(), 500)];
+  distribution.p95_ns = samples[nearest_rank_index(samples.size(), 950)];
+  distribution.p99_ns = samples[nearest_rank_index(samples.size(), 990)];
+  distribution.p999_ns = samples[nearest_rank_index(samples.size(), 999)];
+  distribution.max_ns = samples.back();
+  return distribution;
+}
+
+// Per-call sampled runner used by the inference benchmarks so they report a
+// p50/p95/p99/p99.9/max distribution rather than only an aggregate average. The
+// sample buffer is reserved before the allocation counters are reset, so push_back
+// does not perturb the steady-state allocation count. fn receives the pre-sized
+// buffer and must record exactly one latency sample per iteration.
+template <typename Fn>
+BenchmarkResult run_sampled_benchmark(std::string name, std::size_t iterations, Fn&& fn) {
+  std::vector<std::uint64_t> samples;
+  samples.reserve(iterations);
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  const std::uint64_t guard = fn(samples);
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  const double throughput = total_ns == 0
+                                ? 0.0
+                                : static_cast<double>(iterations) * 1'000'000'000.0 /
+                                      static_cast<double>(total_ns);
+  BenchmarkResult result;
+  result.name = std::move(name);
+  result.iterations = iterations;
+  result.measured_iterations = iterations;
+  result.event_count = iterations;
+  result.timing_mode = "per-call";
+  result.total_ns = total_ns;
+  result.avg_ns = iterations == 0 ? 0 : total_ns / iterations;
+  result.throughput_events_per_second = throughput;
+  result.guard = guard;
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  return result;
+}
+
+template <typename Book>
+bool apply_hot_path_event(const MarketDataEvent& event, Book& book,
+                          std::uint64_t& activity_checksum) {
+  switch (event.event_type) {
+  case MarketEventType::Add:
+    return book.add_order(Order{event.order_id, kInvalidClientOrderId, event.symbol_id,
+                                event.side, event.price_ticks, event.quantity,
+                                event.timestamp_ns, event.sequence_number});
+  case MarketEventType::Cancel:
+    return event.quantity > 0 ? book.reduce_order(event.order_id, event.quantity)
+                              : book.cancel_order(event.order_id);
+  case MarketEventType::Replace:
+    return book.replace_order(event.order_id, event.price_ticks, event.quantity,
+                              event.timestamp_ns, event.sequence_number);
+  case MarketEventType::Execute:
+    activity_checksum = append_to_checksum(activity_checksum, event);
+    return book.reduce_order(event.order_id, event.quantity);
+  case MarketEventType::Trade:
+    activity_checksum = append_to_checksum(activity_checksum, event);
+    return true;
+  case MarketEventType::Snapshot:
+    if ((event.flags & kSnapshotBeginFlag) != 0U) {
+      book.clear();
+    }
+    if (event.order_id == kInvalidOrderId) {
+      return true;
+    }
+    return book.add_order(Order{event.order_id, kInvalidClientOrderId, event.symbol_id,
+                                event.side, event.price_ticks, event.quantity,
+                                event.timestamp_ns, event.sequence_number});
+  case MarketEventType::Heartbeat:
+    return true;
+  }
+  return false;
+}
+
+PriceTicks reference_price_from_view(const L2View& view, const MarketDataEvent& event) noexcept {
+  if (!view.bids.empty() && !view.asks.empty()) {
+    return (view.bids.front().price_ticks + view.asks.front().price_ticks) / 2;
+  }
+  if (!view.bids.empty()) {
+    return view.bids.front().price_ticks;
+  }
+  if (!view.asks.empty()) {
+    return view.asks.front().price_ticks;
+  }
+  return event.price_ticks > 0 ? event.price_ticks : 1000;
+}
+
+template <typename Book>
+struct HotPathContext {
+  explicit HotPathContext(SymbolId symbol_id, std::size_t depth,
+                          std::size_t expected_orders, std::size_t expected_risk_checks)
+      : book(symbol_id), strategy(0.50, 1),
+        risk(RiskLimits{1'000'000, 1'000'000'000, 1'000'000, 1'000'000'000'000,
+                        1'000'000, 1'000'000'000}) {
+    l2.reserve(depth);
+    book.reserve_order_capacity(expected_orders);
+    risk.reserve_hot_path_capacity(expected_risk_checks + 1U, 1U, 0U);
+    risk.on_market_data(symbol_id, 1000, 0);
+  }
+
+  Book book;
+  L2View l2;
+  ImbalanceStrategy strategy;
+  RiskGateway risk;
+  ClientOrderId next_client_order_id{1};
+  std::uint64_t guard{kFnvOffsetBasis};
+  std::size_t risk_checks{0};
+};
+
+template <typename Book>
+void replay_hot_path_once(std::span<const MarketDataEvent> events, HotPathContext<Book>& context,
+                          std::size_t depth, std::vector<std::uint64_t>* samples) {
+  context.book.clear();
+  context.book.reserve_order_capacity(events.size());
+  std::uint64_t activity_checksum = kFnvOffsetBasis;
+
+  for (const MarketDataEvent& event : events) {
+    const auto sample_start = std::chrono::steady_clock::now();
+    const bool applied = apply_hot_path_event(event, context.book, activity_checksum);
+    context.book.fill_l2_view(depth, context.l2);
+
+    const PriceTicks reference_price = reference_price_from_view(context.l2, event);
+    context.risk.on_market_data(event.symbol_id, reference_price, event.timestamp_ns);
+    const StrategyDecisionBatch decisions = context.strategy.on_l2_update_fixed(context.l2);
+    for (const StrategyDecision& decision : decisions) {
+      const RiskResult risk_result = context.risk.check_new_order(
+          NewOrderRequest{context.next_client_order_id,
+                          event.symbol_id,
+                          decision.side,
+                          decision.order_type,
+                          decision.price_ticks,
+                          decision.quantity,
+                          event.timestamp_ns,
+                          1},
+          event.timestamp_ns);
+      context.guard = checksum_append(context.guard, context.next_client_order_id);
+      context.guard = checksum_append(context.guard, risk_result.accepted ? 1U : 0U);
+      context.guard = checksum_append(context.guard, risk_result.reject_reason);
+      ++context.next_client_order_id;
+      ++context.risk_checks;
+    }
+    context.guard = checksum_append(context.guard, applied ? 1U : 0U);
+    context.guard = checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.bids.size()));
+    context.guard = checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.asks.size()));
+    context.guard = checksum_append(context.guard, activity_checksum);
+    const auto sample_end = std::chrono::steady_clock::now();
+    if (samples != nullptr) {
+      samples->push_back(static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(sample_end - sample_start).count()));
+    }
+  }
+
+  context.guard = checksum_append(context.guard, context.book.checksum());
+}
+
+template <typename Book>
+BenchmarkResult benchmark_hot_path_pipeline(const Options& options, std::string name) {
+  constexpr std::size_t kDepth = 5;
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load hot-path dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("hot-path dataset is empty: " + options.dataset_path.string());
+  }
+
+  const std::size_t event_count = log.events.size() * options.hot_path_iterations;
+  const std::size_t reserve_risk_checks =
+      log.events.size() * (options.hot_path_iterations + options.warmup_iterations + 1U);
+  HotPathContext<Book> context(log.events.front().symbol_id, kDepth, log.events.size(),
+                               reserve_risk_checks);
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    replay_hot_path_once(log.events, context, kDepth, nullptr);
+  }
+
+  std::vector<std::uint64_t> samples;
+  samples.reserve(event_count);
+  const std::size_t risk_checks_before = context.risk_checks;
+  context.guard = kFnvOffsetBasis;
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  for (std::size_t i = 0; i < options.hot_path_iterations; ++i) {
+    replay_hot_path_once(log.events, context, kDepth, &samples);
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = std::move(name);
+  result.iterations = options.hot_path_iterations;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = options.hot_path_iterations;
+  result.event_count = event_count;
+  result.risk_check_count = context.risk_checks - risk_checks_before;
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "per-event";
+  result.total_ns = total_ns;
+  result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
+  result.guard = context.guard ^ log.event_checksum;
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  return result;
+}
+
+bool replay_checksum_parity(const ReplayResult& actual, const ReplayResult& expected) {
+  return actual.events_processed == expected.events_processed &&
+         actual.event_log_checksum == expected.event_log_checksum &&
+         actual.final_book_checksum == expected.final_book_checksum &&
+         actual.execution_report_checksum == expected.execution_report_checksum &&
+         actual.diagnostics_checksum == expected.diagnostics_checksum &&
+         actual.diagnostic_error_count == expected.diagnostic_error_count &&
+         actual.diagnostic_warning_count == expected.diagnostic_warning_count &&
+         actual.sequence_valid == expected.sequence_valid;
+}
+
+void attach_replay_checksums(BenchmarkResult& result, const ReplayResult& replay) {
+  result.event_log_checksum = replay.event_log_checksum;
+  result.final_book_checksum = replay.final_book_checksum;
+  result.execution_report_checksum = replay.execution_report_checksum;
+  result.diagnostics_checksum = replay.diagnostics_checksum;
+  result.guard = replay.final_book_checksum ^ replay.diagnostics_checksum;
+}
+
+void attach_spsc_stats(BenchmarkResult& result, const SpscReplayStats& stats, bool parity) {
+  result.spsc.available = true;
+  result.spsc.queue_capacity = stats.queue_capacity;
+  result.spsc.produced_events = stats.produced_events;
+  result.spsc.consumed_events = stats.consumed_events;
+  result.spsc.backpressure_count = stats.backpressure_count;
+  result.spsc.dropped_events = stats.dropped_events;
+  result.spsc.max_queue_depth = stats.max_queue_depth;
+  result.spsc.end_of_stream_markers_produced = stats.end_of_stream_markers_produced;
+  result.spsc.end_of_stream_markers_consumed = stats.end_of_stream_markers_consumed;
+  result.spsc.elapsed_ns = stats.elapsed_ns;
+  result.spsc.throughput_events_per_second = stats.throughput_events_per_second;
+  result.spsc.checksum_parity = parity;
+}
+
+// Single-thread deterministic replay baseline (book + validation + diagnostics).
+// This is the parity reference for the SPSC pipeline rows below. Each iteration
+// replays the dataset once and is recorded as one per-run latency sample.
+BenchmarkResult benchmark_replay_single_thread(const Options& options) {
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load replay dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("replay dataset is empty: " + options.dataset_path.string());
+  }
+  const SymbolId symbol_id = log.events.front().symbol_id;
+  const std::span<const MarketDataEvent> events(log.events);
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    ReplayEngine engine(symbol_id);
+    (void)engine.replay_events(events);
+  }
+
+  std::vector<std::uint64_t> samples;
+  samples.reserve(options.hot_path_iterations);
+  ReplayResult last_result;
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  for (std::size_t i = 0; i < options.hot_path_iterations; ++i) {
+    const auto run_start = std::chrono::steady_clock::now();
+    ReplayEngine engine(symbol_id);
+    last_result = engine.replay_events(events);
+    const auto run_end = std::chrono::steady_clock::now();
+    samples.push_back(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(run_end - run_start).count()));
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const std::size_t event_count = log.events.size() * options.hot_path_iterations;
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = "replay_l3_diagnostics_single_thread";
+  result.iterations = options.hot_path_iterations;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = options.hot_path_iterations;
+  result.event_count = event_count;
+  result.dataset_name = options.dataset_path.filename().string();
+  // Each latency sample is one whole-dataset replay run, not one event.
+  result.timing_mode = "per-run";
+  result.validation_mode = std::string(to_string(ReplayValidationMode::Full));
+  result.thread_lifecycle_mode = "single_thread";
+  result.total_ns = total_ns;
+  result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
+  attach_replay_checksums(result, last_result);
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  return result;
+}
+
+// Opt-in SPSC replay pipeline row. The producer thread feeds the dataset through
+// the bounded SPSC queue; the consumer thread runs the same ReplayEngine path.
+// Each iteration spins up and joins one producer thread (lifecycle is part of the
+// measured cost). checksum_parity confirms the threaded result is bit-identical
+// to the single-thread baseline computed here.
+BenchmarkResult benchmark_replay_spsc(const Options& options) {
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load replay dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("replay dataset is empty: " + options.dataset_path.string());
+  }
+  const SymbolId symbol_id = log.events.front().symbol_id;
+  const std::span<const MarketDataEvent> events(log.events);
+
+  // Single-thread reference checksum for the parity check.
+  ReplayEngine reference_engine(symbol_id);
+  const ReplayResult reference = reference_engine.replay_events(events);
+  const std::uint64_t reference_guard =
+      reference.final_book_checksum ^ reference.diagnostics_checksum;
+
+  SpscReplayConfig config;
+  config.queue_capacity = options.spsc_queue_capacity;
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    (void)run_spsc_replay(events, symbol_id, config);
+  }
+
+  std::vector<std::uint64_t> samples;
+  samples.reserve(options.hot_path_iterations);
+  bool parity = true;
+  SpscReplayStats last_stats;
+  ReplayResult last_replay;
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  for (std::size_t i = 0; i < options.hot_path_iterations; ++i) {
+    const auto run_start = std::chrono::steady_clock::now();
+    const SpscReplayResult spsc = run_spsc_replay(events, symbol_id, config);
+    const auto run_end = std::chrono::steady_clock::now();
+    samples.push_back(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(run_end - run_start).count()));
+    const std::uint64_t guard =
+        spsc.replay.final_book_checksum ^ spsc.replay.diagnostics_checksum;
+    parity = parity && (guard == reference_guard);
+    last_stats = spsc.stats;
+    last_replay = spsc.replay;
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const std::size_t event_count = log.events.size() * options.hot_path_iterations;
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = "spsc_replay_l3_diagnostics";
+  result.iterations = options.hot_path_iterations;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = options.hot_path_iterations;
+  result.event_count = event_count;
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "per-run";
+  result.validation_mode = std::string(to_string(ReplayValidationMode::Full));
+  result.thread_lifecycle_mode = "per_replay";
+  result.total_ns = total_ns;
+  result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
+  attach_replay_checksums(result, last_replay);
+  result.guard = reference_guard;
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  attach_spsc_stats(result, last_stats, parity);
+  return result;
+}
+
+BenchmarkResult benchmark_replay_single_thread_steady_state(const Options& options) {
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load replay dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("replay dataset is empty: " + options.dataset_path.string());
+  }
+  const SymbolId symbol_id = log.events.front().symbol_id;
+  const std::span<const MarketDataEvent> events(log.events);
+
+  ReplayConfig replay_config;
+  replay_config.validation_mode = options.steady_state_validation_mode;
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    ReplayEngine engine(symbol_id, replay_config);
+    (void)engine.replay_events(events);
+  }
+
+  ReplayEngine engine(symbol_id, replay_config);
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  const ReplayResult replay = engine.replay_events(events);
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = "single_thread_replay_steady_state_l3_diagnostics";
+  result.iterations = 1;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = 1;
+  result.event_count = log.events.size();
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "aggregate";
+  result.validation_mode = std::string(to_string(options.steady_state_validation_mode));
+  result.thread_lifecycle_mode = "single_thread";
+  result.total_ns = total_ns;
+  result.avg_ns = log.events.empty() ? 0 : total_ns / log.events.size();
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(log.events.size()) * 1'000'000'000.0 /
+                static_cast<double>(total_ns);
+  attach_replay_checksums(result, replay);
+  result.allocations = allocations;
+  return result;
+}
+
+BenchmarkResult benchmark_replay_spsc_steady_state(const Options& options) {
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load replay dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("replay dataset is empty: " + options.dataset_path.string());
+  }
+  const SymbolId symbol_id = log.events.front().symbol_id;
+  const std::span<const MarketDataEvent> events(log.events);
+
+  ReplayConfig replay_config;
+  replay_config.validation_mode = options.steady_state_validation_mode;
+  ReplayEngine reference_engine(symbol_id, replay_config);
+  const ReplayResult reference = reference_engine.replay_events(events);
+
+  SpscReplayConfig config;
+  config.queue_capacity = options.spsc_queue_capacity;
+  config.replay = replay_config;
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    (void)run_spsc_replay_steady_state(events, symbol_id, config);
+  }
+
+  reset_allocation_counters();
+  const SpscReplayResult spsc = run_spsc_replay_steady_state(events, symbol_id, config);
+  const AllocationSnapshot allocations = allocation_snapshot();
+  const bool parity = replay_checksum_parity(spsc.replay, reference);
+
+  BenchmarkResult result;
+  result.name = "spsc_replay_steady_state_l3_diagnostics";
+  result.iterations = 1;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = 1;
+  result.event_count = log.events.size();
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "aggregate";
+  result.validation_mode = std::string(to_string(options.steady_state_validation_mode));
+  result.thread_lifecycle_mode = "steady_state";
+  result.total_ns = spsc.stats.elapsed_ns;
+  result.avg_ns = log.events.empty() ? 0 : spsc.stats.elapsed_ns / log.events.size();
+  result.throughput_events_per_second = spsc.stats.throughput_events_per_second;
+  attach_replay_checksums(result, spsc.replay);
+  result.allocations = allocations;
+  attach_spsc_stats(result, spsc.stats, parity);
+  return result;
+}
+
+BenchmarkResult benchmark_add_order() {
+  constexpr std::size_t kIterations = 50'000;
+  OrderBook book(1);
+  return run_benchmark("add_order", kIterations, [&] {
+    for (std::size_t i = 0; i < kIterations; ++i) {
+      const OrderId order_id = static_cast<OrderId>(i + 1U);
+      (void)book.add_order(make_order(order_id, Side::Buy, 1000, 10));
+    }
+    return book.checksum();
+  });
+}
+
+BenchmarkResult benchmark_cancel_order() {
+  constexpr std::size_t kIterations = 50'000;
+  OrderBook book(1);
+  for (std::size_t i = 0; i < kIterations; ++i) {
+    const OrderId order_id = static_cast<OrderId>(i + 1U);
+    (void)book.add_order(make_order(order_id, Side::Sell, 1001, 10));
+  }
+
+  return run_benchmark("cancel_order", kIterations, [&] {
+    for (std::size_t i = 0; i < kIterations; ++i) {
+      const OrderId order_id = static_cast<OrderId>(i + 1U);
+      (void)book.cancel_order(order_id);
+    }
+    return book.checksum();
+  });
+}
+
+BenchmarkResult benchmark_replace_order() {
+  constexpr std::size_t kIterations = 25'000;
+  OrderBook book(1);
+  for (std::size_t i = 0; i < kIterations; ++i) {
+    const OrderId order_id = static_cast<OrderId>(i + 1U);
+    (void)book.add_order(make_order(order_id, Side::Buy, 999, 10));
+  }
+  (void)book.add_order(make_order(900'000, Side::Buy, 1000, 1));
+  (void)book.add_order(make_order(900'001, Side::Buy, 1001, 1));
+
+  return run_benchmark("replace_order", kIterations, [&] {
+    for (std::size_t i = 0; i < kIterations; ++i) {
+      const OrderId order_id = static_cast<OrderId>(i + 1U);
+      const PriceTicks new_price = 1000 + static_cast<PriceTicks>(i % 2U);
+      (void)book.replace_order(order_id, new_price, 11, static_cast<TimestampNs>(i + 1U),
+                               static_cast<SequenceNumber>(i + 1U));
+    }
+    return book.checksum();
+  });
+}
+
+BenchmarkResult benchmark_market_cross_one_level() {
+  constexpr std::size_t kIterations = 10'000;
+  MatchingEngine engine(1);
+  for (std::size_t i = 0; i < kIterations; ++i) {
+    const ClientOrderId client_order_id = static_cast<ClientOrderId>(i + 1U);
+    (void)engine.submit_order(NewOrderRequest{client_order_id, 1, Side::Sell, OrderType::Limit,
+                                              1001, 10, static_cast<TimestampNs>(i + 1U)});
+  }
+
+  return run_benchmark("market_order_cross_one_level", kIterations, [&] {
+    std::uint64_t guard = 0;
+    for (std::size_t i = 0; i < kIterations; ++i) {
+      const ClientOrderId client_order_id = static_cast<ClientOrderId>(1'000'000U + i);
+      const auto reports = engine.submit_order(NewOrderRequest{
+          client_order_id, 1, Side::Buy, OrderType::Market, 0, 10,
+          static_cast<TimestampNs>(1'000'000U + i)});
+      guard ^= static_cast<std::uint64_t>(reports.size());
+    }
+    return guard ^ engine.reports_checksum() ^ engine.book().checksum();
+  });
+}
+
+BenchmarkResult benchmark_market_cross_multiple_levels() {
+  constexpr std::size_t kIterations = 2'000;
+  return run_benchmark("market_order_cross_multiple_levels", kIterations, [&] {
+    std::uint64_t guard = 0;
+    for (std::size_t i = 0; i < kIterations; ++i) {
+      MatchingEngine engine(1);
+      const ClientOrderId base = static_cast<ClientOrderId>(i * 10U + 1U);
+      (void)engine.submit_order(
+          NewOrderRequest{base, 1, Side::Sell, OrderType::Limit, 1001, 10, 1});
+      (void)engine.submit_order(
+          NewOrderRequest{base + 1U, 1, Side::Sell, OrderType::Limit, 1002, 10, 2});
+      (void)engine.submit_order(
+          NewOrderRequest{base + 2U, 1, Side::Sell, OrderType::Limit, 1003, 10, 3});
+      const auto reports = engine.submit_order(
+          NewOrderRequest{base + 3U, 1, Side::Buy, OrderType::Market, 0, 30, 4});
+      guard ^= engine.reports_checksum();
+      guard ^= engine.book().checksum();
+      guard ^= static_cast<std::uint64_t>(reports.size());
+    }
+    return guard;
+  });
+}
+
+BenchmarkResult benchmark_l2_snapshot() {
+  constexpr std::size_t kIterations = 50'000;
+  OrderBook book(1);
+  for (std::size_t i = 0; i < 100U; ++i) {
+    const OrderId bid_id = static_cast<OrderId>(i + 1U);
+    const OrderId ask_id = static_cast<OrderId>(i + 10'001U);
+    const PriceTicks offset = static_cast<PriceTicks>(i);
+    (void)book.add_order(make_order(bid_id, Side::Buy, 1000 - offset, 10));
+    (void)book.add_order(make_order(ask_id, Side::Sell, 1001 + offset, 10));
+  }
+  L2View view;
+  view.reserve(25);
+
+  return run_benchmark("l2_snapshot_generation", kIterations, [&] {
+    std::uint64_t guard = 0;
+    for (std::size_t i = 0; i < kIterations; ++i) {
+      book.fill_l2_view(25, view);
+      guard ^= static_cast<std::uint64_t>(view.bids.size() + view.asks.size());
+      guard ^= static_cast<std::uint64_t>(view.bids.front().price_ticks);
+      guard ^= static_cast<std::uint64_t>(view.asks.front().price_ticks);
+    }
+    return guard;
+  });
+}
+
+BenchmarkResult benchmark_replay_sample_events(const std::filesystem::path& path) {
+  return run_benchmark("replay_sample_events", 1, [&] {
+    ReplayEngine replay(1);
+    const ReplayResult result = replay.replay_file(path);
+    std::uint64_t guard = result.final_book_checksum ^ result.execution_report_checksum;
+    guard ^= static_cast<std::uint64_t>(result.events_processed);
+    guard ^= result.sequence_valid ? 0x9e3779b97f4a7c15ULL : 0ULL;
+    return guard;
+  });
+}
+
+BenchmarkResult benchmark_risk_check_only() {
+  constexpr std::size_t kIterations = 50'000;
+  RiskGateway risk(RiskLimits{1'000, 2'000'000, 100'000, 100'000'000, 100, 1'000'000});
+  risk.on_market_data(1, 1000, 100);
+
+  return run_benchmark("risk_check_only", kIterations, [&] {
+    std::uint64_t guard = 0;
+    for (std::size_t i = 0; i < kIterations; ++i) {
+      const auto result = risk.check_new_order(
+          NewOrderRequest{static_cast<ClientOrderId>(i + 1U), 1, Side::Buy, OrderType::Limit,
+                          1000, 1, static_cast<TimestampNs>(101 + i)},
+          static_cast<TimestampNs>(101 + i));
+      guard ^= result.accepted ? 1ULL : 0ULL;
+      guard ^= static_cast<std::uint64_t>(result.reject_reason);
+    }
+    return guard;
+  });
+}
+
+// Representative L2 view with both sides populated, shared by the feature
+// extraction benchmarks. Built once so the benchmark measures extraction cost
+// rather than book mutation.
+L2View make_inference_l2_view() {
+  L2View view;
+  view.symbol_id = 1;
+  view.bids.push_back(L2Level{999, 300});
+  view.asks.push_back(L2Level{1001, 100});
+  return view;
+}
+
+void tag_inference(BenchmarkResult& result, std::string backend, std::string model_name,
+                   std::string input_shape, std::string output_shape = "n/a",
+                   std::size_t feature_count = kL2FeatureCount,
+                   std::uint32_t feature_version = kL2FeatureVersion) {
+  result.category = "inference";
+  result.backend = std::move(backend);
+  result.model_name = std::move(model_name);
+  result.input_shape = std::move(input_shape);
+  result.output_shape = std::move(output_shape);
+  result.feature_count = feature_count;
+  result.feature_version = feature_version;
+}
+
+// Latency of a single timed iteration, recorded into the sample buffer.
+inline void record_sample(std::vector<std::uint64_t>& samples,
+                          std::chrono::steady_clock::time_point start,
+                          std::chrono::steady_clock::time_point end) {
+  samples.push_back(static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()));
+}
+
+std::uint64_t score_guard_bits(double score) noexcept {
+  return std::bit_cast<std::uint64_t>(score);
+}
+
+BenchmarkResult benchmark_feature_extraction_vector_returning() {
+  constexpr std::size_t kIterations = 200'000;
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+
+  BenchmarkResult result =
+      run_sampled_benchmark("feature_extraction_vector_returning", kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              std::uint64_t guard = 0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto start = std::chrono::steady_clock::now();
+                                const std::vector<double> features = extractor.extract(view);
+                                const auto end = std::chrono::steady_clock::now();
+                                guard ^= static_cast<std::uint64_t>(features[0] * 1000.0);
+                                record_sample(samples, start, end);
+                              }
+                              return guard;
+                            });
+  tag_inference(result, "n/a", "feature_extractor_v1", "1x4");
+  return result;
+}
+
+BenchmarkResult benchmark_feature_extraction_caller_owned_buffer() {
+  constexpr std::size_t kIterations = 200'000;
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+
+  BenchmarkResult result =
+      run_sampled_benchmark("feature_extraction_caller_owned_buffer", kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              std::uint64_t guard = 0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto start = std::chrono::steady_clock::now();
+                                const FeatureExtractionStatus status =
+                                    extractor.extract_into(view, feature_buffer);
+                                const auto end = std::chrono::steady_clock::now();
+                                guard ^= static_cast<std::uint64_t>(feature_storage[0] * 1000.0);
+                                guard ^= status == FeatureExtractionStatus::Ok ? 0x9e37ULL : 0ULL;
+                                record_sample(samples, start, end);
+                              }
+                              return guard;
+                            });
+  tag_inference(result, "n/a", "feature_extractor_v1_buffer", "1x4");
+  return result;
+}
+
+BenchmarkResult benchmark_linear_inference_only() {
+  constexpr std::size_t kIterations = 200'000;
+  LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
+  const std::array<double, 4> features{2.0, 1000.0, 0.35, 400.0};
+
+  BenchmarkResult result =
+      run_sampled_benchmark("linear_inference_only", kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              double accumulator = 0.0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto start = std::chrono::steady_clock::now();
+                                accumulator += model.score(features);
+                                const auto end = std::chrono::steady_clock::now();
+                                record_sample(samples, start, end);
+                              }
+                              return static_cast<std::uint64_t>(accumulator * 1000.0);
+                            });
+  tag_inference(result, "linear", "linear_w4", "1x4", "1x1");
+  return result;
+}
+
+BenchmarkResult benchmark_feature_extraction_plus_linear_vector_returning() {
+  constexpr std::size_t kIterations = 100'000;
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+  LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
+
+  BenchmarkResult result = run_sampled_benchmark(
+      "feature_extraction_plus_linear_vector_returning", kIterations,
+      [&](std::vector<std::uint64_t>& samples) {
+        double accumulator = 0.0;
+        for (std::size_t i = 0; i < kIterations; ++i) {
+          const auto start = std::chrono::steady_clock::now();
+          const std::vector<double> features = extractor.extract(view);
+          accumulator += model.score(features);
+          const auto end = std::chrono::steady_clock::now();
+          record_sample(samples, start, end);
+        }
+        return static_cast<std::uint64_t>(accumulator * 1000.0);
+      });
+  tag_inference(result, "linear", "linear_w4", "1x4", "1x1");
+  return result;
+}
+
+BenchmarkResult benchmark_feature_extraction_plus_linear_caller_owned_buffer() {
+  constexpr std::size_t kIterations = 100'000;
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+  LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+
+  BenchmarkResult result = run_sampled_benchmark(
+      "feature_extraction_plus_linear_caller_owned_buffer", kIterations,
+      [&](std::vector<std::uint64_t>& samples) {
+        double accumulator = 0.0;
+        for (std::size_t i = 0; i < kIterations; ++i) {
+          const auto start = std::chrono::steady_clock::now();
+          const FeatureExtractionStatus status = extractor.extract_into(view, feature_buffer);
+          accumulator +=
+              status == FeatureExtractionStatus::Ok ? model.score(feature_buffer.used()) : 0.0;
+          const auto end = std::chrono::steady_clock::now();
+          record_sample(samples, start, end);
+        }
+        return static_cast<std::uint64_t>(accumulator * 1000.0);
+      });
+  tag_inference(result, "linear", "linear_w4", "1x4", "1x1");
+  return result;
+}
+
+BenchmarkResult benchmark_measured_linear_inference_only() {
+  constexpr std::size_t kIterations = 50'000;
+  LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
+  const std::array<double, 4> features{2.0, 1000.0, 0.35, 400.0};
+  MeasuredInferenceEngine inference(model, InferencePolicy{1'000'000, 0, true, true});
+
+  // The MeasuredInferenceEngine already times the model internally; we additionally
+  // sample the end-to-end call (model score + policy accounting) per iteration.
+  BenchmarkResult result =
+      run_sampled_benchmark("measured_linear_inference_only", kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              std::uint64_t guard = 0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto start = std::chrono::steady_clock::now();
+                                const InferenceResult r = inference.score(features);
+                                const auto end = std::chrono::steady_clock::now();
+                                guard ^= static_cast<std::uint64_t>(r.score * 1000.0);
+                                guard ^= r.accepted ? 0x9e3779b97f4a7c15ULL : 0ULL;
+                                record_sample(samples, start, end);
+                              }
+                              return guard;
+                            });
+  tag_inference(result, "linear", "linear_w4", "1x4", "1x1");
+  return result;
+}
+
+BenchmarkResult benchmark_feature_buffer_measured_linear_inference() {
+  constexpr std::size_t kIterations = 50'000;
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+  LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
+  MeasuredInferenceEngine inference(model, InferencePolicy{1'000'000, 0, true, true});
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+
+  BenchmarkResult result = run_sampled_benchmark(
+      "feature_buffer_measured_linear_inference", kIterations,
+      [&](std::vector<std::uint64_t>& samples) {
+        std::uint64_t guard = 0;
+        for (std::size_t i = 0; i < kIterations; ++i) {
+          const auto start = std::chrono::steady_clock::now();
+          const FeatureExtractionStatus status = extractor.extract_into(view, feature_buffer);
+          const InferenceResult r =
+              status == FeatureExtractionStatus::Ok ? inference.score(feature_buffer.used())
+                                                    : InferenceResult{};
+          const auto end = std::chrono::steady_clock::now();
+          guard ^= static_cast<std::uint64_t>(r.score * 1000.0);
+          guard ^= r.accepted ? 0x9e3779b97f4a7c15ULL : 0ULL;
+          record_sample(samples, start, end);
+        }
+        return guard;
+      });
+  tag_inference(result, "linear", "linear_w4_policy", "1x4", "1x1");
+  return result;
+}
+
+// Event-loop policy overhead only: drives the stateful late-signal gate with
+// injected timings (no wall-clock reads inside the gate, no model scoring) so the
+// measurement isolates the timeout/late-signal accounting cost from the model.
+BenchmarkResult benchmark_inference_policy_overhead() {
+  constexpr std::size_t kIterations = 200'000;
+  InferencePolicy policy;
+  policy.timeout_ns = 1'000'000;
+  policy.max_signal_age_ns = 1'000'000;
+  InferencePolicyGate gate(policy);
+
+  BenchmarkResult result =
+      run_sampled_benchmark("inference_policy_overhead", kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              std::uint64_t guard = 0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto stamp = static_cast<TimestampNs>(i);
+                                const auto start = std::chrono::steady_clock::now();
+                                // Injected latency under budget, age 0: always accepted.
+                                const InferencePolicyResult pr = gate.observe(500, stamp, stamp);
+                                const auto end = std::chrono::steady_clock::now();
+                                guard ^= pr.accepted ? 0x9e3779b97f4a7c15ULL : 0ULL;
+                                record_sample(samples, start, end);
+                              }
+                              return guard;
+                            });
+  tag_inference(result, "n/a", "policy_gate", "n/a", "n/a", 0, 0);
+  return result;
+}
+
+BenchmarkResult benchmark_feature_buffer_policy_gate_overhead() {
+  constexpr std::size_t kIterations = 200'000;
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+  InferencePolicy policy;
+  policy.timeout_ns = 1'000'000;
+  policy.max_signal_age_ns = 1'000'000;
+  InferencePolicyGate gate(policy);
+
+  BenchmarkResult result =
+      run_sampled_benchmark("feature_buffer_policy_gate_overhead", kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              std::uint64_t guard = 0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto stamp = static_cast<TimestampNs>(i);
+                                const auto start = std::chrono::steady_clock::now();
+                                const FeatureExtractionStatus status =
+                                    extractor.extract_into(view, feature_buffer);
+                                const InferencePolicyResult pr = gate.observe(500, stamp, stamp);
+                                const auto end = std::chrono::steady_clock::now();
+                                guard ^= static_cast<std::uint64_t>(feature_storage[0] * 1000.0);
+                                guard ^= pr.accepted ? 0x9e3779b97f4a7c15ULL : 0ULL;
+                                guard ^= status == FeatureExtractionStatus::Ok ? 0x9e37ULL : 0ULL;
+                                record_sample(samples, start, end);
+                              }
+                              return guard;
+                            });
+  tag_inference(result, "n/a", "feature_buffer_policy_gate", "1x4");
+  return result;
+}
+
+// Event-loop inference cost: the default hot path with an inference stage inserted
+// after the reusable L2 view is built, as caller-owned feature extraction ->
+// LinearModel score -> MeasuredInferenceEngine timeout and late-signal accounting,
+// running alongside the existing strategy and risk path. It measures the added cost
+// of putting synchronous inference into the deterministic event loop. The model
+// score and policy decision are folded into the guard checksum so the stage is not
+// optimised away; neither reaches order flow. The inference stage is caller-owned
+// and allocation-free in steady state, so this row's allocation count tracks the
+// inference-free hot-path row; the node-based book's Add/Replace allocations are
+// unchanged and reported. With a 1 ms timeout and no max-signal-age the steady-state
+// decision is Accept, which is the synchronous-inference measured baseline.
+BenchmarkResult benchmark_hot_path_inference_pipeline(const Options& options, std::string name) {
+  constexpr std::size_t kDepth = 5;
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load hot-path dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("hot-path dataset is empty: " + options.dataset_path.string());
+  }
+
+  const std::size_t event_count = log.events.size() * options.hot_path_iterations;
+  const std::size_t reserve_risk_checks =
+      log.events.size() * (options.hot_path_iterations + options.warmup_iterations + 1U);
+  HotPathContext<OrderBook> context(log.events.front().symbol_id, kDepth, log.events.size(),
+                                    reserve_risk_checks);
+
+  FeatureExtractor extractor;
+  LinearModel model({0.5, -0.001, 2.0, 0.0001}, 1.0);
+  MeasuredInferenceEngine inference(model, InferencePolicy{1'000'000, 0, true, true});
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+
+  const auto replay_once = [&](std::vector<std::uint64_t>* samples) {
+    context.book.clear();
+    context.book.reserve_order_capacity(log.events.size());
+    std::uint64_t activity_checksum = kFnvOffsetBasis;
+    for (const MarketDataEvent& event : log.events) {
+      const auto sample_start = std::chrono::steady_clock::now();
+      const bool applied = apply_hot_path_event(event, context.book, activity_checksum);
+      context.book.fill_l2_view(kDepth, context.l2);
+
+      // Inference stage inserted into the event loop, after the L2 view is built.
+      const FeatureExtractionStatus feature_status =
+          extractor.extract_into(context.l2, feature_buffer);
+      const InferenceResult inference_result =
+          feature_status == FeatureExtractionStatus::Ok
+              ? inference.score(feature_buffer.used(), event.timestamp_ns, event.timestamp_ns)
+              : InferenceResult{};
+
+      const PriceTicks reference_price = reference_price_from_view(context.l2, event);
+      context.risk.on_market_data(event.symbol_id, reference_price, event.timestamp_ns);
+      const StrategyDecisionBatch decisions = context.strategy.on_l2_update_fixed(context.l2);
+      for (const StrategyDecision& decision : decisions) {
+        const RiskResult risk_result = context.risk.check_new_order(
+            NewOrderRequest{context.next_client_order_id, event.symbol_id, decision.side,
+                            decision.order_type, decision.price_ticks, decision.quantity,
+                            event.timestamp_ns, 1},
+            event.timestamp_ns);
+        context.guard = checksum_append(context.guard, context.next_client_order_id);
+        context.guard = checksum_append(context.guard, risk_result.accepted ? 1U : 0U);
+        context.guard = checksum_append(context.guard, risk_result.reject_reason);
+        ++context.next_client_order_id;
+        ++context.risk_checks;
+      }
+      context.guard = checksum_append(context.guard, applied ? 1U : 0U);
+      context.guard =
+          checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.bids.size()));
+      context.guard =
+          checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.asks.size()));
+      context.guard = checksum_append(context.guard, activity_checksum);
+      // Fold the inference outputs into the guard so the stage is observable and is
+      // not eliminated; this does not change matching, strategy or risk behaviour.
+      context.guard = checksum_append(
+          context.guard, static_cast<std::uint64_t>(inference_result.score * 1000.0));
+      context.guard = checksum_append(context.guard, inference_result.accepted ? 1U : 0U);
+      context.guard = checksum_append(
+          context.guard, feature_status == FeatureExtractionStatus::Ok ? 1U : 0U);
+      const auto sample_end = std::chrono::steady_clock::now();
+      if (samples != nullptr) {
+        samples->push_back(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(sample_end - sample_start)
+                .count()));
+      }
+    }
+    context.guard = checksum_append(context.guard, context.book.checksum());
+  };
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    replay_once(nullptr);
+  }
+
+  std::vector<std::uint64_t> samples;
+  samples.reserve(event_count);
+  const std::size_t risk_checks_before = context.risk_checks;
+  context.guard = kFnvOffsetBasis;
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  for (std::size_t i = 0; i < options.hot_path_iterations; ++i) {
+    replay_once(&samples);
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = std::move(name);
+  result.iterations = options.hot_path_iterations;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = options.hot_path_iterations;
+  result.event_count = event_count;
+  result.risk_check_count = context.risk_checks - risk_checks_before;
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "per-event";
+  result.total_ns = total_ns;
+  result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
+  result.guard = context.guard ^ log.event_checksum;
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  tag_inference(result, "linear", "linear_w4_policy", "1x4", "1x1");
+  return result;
+}
+
+#if defined(ASTERION_HAVE_ONNXRUNTIME)
+InferenceBackendConfig make_chronoslob_onnx_config(const std::filesystem::path& model_path,
+                                                   const ModelMetadata& metadata) {
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = model_path;
+  config.model_name = metadata.model_name;
+  config.input_shape = shape_to_string(metadata.input_shape);
+  config.output_shape = shape_to_string(metadata.output_shape);
+  config.model_feature_count = metadata.feature_count;
+  config.model_feature_version = metadata.feature_version;
+  config.linear_weights = {0.5, -0.001, 2.0, 0.0001};
+  config.linear_bias = 1.0;
+  return config;
+}
+
+void tag_from_selection(BenchmarkResult& result, const InferenceBackendSelection& selection,
+                        const ModelMetadata& metadata) {
+  const std::string model_name =
+      metadata.model_name.empty() ? std::string(selection.model->model_name()) : metadata.model_name;
+  tag_inference(result, std::string(to_string(selection.active)), model_name,
+                std::string(selection.model->input_shape()),
+                std::string(selection.model->output_shape()), metadata.feature_count,
+                metadata.feature_version);
+}
+
+void require_active_onnx(const InferenceBackendSelection& selection, std::string_view name) {
+  if (selection.active == InferenceBackend::Onnx && !selection.fell_back) {
+    return;
+  }
+  throw std::runtime_error(std::string(name) +
+                           " unavailable: requested ONNX backend fell back (" +
+                           selection.detail + ")");
+}
+
+BenchmarkResult benchmark_hot_path_chronoslob_onnx_inference_pipeline(
+    const Options& options, std::string name, const std::filesystem::path& model_path,
+    const ModelMetadata& metadata) {
+  constexpr std::size_t kDepth = 5;
+  EventLogReadResult log = read_event_log(options.dataset_path, EventLogFormat::Auto);
+  if (!log.error.empty()) {
+    throw std::runtime_error("unable to load hot-path dataset: " + log.error);
+  }
+  if (log.events.empty()) {
+    throw std::runtime_error("hot-path dataset is empty: " + options.dataset_path.string());
+  }
+
+  InferenceBackendSelection selection =
+      make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
+
+  const std::size_t event_count = log.events.size() * options.hot_path_iterations;
+  const std::size_t reserve_risk_checks =
+      log.events.size() * (options.hot_path_iterations + options.warmup_iterations + 1U);
+  HotPathContext<OrderBook> context(log.events.front().symbol_id, kDepth, log.events.size(),
+                                    reserve_risk_checks);
+
+  FeatureExtractor extractor;
+  MeasuredInferenceEngine inference(*selection.model, InferencePolicy{1'000'000, 0, true, true});
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+
+  const auto replay_once = [&](std::vector<std::uint64_t>* samples) {
+    context.book.clear();
+    context.book.reserve_order_capacity(log.events.size());
+    std::uint64_t activity_checksum = kFnvOffsetBasis;
+    for (const MarketDataEvent& event : log.events) {
+      const auto sample_start = std::chrono::steady_clock::now();
+      const bool applied = apply_hot_path_event(event, context.book, activity_checksum);
+      context.book.fill_l2_view(kDepth, context.l2);
+
+      const FeatureExtractionStatus feature_status =
+          extractor.extract_into(context.l2, feature_buffer);
+      const InferenceResult inference_result =
+          feature_status == FeatureExtractionStatus::Ok
+              ? inference.score(feature_buffer.used(), event.timestamp_ns, event.timestamp_ns)
+              : InferenceResult{};
+
+      const PriceTicks reference_price = reference_price_from_view(context.l2, event);
+      context.risk.on_market_data(event.symbol_id, reference_price, event.timestamp_ns);
+      const StrategyDecisionBatch decisions = context.strategy.on_l2_update_fixed(context.l2);
+      for (const StrategyDecision& decision : decisions) {
+        const RiskResult risk_result = context.risk.check_new_order(
+            NewOrderRequest{context.next_client_order_id, event.symbol_id, decision.side,
+                            decision.order_type, decision.price_ticks, decision.quantity,
+                            event.timestamp_ns, 1},
+            event.timestamp_ns);
+        context.guard = checksum_append(context.guard, context.next_client_order_id);
+        context.guard = checksum_append(context.guard, risk_result.accepted ? 1U : 0U);
+        context.guard = checksum_append(context.guard, risk_result.reject_reason);
+        ++context.next_client_order_id;
+        ++context.risk_checks;
+      }
+      context.guard = checksum_append(context.guard, applied ? 1U : 0U);
+      context.guard =
+          checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.bids.size()));
+      context.guard =
+          checksum_append(context.guard, static_cast<std::uint64_t>(context.l2.asks.size()));
+      context.guard = checksum_append(context.guard, activity_checksum);
+      context.guard = checksum_append(context.guard, score_guard_bits(inference_result.score));
+      context.guard = checksum_append(context.guard, inference_result.accepted ? 1U : 0U);
+      context.guard = checksum_append(
+          context.guard, feature_status == FeatureExtractionStatus::Ok ? 1U : 0U);
+      const auto sample_end = std::chrono::steady_clock::now();
+      if (samples != nullptr) {
+        samples->push_back(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(sample_end - sample_start)
+                .count()));
+      }
+    }
+    context.guard = checksum_append(context.guard, context.book.checksum());
+  };
+
+  for (std::size_t i = 0; i < options.warmup_iterations; ++i) {
+    replay_once(nullptr);
+  }
+
+  std::vector<std::uint64_t> samples;
+  samples.reserve(event_count);
+  const std::size_t risk_checks_before = context.risk_checks;
+  context.guard = kFnvOffsetBasis;
+
+  reset_allocation_counters();
+  const auto start = std::chrono::steady_clock::now();
+  for (std::size_t i = 0; i < options.hot_path_iterations; ++i) {
+    replay_once(&samples);
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const AllocationSnapshot allocations = allocation_snapshot();
+
+  const auto total_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+  BenchmarkResult result;
+  result.name = std::move(name);
+  result.iterations = options.hot_path_iterations;
+  result.warmup_iterations = options.warmup_iterations;
+  result.measured_iterations = options.hot_path_iterations;
+  result.event_count = event_count;
+  result.risk_check_count = context.risk_checks - risk_checks_before;
+  result.dataset_name = options.dataset_path.filename().string();
+  result.timing_mode = "per-event";
+  result.total_ns = total_ns;
+  result.avg_ns = event_count == 0 ? 0 : total_ns / event_count;
+  result.throughput_events_per_second =
+      total_ns == 0
+          ? 0.0
+          : static_cast<double>(event_count) * 1'000'000'000.0 / static_cast<double>(total_ns);
+  result.guard = context.guard ^ log.event_checksum;
+  result.allocations = allocations;
+  result.latency = latency_distribution(std::move(samples));
+  tag_from_selection(result, selection, metadata);
+  return result;
+}
+
+BenchmarkResult benchmark_chronoslob_onnx_model_load(const std::string& name,
+                                                     const std::filesystem::path& model_path,
+                                                     const ModelMetadata& metadata) {
+  BenchmarkResult result =
+      run_sampled_benchmark(name, 1,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              const auto start = std::chrono::steady_clock::now();
+                              InferenceBackendSelection selection =
+                                  make_inference_backend(make_chronoslob_onnx_config(model_path,
+                                                                                     metadata));
+                              require_active_onnx(selection, name);
+                              const auto end = std::chrono::steady_clock::now();
+                              record_sample(samples, start, end);
+                              return 1ULL;
+                            });
+  result.timing_mode = "model-load";
+  tag_inference(result, "onnx", metadata.model_name, shape_to_string(metadata.input_shape),
+                shape_to_string(metadata.output_shape), metadata.feature_count,
+                metadata.feature_version);
+  return result;
+}
+
+BenchmarkResult benchmark_chronoslob_onnx_inference_only(
+    const std::string& name, const std::filesystem::path& model_path,
+    const ModelMetadata& metadata) {
+  constexpr std::size_t kIterations = 50'000;
+  InferenceBackendSelection selection =
+      make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
+  const std::vector<double> features = metadata.expected_test_input;
+
+  // Warm up so model-load/session-setup allocations are excluded from the
+  // steady-state allocation count captured below.
+  volatile double warm = selection.model->score(features);
+  (void)warm;
+
+  BenchmarkResult result =
+      run_sampled_benchmark(name, kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              double accumulator = 0.0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto start = std::chrono::steady_clock::now();
+                                accumulator += selection.model->score(features);
+                                const auto end = std::chrono::steady_clock::now();
+                                record_sample(samples, start, end);
+                              }
+                              return static_cast<std::uint64_t>(accumulator * 1000.0);
+                            });
+  tag_from_selection(result, selection, metadata);
+  return result;
+}
+
+BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx(
+    const std::string& name, const std::filesystem::path& model_path,
+    const ModelMetadata& metadata) {
+  constexpr std::size_t kIterations = 50'000;
+  InferenceBackendSelection selection =
+      make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+
+  volatile double warm = selection.model->score(extractor.extract(view));
+  (void)warm;
+
+  BenchmarkResult result = run_sampled_benchmark(
+      name, kIterations,
+      [&](std::vector<std::uint64_t>& samples) {
+        double accumulator = 0.0;
+        for (std::size_t i = 0; i < kIterations; ++i) {
+          const auto start = std::chrono::steady_clock::now();
+          const std::vector<double> features = extractor.extract(view);
+          accumulator += selection.model->score(features);
+          const auto end = std::chrono::steady_clock::now();
+          record_sample(samples, start, end);
+        }
+        return static_cast<std::uint64_t>(accumulator * 1000.0);
+      });
+  tag_from_selection(result, selection, metadata);
+  return result;
+}
+
+BenchmarkResult benchmark_feature_extraction_plus_chronoslob_onnx_caller_owned_buffer(
+    const std::string& name, const std::filesystem::path& model_path,
+    const ModelMetadata& metadata) {
+  constexpr std::size_t kIterations = 50'000;
+  InferenceBackendSelection selection =
+      make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+
+  (void)extractor.extract_into(view, feature_buffer);
+  volatile double warm = selection.model->score(feature_buffer.used());
+  (void)warm;
+
+  BenchmarkResult result = run_sampled_benchmark(
+      name, kIterations,
+      [&](std::vector<std::uint64_t>& samples) {
+        double accumulator = 0.0;
+        for (std::size_t i = 0; i < kIterations; ++i) {
+          const auto start = std::chrono::steady_clock::now();
+          const FeatureExtractionStatus status = extractor.extract_into(view, feature_buffer);
+          accumulator +=
+              status == FeatureExtractionStatus::Ok ? selection.model->score(feature_buffer.used())
+                                                    : 0.0;
+          const auto end = std::chrono::steady_clock::now();
+          record_sample(samples, start, end);
+        }
+        return static_cast<std::uint64_t>(accumulator * 1000.0);
+      });
+  tag_from_selection(result, selection, metadata);
+  return result;
+}
+
+BenchmarkResult benchmark_feature_buffer_measured_chronoslob_onnx_inference(
+    const std::string& name, const std::filesystem::path& model_path,
+    const ModelMetadata& metadata) {
+  constexpr std::size_t kIterations = 50'000;
+  InferenceBackendSelection selection =
+      make_inference_backend(make_chronoslob_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
+  const L2View view = make_inference_l2_view();
+  FeatureExtractor extractor;
+  MeasuredInferenceEngine inference(*selection.model, InferencePolicy{1'000'000, 0, true, true});
+  std::array<double, kL2FeatureCount> feature_storage{};
+  FeatureBuffer feature_buffer{feature_storage};
+
+  (void)extractor.extract_into(view, feature_buffer);
+  volatile double warm = inference.score(feature_buffer.used()).score;
+  (void)warm;
+
+  BenchmarkResult result = run_sampled_benchmark(
+      name, kIterations,
+      [&](std::vector<std::uint64_t>& samples) {
+        std::uint64_t guard = 0;
+        for (std::size_t i = 0; i < kIterations; ++i) {
+          const auto start = std::chrono::steady_clock::now();
+          const FeatureExtractionStatus status = extractor.extract_into(view, feature_buffer);
+          const InferenceResult r =
+              status == FeatureExtractionStatus::Ok ? inference.score(feature_buffer.used())
+                                                    : InferenceResult{};
+          const auto end = std::chrono::steady_clock::now();
+          guard ^= static_cast<std::uint64_t>(r.score * 1000.0);
+          guard ^= r.accepted ? 0x9e3779b97f4a7c15ULL : 0ULL;
+          record_sample(samples, start, end);
+        }
+        return guard;
+      });
+  tag_from_selection(result, selection, metadata);
+  return result;
+}
+
+// Config for the standalone windowed public-L2 artefact. Unlike
+// make_chronoslob_onnx_config, model_feature_count and model_feature_version are
+// left unset so the event-loop 4-feature buffer gate is skipped: this is a
+// standalone [1,16,40] contract rather than a feature-buffer model. The ONNX
+// input/output shapes and the recorded expected fixture are validated directly
+// instead. The linear weights are a never-counted fallback: require_active_onnx
+// below rejects any fallback, so a LinearModel is never timed under this row.
+InferenceBackendConfig make_public_l2_onnx_config(const std::filesystem::path& model_path,
+                                                  const ModelMetadata& metadata) {
+  InferenceBackendConfig config;
+  config.requested = InferenceBackend::Onnx;
+  config.model_path = model_path;
+  config.model_name = metadata.model_name;
+  config.input_shape = shape_to_string(metadata.input_shape);
+  config.output_shape = shape_to_string(metadata.output_shape);
+  config.linear_weights = {0.5, -0.001, 2.0, 0.0001};
+  config.linear_bias = 1.0;
+  return config;
+}
+
+// Reproduce the recorded expected output once before timing. Throws, so the row is
+// recorded as skipped rather than timed, if the recorded 640-value window does not
+// score the recorded expected_test_output[0] within tolerance. A mis-scoring or
+// fallback model therefore cannot be timed under this ONNX-named row.
+void require_public_l2_expected_output(const Model& model, const ModelMetadata& metadata,
+                                       std::string_view name) {
+  if (metadata.expected_test_output.empty()) {
+    throw std::runtime_error(std::string(name) +
+                             " unavailable: metadata has no expected_test_output");
+  }
+  const double score = model.score(metadata.expected_test_input);
+  const double expected = metadata.expected_test_output.front();
+  constexpr double kTolerance = 1e-3;
+  if (std::abs(score - expected) > kTolerance) {
+    std::ostringstream error;
+    error << name << " unavailable: ONNX score " << score << " does not match recorded expected "
+          << expected << " (tolerance " << kTolerance << ")";
+    throw std::runtime_error(error.str());
+  }
+}
+
+// One-time model load/session setup timing for the public-L2 [1,16,40] artefact,
+// kept separate from the steady-state inference row below.
+BenchmarkResult benchmark_public_l2_onnx_model_load(const std::string& name,
+                                                    const std::filesystem::path& model_path,
+                                                    const ModelMetadata& metadata) {
+  BenchmarkResult result =
+      run_sampled_benchmark(name, 1,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              const auto start = std::chrono::steady_clock::now();
+                              InferenceBackendSelection selection = make_inference_backend(
+                                  make_public_l2_onnx_config(model_path, metadata));
+                              require_active_onnx(selection, name);
+                              const auto end = std::chrono::steady_clock::now();
+                              record_sample(samples, start, end);
+                              return 1ULL;
+                            });
+  result.timing_mode = "model-load";
+  tag_inference(result, "onnx", metadata.model_name, shape_to_string(metadata.input_shape),
+                shape_to_string(metadata.output_shape), metadata.feature_count,
+                metadata.feature_version);
+  return result;
+}
+
+// Steady-state isolated ONNX inference cost for the recorded-public-L2 [1,16,40]
+// artefact: feed the recorded 640-value window and score repeatedly. The recorded
+// expected output is reproduced once before timing; model-load/session-setup is
+// warmed out of the steady-state allocation count.
+BenchmarkResult benchmark_public_l2_onnx_inference_only(const std::string& name,
+                                                        const std::filesystem::path& model_path,
+                                                        const ModelMetadata& metadata) {
+  // 20,000 steady-state iterations after warm-up, matching the documented local
+  // Python onnxruntime diagnostic for this artefact so the two are comparable.
+  constexpr std::size_t kIterations = 20'000;
+  InferenceBackendSelection selection =
+      make_inference_backend(make_public_l2_onnx_config(model_path, metadata));
+  require_active_onnx(selection, name);
+  require_public_l2_expected_output(*selection.model, metadata, name);
+  const std::vector<double> features = metadata.expected_test_input;
+
+  // Warm up so model-load/session-setup allocations are excluded from the
+  // steady-state allocation count captured below.
+  volatile double warm = selection.model->score(features);
+  (void)warm;
+
+  BenchmarkResult result =
+      run_sampled_benchmark(name, kIterations,
+                            [&](std::vector<std::uint64_t>& samples) {
+                              double accumulator = 0.0;
+                              for (std::size_t i = 0; i < kIterations; ++i) {
+                                const auto start = std::chrono::steady_clock::now();
+                                accumulator += selection.model->score(features);
+                                const auto end = std::chrono::steady_clock::now();
+                                record_sample(samples, start, end);
+                              }
+                              return static_cast<std::uint64_t>(accumulator * 1000.0);
+                            });
+  tag_from_selection(result, selection, metadata);
+  return result;
+}
+#endif // ASTERION_HAVE_ONNXRUNTIME
+
+void print_result(const BenchmarkResult& result) {
+  std::cout << result.name << ",category=" << result.category
+            << ",backend=" << (result.backend.empty() ? "n/a" : result.backend)
+            << ",model=" << (result.model_name.empty() ? "n/a" : result.model_name)
+            << ",input_shape=" << (result.input_shape.empty() ? "n/a" : result.input_shape)
+            << ",output_shape=" << (result.output_shape.empty() ? "n/a" : result.output_shape)
+            << ",feature_count=";
+  if (result.feature_count > 0) {
+    std::cout << result.feature_count << ",feature_version=" << result.feature_version;
+  } else {
+    std::cout << "n/a,feature_version=n/a";
+  }
+  std::cout << ",iterations=" << result.iterations
+            << ",warmup_iterations=" << result.warmup_iterations
+            << ",measured_iterations=" << result.measured_iterations
+            << ",event_count=" << result.event_count
+            << ",risk_check_count=" << result.risk_check_count
+            << ",dataset=" << (result.dataset_name.empty() ? "n/a" : result.dataset_name)
+            << ",timing_mode=" << result.timing_mode
+            << ",validation_mode=" << result.validation_mode
+            << ",thread_lifecycle_mode=" << result.thread_lifecycle_mode
+            << ",total_ns=" << result.total_ns << ",avg_ns=" << result.avg_ns
+            << ",p50_ns=";
+  if (result.latency.available) {
+    std::cout << result.latency.p50_ns << ",p95_ns=" << result.latency.p95_ns
+              << ",p99_ns=" << result.latency.p99_ns
+              << ",p999_ns=" << result.latency.p999_ns
+              << ",max_ns=" << result.latency.max_ns;
+  } else {
+    std::cout << "n/a,p95_ns=n/a,p99_ns=n/a,p999_ns=n/a,max_ns=n/a";
+  }
+  std::cout << ",throughput_events_per_second=" << std::fixed << std::setprecision(2)
+            << result.throughput_events_per_second << std::defaultfloat
+            << ",allocations=" << result.allocations.allocations
+            << ",deallocations=" << result.allocations.deallocations
+            << ",bytes_allocated=" << result.allocations.bytes_allocated
+            << ",event_log_checksum=" << result.event_log_checksum
+            << ",final_book_checksum=" << result.final_book_checksum
+            << ",execution_report_checksum=" << result.execution_report_checksum
+            << ",diagnostics_checksum=" << result.diagnostics_checksum
+            << ",guard=" << result.guard;
+  if (result.spsc.available) {
+    std::cout << ",queue_capacity=" << result.spsc.queue_capacity
+              << ",produced_events=" << result.spsc.produced_events
+              << ",consumed_events=" << result.spsc.consumed_events
+              << ",backpressure_count=" << result.spsc.backpressure_count
+              << ",dropped_events=" << result.spsc.dropped_events
+              << ",max_queue_depth=" << result.spsc.max_queue_depth
+              << ",end_of_stream_markers_produced="
+              << result.spsc.end_of_stream_markers_produced
+              << ",end_of_stream_markers_consumed="
+              << result.spsc.end_of_stream_markers_consumed
+              << ",spsc_elapsed_ns=" << result.spsc.elapsed_ns
+              << ",spsc_throughput_events_per_second=" << std::fixed << std::setprecision(2)
+              << result.spsc.throughput_events_per_second << std::defaultfloat
+              << ",checksum_parity=" << (result.spsc.checksum_parity ? "true" : "false");
+  }
+  std::cout << '\n';
+}
+
+void print_skipped_benchmark(const SkippedBenchmark& skipped) {
+  std::cout << "# skipped_benchmark name=" << skipped.name
+            << ",category=" << skipped.category
+            << ",requested_backend=" << skipped.requested_backend
+            << ",model=" << skipped.model_name
+            << ",reason=" << skipped.reason << '\n';
+}
+
+std::string json_escape(std::string_view value) {
+  std::ostringstream output;
+  for (const char c : value) {
+    switch (c) {
+    case '\\':
+      output << "\\\\";
+      break;
+    case '"':
+      output << "\\\"";
+      break;
+    case '\n':
+      output << "\\n";
+      break;
+    case '\r':
+      output << "\\r";
+      break;
+    case '\t':
+      output << "\\t";
+      break;
+    default:
+      output << c;
+      break;
+    }
+  }
+  return output.str();
+}
+
+std::string cpu_name() {
+#if defined(_WIN32)
+  const char* processor = std::getenv("PROCESSOR_IDENTIFIER");
+  return processor == nullptr ? "unknown" : std::string(processor);
+#elif defined(__linux__)
+  std::ifstream input("/proc/cpuinfo");
+  std::string line;
+  while (std::getline(input, line)) {
+    const std::string marker = "model name";
+    if (line.rfind(marker, 0) == 0) {
+      const auto colon = line.find(':');
+      if (colon != std::string::npos && colon + 2U < line.size()) {
+        return line.substr(colon + 2U);
+      }
+    }
+  }
+  return "unknown";
+#else
+  return "unknown";
+#endif
+}
+
+std::string os_name() {
+#if defined(_WIN32)
+  return "Windows";
+#elif defined(__linux__) || defined(__APPLE__)
+  utsname info{};
+  if (uname(&info) == 0) {
+    std::ostringstream output;
+    output << info.sysname << ' ' << info.release << ' ' << info.machine;
+    return output.str();
+  }
+  return "unknown";
+#else
+  return "unknown";
+#endif
+}
+
+std::string compiler_name() {
+#if defined(__clang__)
+  return std::string("Clang ") + __clang_version__;
+#elif defined(__GNUC__)
+  return std::string("GCC ") + __VERSION__;
+#elif defined(_MSC_VER)
+  return "MSVC " + std::to_string(_MSC_VER);
+#else
+  return "unknown";
+#endif
+}
+
+void write_optional_latency(std::ostream& output, const char* key,
+                            const LatencyDistribution& latency,
+                            std::uint64_t LatencyDistribution::*field) {
+  output << "      \"" << key << "\": ";
+  if (latency.available) {
+    output << latency.*field;
+  } else {
+    output << "null";
+  }
+  output << ",\n";
+}
+
+void write_json(const std::filesystem::path& path, const Options& options,
+                const std::vector<BenchmarkResult>& results,
+                const std::vector<SkippedBenchmark>& skipped_benchmarks) {
+  std::ofstream output(path);
+  if (!output) {
+    throw std::runtime_error("unable to write benchmark JSON: " + path.string());
+  }
+
+  output << "{\n";
+  output << "  \"schema_version\": 1,\n";
+  output << "  \"environment\": {\n";
+  output << "    \"cpu\": \"" << json_escape(cpu_name()) << "\",\n";
+  output << "    \"os\": \"" << json_escape(os_name()) << "\",\n";
+  output << "    \"compiler\": \"" << json_escape(compiler_name()) << "\",\n";
+  output << "    \"build_type\": \"" << json_escape(ASTERION_BUILD_TYPE) << "\",\n";
+  output << "    \"compiler_flags\": \"" << json_escape(ASTERION_COMPILER_FLAGS) << "\",\n";
+  output << "    \"commit_hash\": \"" << json_escape(ASTERION_GIT_COMMIT) << "\",\n";
+  output << "    \"dataset\": \"" << json_escape(options.dataset_path.string()) << "\",\n";
+  output << "    \"logging_mode\": \"" << json_escape(options.logging_mode) << "\"\n";
+  output << "  },\n";
+  output << "  \"benchmarks\": [\n";
+  for (std::size_t i = 0; i < results.size(); ++i) {
+    const BenchmarkResult& result = results[i];
+    output << "    {\n";
+    output << "      \"name\": \"" << json_escape(result.name) << "\",\n";
+    output << "      \"category\": \"" << json_escape(result.category) << "\",\n";
+    output << "      \"backend\": \"" << json_escape(result.backend) << "\",\n";
+    output << "      \"model_name\": \"" << json_escape(result.model_name) << "\",\n";
+    output << "      \"input_shape\": \"" << json_escape(result.input_shape) << "\",\n";
+    output << "      \"output_shape\": \"" << json_escape(result.output_shape) << "\",\n";
+    output << "      \"feature_count\": ";
+    if (result.feature_count > 0) {
+      output << result.feature_count;
+    } else {
+      output << "null";
+    }
+    output << ",\n";
+    output << "      \"feature_version\": ";
+    if (result.feature_version > 0) {
+      output << result.feature_version;
+    } else {
+      output << "null";
+    }
+    output << ",\n";
+    output << "      \"iterations\": " << result.iterations << ",\n";
+    output << "      \"warmup_iterations\": " << result.warmup_iterations << ",\n";
+    output << "      \"measured_iterations\": " << result.measured_iterations << ",\n";
+    output << "      \"event_count\": " << result.event_count << ",\n";
+    output << "      \"risk_check_count\": " << result.risk_check_count << ",\n";
+    output << "      \"dataset_name\": \"" << json_escape(result.dataset_name) << "\",\n";
+    output << "      \"timing_mode\": \"" << json_escape(result.timing_mode) << "\",\n";
+    output << "      \"validation_mode\": \"" << json_escape(result.validation_mode) << "\",\n";
+    output << "      \"thread_lifecycle_mode\": \"" << json_escape(result.thread_lifecycle_mode)
+           << "\",\n";
+    output << "      \"total_ns\": " << result.total_ns << ",\n";
+    output << "      \"avg_ns\": " << result.avg_ns << ",\n";
+    write_optional_latency(output, "p50_ns", result.latency, &LatencyDistribution::p50_ns);
+    write_optional_latency(output, "p95_ns", result.latency, &LatencyDistribution::p95_ns);
+    write_optional_latency(output, "p99_ns", result.latency, &LatencyDistribution::p99_ns);
+    write_optional_latency(output, "p999_ns", result.latency, &LatencyDistribution::p999_ns);
+    write_optional_latency(output, "max_ns", result.latency, &LatencyDistribution::max_ns);
+    output << "      \"throughput_events_per_second\": " << std::fixed << std::setprecision(2)
+           << result.throughput_events_per_second << std::defaultfloat << ",\n";
+    output << "      \"guard\": " << result.guard << ",\n";
+    output << "      \"event_log_checksum\": " << result.event_log_checksum << ",\n";
+    output << "      \"final_book_checksum\": " << result.final_book_checksum << ",\n";
+    output << "      \"execution_report_checksum\": " << result.execution_report_checksum << ",\n";
+    output << "      \"diagnostics_checksum\": " << result.diagnostics_checksum << ",\n";
+    output << "      \"allocations\": " << result.allocations.allocations << ",\n";
+    output << "      \"deallocations\": " << result.allocations.deallocations << ",\n";
+    output << "      \"bytes_allocated\": " << result.allocations.bytes_allocated;
+    if (result.spsc.available) {
+      output << ",\n";
+      output << "      \"spsc\": {\n";
+      output << "        \"queue_capacity\": " << result.spsc.queue_capacity << ",\n";
+      output << "        \"produced_events\": " << result.spsc.produced_events << ",\n";
+      output << "        \"consumed_events\": " << result.spsc.consumed_events << ",\n";
+      output << "        \"backpressure_count\": " << result.spsc.backpressure_count << ",\n";
+      output << "        \"dropped_events\": " << result.spsc.dropped_events << ",\n";
+      output << "        \"max_queue_depth\": " << result.spsc.max_queue_depth << ",\n";
+      output << "        \"end_of_stream_markers_produced\": "
+             << result.spsc.end_of_stream_markers_produced << ",\n";
+      output << "        \"end_of_stream_markers_consumed\": "
+             << result.spsc.end_of_stream_markers_consumed << ",\n";
+      output << "        \"elapsed_ns\": " << result.spsc.elapsed_ns << ",\n";
+      output << "        \"throughput_events_per_second\": " << std::fixed << std::setprecision(2)
+             << result.spsc.throughput_events_per_second << std::defaultfloat << ",\n";
+      output << "        \"checksum_parity\": " << (result.spsc.checksum_parity ? "true" : "false")
+             << "\n";
+      output << "      }\n";
+    } else {
+      output << "\n";
+    }
+    output << "    }" << (i + 1U == results.size() ? "\n" : ",\n");
+  }
+  output << "  ]";
+  if (!skipped_benchmarks.empty()) {
+    output << ",\n";
+    output << "  \"skipped_benchmarks\": [\n";
+    for (std::size_t i = 0; i < skipped_benchmarks.size(); ++i) {
+      const SkippedBenchmark& skipped = skipped_benchmarks[i];
+      output << "    {\n";
+      output << "      \"name\": \"" << json_escape(skipped.name) << "\",\n";
+      output << "      \"category\": \"" << json_escape(skipped.category) << "\",\n";
+      output << "      \"requested_backend\": \"" << json_escape(skipped.requested_backend)
+             << "\",\n";
+      output << "      \"model_name\": \"" << json_escape(skipped.model_name) << "\",\n";
+      output << "      \"reason\": \"" << json_escape(skipped.reason) << "\"\n";
+      output << "    }" << (i + 1U == skipped_benchmarks.size() ? "\n" : ",\n");
+    }
+    output << "  ]\n";
+  } else {
+    output << "\n";
+  }
+  output << "}\n";
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+  Options options;
+  if (!parse_options(argc, argv, options)) {
+    return 1;
+  }
+
+  // Core replay/book/matching/risk benchmarks. These timings are kept separate
+  // from the inference timings below.
+  std::vector<BenchmarkResult> core_results;
+  if (!options.only_steady_state_replay) {
+    core_results.push_back(benchmark_hot_path_pipeline<OrderBook>(
+        options, "hot_path_binary_replay_l3_l2_strategy_risk"));
+    core_results.push_back(benchmark_hot_path_pipeline<PooledOrderBook>(
+        options, "hot_path_binary_replay_pooled_l3_l2_strategy_risk"));
+    // Opt-in SPSC replay pipeline rows and their single-thread parity baseline.
+    core_results.push_back(benchmark_replay_single_thread(options));
+    core_results.push_back(benchmark_replay_spsc(options));
+  }
+  core_results.push_back(benchmark_replay_single_thread_steady_state(options));
+  core_results.push_back(benchmark_replay_spsc_steady_state(options));
+  if (!options.only_hot_path && !options.only_steady_state_replay) {
+    core_results.push_back(benchmark_add_order());
+    core_results.push_back(benchmark_cancel_order());
+    core_results.push_back(benchmark_replace_order());
+    core_results.push_back(benchmark_market_cross_one_level());
+    core_results.push_back(benchmark_market_cross_multiple_levels());
+    core_results.push_back(benchmark_l2_snapshot());
+    core_results.push_back(benchmark_replay_sample_events(options.dataset_path));
+    core_results.push_back(benchmark_risk_check_only());
+  }
+
+  // Inference benchmarks. Feature extraction and model scoring are measured on
+  // their own so inference cost is never folded into the trading hot path.
+  std::vector<BenchmarkResult> inference_results;
+  std::vector<SkippedBenchmark> skipped_benchmarks;
+  if (!options.only_hot_path && !options.only_steady_state_replay) {
+    inference_results.push_back(benchmark_feature_extraction_vector_returning());
+    inference_results.push_back(benchmark_feature_extraction_caller_owned_buffer());
+    inference_results.push_back(benchmark_linear_inference_only());
+    inference_results.push_back(benchmark_feature_extraction_plus_linear_vector_returning());
+    inference_results.push_back(benchmark_feature_extraction_plus_linear_caller_owned_buffer());
+    inference_results.push_back(benchmark_measured_linear_inference_only());
+    inference_results.push_back(benchmark_feature_buffer_measured_linear_inference());
+    inference_results.push_back(benchmark_inference_policy_overhead());
+    inference_results.push_back(benchmark_feature_buffer_policy_gate_overhead());
+    // Full event-loop inference path: replay -> L3 book -> reusable L2 -> caller-owned
+    // feature extraction -> LinearModel -> measured policy gate, alongside strategy + risk.
+    inference_results.push_back(benchmark_hot_path_inference_pipeline(
+        options, "hot_path_binary_replay_l3_l2_inference_strategy_risk"));
+#if defined(ASTERION_HAVE_ONNXRUNTIME)
+    // The ONNX benchmarks only build and run when the opt-in dependency is present.
+    // Two checked-in artefacts are exercised so their cost can be compared: the
+    // hand-written deterministic fixture and the tiny DeepLOB artefact trained on
+    // synthetic data.
+    const auto run_onnx_suite = [&](const std::string& label,
+                                    const std::string& onnx_file,
+                                    const std::string& metadata_file) {
+      try {
+        const std::filesystem::path model_dir =
+            std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models";
+        const std::filesystem::path onnx_model_path = model_dir / onnx_file;
+        const ModelMetadata metadata = load_model_metadata(model_dir / metadata_file);
+        inference_results.push_back(
+            benchmark_chronoslob_onnx_model_load(label + "_onnx_model_load", onnx_model_path,
+                                                 metadata));
+        inference_results.push_back(benchmark_chronoslob_onnx_inference_only(
+            label + "_onnx_inference_only", onnx_model_path, metadata));
+        inference_results.push_back(benchmark_feature_extraction_plus_chronoslob_onnx(
+            "feature_extraction_plus_" + label + "_onnx_vector_returning", onnx_model_path,
+            metadata));
+        inference_results.push_back(
+            benchmark_feature_extraction_plus_chronoslob_onnx_caller_owned_buffer(
+                "feature_extraction_plus_" + label + "_onnx_caller_owned_buffer", onnx_model_path,
+                metadata));
+        inference_results.push_back(benchmark_feature_buffer_measured_chronoslob_onnx_inference(
+            "feature_buffer_measured_" + label + "_onnx_inference", onnx_model_path, metadata));
+      } catch (const std::exception& ex) {
+        std::cerr << "onnx benchmark skipped (" << label << "): " << ex.what() << '\n';
+      }
+    };
+    run_onnx_suite("chronoslob_fixture", "chronoslob_tiny_fixture.onnx",
+                   "chronoslob_tiny_fixture.metadata.json");
+    run_onnx_suite("chronoslob_synthetic", "chronoslob_tiny_synthetic.onnx",
+                   "chronoslob_tiny_synthetic.metadata.json");
+    try {
+      const std::filesystem::path model_dir =
+          std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models";
+      const std::filesystem::path onnx_model_path = model_dir / "chronoslob_tiny_synthetic.onnx";
+      const ModelMetadata metadata =
+          load_model_metadata(model_dir / "chronoslob_tiny_synthetic.metadata.json");
+      inference_results.push_back(benchmark_hot_path_chronoslob_onnx_inference_pipeline(
+          options, std::string(kChronoslobSyntheticOnnxReplayLoopRowName), onnx_model_path, metadata));
+    } catch (const std::exception& ex) {
+      skipped_benchmarks.push_back(SkippedBenchmark{
+          std::string(kChronoslobSyntheticOnnxReplayLoopRowName), "inference", "onnx",
+          "chronoslob_tiny_synthetic", ex.what()});
+      std::cerr << "onnx replay-loop benchmark skipped (chronoslob_synthetic): " << ex.what()
+                << '\n';
+    }
+    // Isolated cost of scoring the recorded-public-L2 [1,16,40] artefact. Its
+    // windowed contract is not the event-loop 4-feature contract above and is not
+    // wired into it. The recorded expected output is validated before timing, and
+    // the row is reported as skipped rather than silently timed against the
+    // LinearModel fallback if ONNX Runtime cannot load and reproduce the artefact.
+    try {
+      const std::filesystem::path model_dir =
+          std::filesystem::path(ASTERION_SOURCE_DIR) / "data" / "models";
+      const std::filesystem::path onnx_model_path = model_dir / "chronoslob_public_l2_tiny.onnx";
+      const ModelMetadata metadata =
+          load_model_metadata(model_dir / "chronoslob_public_l2_tiny.metadata.json");
+      inference_results.push_back(benchmark_public_l2_onnx_model_load(
+          "public_l2_chronoslob_onnx_model_load", onnx_model_path, metadata));
+      inference_results.push_back(benchmark_public_l2_onnx_inference_only(
+          std::string(kPublicL2OnnxIsolatedRowName), onnx_model_path, metadata));
+    } catch (const std::exception& ex) {
+      skipped_benchmarks.push_back(SkippedBenchmark{std::string(kPublicL2OnnxIsolatedRowName),
+                                                    "inference", "onnx",
+                                                    "chronoslob_public_l2_tiny", ex.what()});
+      std::cerr << "onnx isolated public-L2 benchmark skipped: " << ex.what() << '\n';
+    }
+#else
+    skipped_benchmarks.push_back(SkippedBenchmark{
+        std::string(kChronoslobSyntheticOnnxReplayLoopRowName), "inference", "onnx",
+        "chronoslob_tiny_synthetic",
+        "onnx runtime not compiled in; configure with -DASTERION_USE_ONNXRUNTIME=ON and a "
+        "discoverable ONNX Runtime to measure"});
+    skipped_benchmarks.push_back(SkippedBenchmark{
+        std::string(kPublicL2OnnxIsolatedRowName), "inference", "onnx",
+        "chronoslob_public_l2_tiny",
+        "onnx runtime not compiled in; configure with -DASTERION_USE_ONNXRUNTIME=ON and a "
+        "discoverable ONNX Runtime to measure the isolated public-L2 [1,16,40] row"});
+#endif
+  }
+
+  std::vector<BenchmarkResult> results;
+  results.reserve(core_results.size() + inference_results.size());
+  results.insert(results.end(), core_results.begin(), core_results.end());
+  results.insert(results.end(), inference_results.begin(), inference_results.end());
+
+  if (options.text_output) {
+    std::cout << "# core (replay / book / matching / risk)\n";
+    for (const BenchmarkResult& result : core_results) {
+      print_result(result);
+    }
+    if (!inference_results.empty()) {
+      std::cout << "# inference (feature extraction / model scoring, measured separately)\n";
+      for (const BenchmarkResult& result : inference_results) {
+        print_result(result);
+      }
+      for (const SkippedBenchmark& skipped : skipped_benchmarks) {
+        print_skipped_benchmark(skipped);
+      }
+    }
+  }
+
+  if (options.json_path.has_value()) {
+    write_json(*options.json_path, options, results, skipped_benchmarks);
+  }
+
+  return 0;
+}
